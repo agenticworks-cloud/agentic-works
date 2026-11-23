@@ -8,6 +8,7 @@ const { spawnSync } = require('node:child_process');
 const root = path.join(__dirname, '..');
 const script = path.join(root, 'scripts', 'build-manifest.js');
 const { buildManifest } = require(script);
+const { readParts } = require(path.join(root, 'src', 'parts.js'));
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -199,21 +200,27 @@ test('real tree builds', () => {
   assert.ok(m.dependencies['@anthropic-ai/claude-agent-sdk'], 'Claude Agent SDK');
   assert.ok(m.dependencies['@openai/codex-sdk'], 'Codex SDK');
   assert.deepStrictEqual(m.extensionPack, ['seanahn.perch-audio', 'anthropic.claude-code', 'openai.chatgpt']);
-  assert.deepStrictEqual(
-    Object.keys(m.contributes.configuration.properties).slice(0, 4),
-    ['roost.teams.enabled', 'roost.jira.enabled', 'roost.prs.enabled', 'roost.perch.enabled'],
-  );
+  // Every part has its switch, listed first and in part order.
+  const parts = readParts(root);
+  const props = m.contributes.configuration.properties;
+  assert.deepStrictEqual(Object.keys(props).slice(0, parts.length), parts.map((p) => `roost.${p.id}.enabled`));
+  for (const p of parts) {
+    const sw = props[`roost.${p.id}.enabled`];
+    assert.strictEqual(sw.type, 'boolean', p.id);
+    assert.strictEqual(sw.default, true, p.id);
+    assert.strictEqual(sw.description, `${p.title}: switch this part on or off.`, p.id);
+  }
   for (const type of ['perch.session', 'chirp.conversation', 'jay.ticket', 'jay.page']) {
     assert.ok(m.activationEvents.includes(`onWebviewPanel:${type}`), type);
   }
   // Every view and menu entry carries its part's switch; every icon path exists.
-  const ids = { chirp: 'teams', jay: 'jira', kestrel: 'prs', perch: 'perch' };
-  const switches = Object.values(ids).map((id) => `roost.${id}.enabled`);
+  const switches = parts.map((p) => `roost.${p.id}.enabled`);
   // (roost.openSettings is Roost's own, in no part's switch: asserted in its own test)
   const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()].filter((e) => e.command !== 'roost.openSettings');
   for (const e of entries) assert.ok(switches.some((s) => e.when.startsWith(s)), JSON.stringify(e));
   // Every command of a part is gated in the Command Palette by that part's switch.
-  const owner = { perch: 'perch', chirp: 'teams', jay: 'jira', kestrel: 'prs' };
+  // (a command's prefix is its part's folder name or id)
+  const owner = Object.fromEntries(parts.flatMap((p) => [[path.basename(p.dir), p.id], [p.id, p.id]]));
   for (const { command } of m.contributes.commands.filter((c) => c.command !== 'roost.openSettings')) {
     const want = `roost.${owner[command.split('.')[0]]}.enabled`;
     const entries = m.contributes.menus.commandPalette.filter((e) => e.command === command);

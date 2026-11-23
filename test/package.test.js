@@ -20,7 +20,9 @@ for (const f of [
   'extension/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
 ]) assert.ok(has(f), `${f} is in the package`);
 
-for (const part of ['perch', 'chirp', 'jay', 'kestrel']) {
+const { readParts } = require(path.join(root, 'src', 'parts.js'));
+for (const { dir } of readParts(root).filter((p) => fs.existsSync(path.join(p.dir, 'media')))) {
+  const part = path.basename(dir);
   assert.ok(files.some((f) => f.startsWith(`extension/parts/${part}/media/`)), `parts/${part}/media is in the package`);
 }
 
