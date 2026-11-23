@@ -9,10 +9,10 @@ const read = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
 const parts = {
-  perch: { id: 'perch', title: 'Perch', branch: 'main', file: 'src/extension.js' },
-  chirp: { id: 'teams', title: 'Teams', branch: 'main', file: 'src/api.js' },
-  jay: { id: 'jira', title: 'Jira & Confluence', branch: 'main', file: 'src/api.js' },
-  kestrel: { id: 'prs', title: 'PRs', branch: 'master', file: 'src/github.js' },
+  perch: { id: 'perch', title: 'Perch', file: 'src/extension.js' },
+  chirp: { id: 'teams', title: 'Teams', file: 'src/api.js' },
+  jay: { id: 'jira', title: 'Jira & Confluence', file: 'src/api.js' },
+  kestrel: { id: 'prs', title: 'PRs', file: 'src/github.js' },
 };
 
 for (const [dir, want] of Object.entries(parts)) {
@@ -24,15 +24,23 @@ for (const [dir, want] of Object.entries(parts)) {
   assert.strictEqual(part.entry, 'src/extension.js');
   assert.deepStrictEqual(part.needs, []);
 
-  // History kept: every commit of the source repo that touched the file (author date and subject) is in Roost's log of
-  // it; commits made in Roost since are allowed.
+  // History kept: every commit of the source repo that touched the file (author date and subject), up to the commit
+  // that was imported, is in Roost's log of it; commits made in Roost since are allowed. The imported commit is the
+  // source commit matching the tip of the import merge's second parent (the imported history, its paths rewritten
+  // under parts/<dir>/), so the source repo moving on since does not matter.
   const log = (cwd, ...args) => git(cwd, 'log', '--format=%at %s', ...args).split('\n').filter(Boolean);
   const mine = new Set(log(root, '--', `parts/${dir}/${want.file}`));
   if (!fs.existsSync(`/git/${dir}/.git`)) {
     console.log(`import.test.js: /git/${dir} is absent, skipping its history comparison`);
     continue;
   }
-  const orig = log(`/git/${dir}`, want.branch, '--', want.file);
+  const merge = git(root, 'log', '--format=%H', '-F', `--grep=as parts/${dir} (history kept)`, '-1');
+  assert.ok(merge, `${dir}: import merge exists`);
+  const identity = '%at %an %s';
+  const imported = git(root, 'log', '-1', `--format=${identity}`, `${merge}^2`);
+  const source = git(`/git/${dir}`, 'log', '--all', `--format=%H ${identity}`).split('\n').find((l) => l.slice(41) === imported);
+  assert.ok(source, `${dir}: the imported commit (${imported}) is in /git/${dir}`);
+  const orig = log(`/git/${dir}`, source.slice(0, 40), '--', want.file);
   assert.ok(orig.length > 1, `${dir}: source history exists`);
   const missing = orig.filter((c) => !mine.has(c));
   assert.deepStrictEqual(missing, [], `${dir}/${want.file}: source commits missing from Roost`);
