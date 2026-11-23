@@ -3,7 +3,7 @@
 **/docs/**
 parts/*/node_modules/**
 parts/*/*.vsix
-parts/perch/audio/**
+parts/agents/audio/**
 scripts/**
 Makefile
 **/Makefile
@@ -14,7 +14,7 @@ Makefile
 parts/*/.gitignore
 parts/*/.vscodeignore
 # The agents' programs are not packaged: hundreds of megabytes, and one platform's only. Perch runs the ones inside
-# the vendors' own extensions (parts/perch/src/binaries.js).
+# the vendors' own extensions (parts/agents/src/binaries.js).
 node_modules/@anthropic-ai/claude-agent-sdk-*/**
 node_modules/@openai/codex-linux-*/**
 node_modules/@openai/codex-darwin-*/**

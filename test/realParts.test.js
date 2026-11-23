@@ -14,7 +14,7 @@ process.env.JAY_RESTORE_GRACE_MS = '150';
 globalThis.fetch = async () => { throw new Error('no network in tests'); };
 
 const root = path.join(__dirname, '..');
-const { install, memento, secrets } = require(path.join(root, 'parts', 'jay', 'test', 'vscodeStub.js'));
+const { install, memento, secrets } = require(path.join(root, 'parts', 'jira', 'test', 'vscodeStub.js'));
 const { ui, vscode } = install();
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const open = () => ui.panels.filter((p) => !p.disposed && p.viewType === 'jay.ticket').map((p) => p.title);
@@ -34,7 +34,7 @@ const restore = (key) => { const p = vscode.window.createWebviewPanel('jay.ticke
 const setJira = async (on) => { ui.setConfig('roost.jira.enabled', on); await wait(30); };
 
 (async () => {
-  for (const id of ['teams', 'pullRequests', 'perch']) ui.config[`roost.${id}.enabled`] = false;   // only jay
+  for (const id of ['agents', 'pullRequests', 'teams']) ui.config[`roost.${id}.enabled`] = false;   // only jay
   ui.config['jay.confluence.enabled'] = false;
 
   // window 1: jay on; VS Code restores a ticket tab, jay takes it and keeps it

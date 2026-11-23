@@ -15,20 +15,20 @@ deps: manifest
 	npm ci --silent
 	@for p in $(PARTS); do echo "deps $$p"; (cd $$p && npm ci --silent) || exit 1; done
 	@# Perch's audio companion is excluded from the .vsix; its tests (run by Perch's test-offline) need these
-	cd parts/perch/audio && npm ci --silent
+	cd parts/agents/audio && npm ci --silent
 
 ## Offline tests: Roost's own, then each part's, then the manifest is checked against the parts
 test:
 	@for t in $(filter-out test/package.test.js,$(wildcard test/*.test.js)); do node $$t || exit 1; done
-	$(MAKE) -C parts/perch test-offline
-	$(MAKE) -C parts/chirp test
-	$(MAKE) -C parts/jay test
-	$(MAKE) -C parts/kestrel test
+	$(MAKE) -C parts/agents test-offline
+	$(MAKE) -C parts/teams test
+	$(MAKE) -C parts/jira test
+	$(MAKE) -C parts/pull-requests test
 	node scripts/build-manifest.js --check
 
 ## Perch's tests, including one tiny live turn through each agent (uses your real logins)
 test-live:
-	$(MAKE) -C parts/perch test
+	$(MAKE) -C parts/agents test
 
 ## Symlink this checkout into every VS Code / code-server extension dir that exists
 install: deps

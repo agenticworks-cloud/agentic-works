@@ -1,0 +1,1 @@
+{ "id": "agents", "title": "Agents (Claude Code and Codex)", "entry": "src/extension.js", "needs": [] }

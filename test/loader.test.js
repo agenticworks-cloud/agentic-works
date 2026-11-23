@@ -16,7 +16,7 @@ const temps = [];
 process.on('exit', () => temps.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 
 // The four folders and ids of the real parts; a fake part's activate/deactivate call into `fake.parts[id]`.
-const FOLDERS = { chirp: ['teams', 'Teams'], jay: ['jira', 'Jira & Confluence'], kestrel: ['pullRequests', 'PRs'], perch: ['perch', 'Perch'] };
+const FOLDERS = { agents: ['agents', 'Agents (Claude Code and Codex)'], jira: ['jira', 'Jira & Confluence'], 'pull-requests': ['pullRequests', 'PRs'], teams: ['teams', 'Teams'] };
 const fake = { parts: {}, calls: [] };
 global.__roostFake = fake;
 
@@ -38,7 +38,7 @@ module.exports = {
     );
   }
   // jay's webview types, as its package.json names them
-  fs.writeFileSync(path.join(root, 'parts', 'jay', 'package.json'), JSON.stringify({
+  fs.writeFileSync(path.join(root, 'parts', 'jira', 'package.json'), JSON.stringify({
     activationEvents: ['onStartupFinished', 'onWebviewPanel:jay.ticket', 'onCommand:jay.open', 'onWebviewPanel:jay.page'],
   }));
   return root;
@@ -91,21 +91,21 @@ async function setEnabled(ui, id, on) {
 test('enabled parts start, disabled do not', async () => {
   const { ui, extension, base } = setup({ 'roost.teams.enabled': false });
   const roost = await activate(extension, base);
-  assert.deepStrictEqual(activated(), ['jira', 'pullRequests', 'perch']);
+  assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests']);
   assert.ok(fake.calls.every((c) => c[0] !== 'activate' || c[2] === undefined), 'no deps passed');
   assert.deepStrictEqual(ui.contexts, {
     'roost.teams.failed': false,
     'roost.jira.failed': false,
     'roost.pullRequests.failed': false,
-    'roost.perch.failed': false,
+    'roost.agents.failed': false,
   });
   assert.strictEqual(roost.state('teams'), 'off');
-  assert.strictEqual(roost.state('perch'), 'on');
+  assert.strictEqual(roost.state('agents'), 'on');
   await extension.deactivate();
 });
 
 test('roost.openSettings is registered with every part off and opens Roost\'s settings', async () => {
-  const { ui, extension, base } = setup({ 'roost.teams.enabled': false, 'roost.jira.enabled': false, 'roost.pullRequests.enabled': false, 'roost.perch.enabled': false });
+  const { ui, extension, base } = setup({ 'roost.teams.enabled': false, 'roost.jira.enabled': false, 'roost.pullRequests.enabled': false, 'roost.agents.enabled': false });
   await activate(extension, base);
   assert.deepStrictEqual(activated(), []);
   const opened = [];
@@ -124,16 +124,16 @@ test('every failed key is cleared before any part starts', async () => {
   await activate(extension, base);
   await ui.applied;
   assert.deepStrictEqual(sentBefore, [
-    ['roost.teams.failed', false],
+    ['roost.agents.failed', false],
     ['roost.jira.failed', false],
     ['roost.pullRequests.failed', false],
-    ['roost.perch.failed', false],
+    ['roost.teams.failed', false],
   ], 'every key false is sent before the first part starts (a key left from before an extension host restart)');
   assert.deepStrictEqual(ui.contexts, {
     'roost.teams.failed': false,
     'roost.jira.failed': false,
     'roost.pullRequests.failed': true,
-    'roost.perch.failed': false,
+    'roost.agents.failed': false,
   }, 'and none of those lands after its part was marked failed');
   await extension.deactivate();
 });
@@ -143,7 +143,7 @@ test('a context key that cannot be set is logged', async () => {
   ui.failSetContext = 1;
   const roost = await activate(extension, base);
   assert.ok(ui.out.some((l) => l.includes('setContext failed')));
-  for (const id of ['teams', 'jira', 'pullRequests', 'perch']) assert.strictEqual(roost.state(id), 'on', id);
+  for (const id of ['agents', 'jira', 'pullRequests', 'teams']) assert.strictEqual(roost.state(id), 'on', id);
   await extension.deactivate();
 });
 
@@ -151,11 +151,11 @@ test('switching a part off or on sets no context key: the setting gates its view
   const { ui, extension, base } = setup();
   const roost = await activate(extension, base);
   ui.sent.length = 0;
-  await setEnabled(ui, 'perch', false);
-  assert.strictEqual(roost.state('perch'), 'off');
-  assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'perch'));
-  await setEnabled(ui, 'perch', true);
-  assert.strictEqual(roost.state('perch'), 'on');
+  await setEnabled(ui, 'agents', false);
+  assert.strictEqual(roost.state('agents'), 'off');
+  assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'agents'));
+  await setEnabled(ui, 'agents', true);
+  assert.strictEqual(roost.state('agents'), 'on');
   assert.deepStrictEqual(ui.sent, []);
   await extension.deactivate();
 });
@@ -169,7 +169,7 @@ test('the window closing releases every part without waiting on a context key', 
   const run = ui.vscode.commands.executeCommand;
   ui.vscode.commands.executeCommand = (id, ...a) => (id === 'setContext' ? new Promise(() => {}) : run(id, ...a));   // never answered
   assert.notStrictEqual(await within(extension.deactivate()), 'timed out', 'deactivate returned');
-  assert.deepStrictEqual(fake.calls.filter((c) => c[0] === 'deactivate').map((c) => c[1]).sort(), ['jira', 'perch', 'teams']);
+  assert.deepStrictEqual(fake.calls.filter((c) => c[0] === 'deactivate').map((c) => c[1]).sort(), ['agents', 'jira', 'teams']);
   assert.deepStrictEqual(ui.sent, [], 'no context key set while closing');
 });
 
@@ -223,9 +223,9 @@ test('readParts lists parts in folder order', async () => {
   const { root } = setup();
   const { readParts } = require(path.join(src, 'parts.js'));
   const parts = readParts(root);
-  assert.deepStrictEqual(parts.map((p) => p.id), ['teams', 'jira', 'pullRequests', 'perch']);
+  assert.deepStrictEqual(parts.map((p) => p.id), ['agents', 'jira', 'pullRequests', 'teams']);
   assert.deepStrictEqual(parts[1], {
-    id: 'jira', title: 'Jira & Confluence', dir: path.join(root, 'parts', 'jay'), entry: 'src/extension.js', needs: [],
+    id: 'jira', title: 'Jira & Confluence', dir: path.join(root, 'parts', 'jira'), entry: 'src/extension.js', needs: [],
     webviews: ['jay.ticket', 'jay.page'],
   });
   assert.deepStrictEqual(parts[0].webviews, [], 'a part without a package.json has none');
@@ -238,10 +238,10 @@ test('part context points at the part folder', async () => {
   let got = null;
   fake.parts.jira = { activate: (c) => { got = c; } };
   await activate(extension, base);
-  const dir = path.join(root, 'parts', 'jay');
+  const dir = path.join(root, 'parts', 'jira');
   assert.strictEqual(got.extensionUri.scheme, 'vscode-remote');
   assert.strictEqual(got.extensionUri.authority, 'ssh-remote+box');
-  assert.strictEqual(got.extensionUri.path, `${root}/parts/jay`);
+  assert.strictEqual(got.extensionUri.path, `${root}/parts/jira`);
   assert.strictEqual(got.extensionUri.fsPath, dir);
   assert.strictEqual(got.extensionPath, dir);
   assert.strictEqual(got.asAbsolutePath('media/x.svg'), path.join(dir, 'media/x.svg'));
@@ -273,9 +273,9 @@ test('a throwing part leaves the others running', async () => {
   let fail = true;
   fake.parts.jira = { activate: async () => { if (fail) throw new Error('boom'); } };
   const roost = await activate(extension, base);
-  assert.deepStrictEqual(activated(), ['teams', 'jira', 'pullRequests', 'perch']);
+  assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams']);
   assert.strictEqual(roost.state('jira'), 'failed');
-  for (const id of ['teams', 'pullRequests', 'perch']) assert.strictEqual(roost.state(id), 'on', id);
+  for (const id of ['agents', 'pullRequests', 'teams']) assert.strictEqual(roost.state(id), 'on', id);
   assert.strictEqual(ui.contexts['roost.jira.failed'], true);
   assert.deepStrictEqual(ui.errors, [{ message: 'Roost: Jira & Confluence could not start.', items: ['Show Log'] }]);
   assert.ok(ui.out.some((l) => l.includes('boom')), 'error in the Roost output channel');
@@ -285,7 +285,7 @@ test('a throwing part leaves the others running', async () => {
   assert.strictEqual(roost.state('jira'), 'off');
   assert.strictEqual(ui.contexts['roost.jira.failed'], true, 'off but failed: still marked until it starts');
   await setEnabled(ui, 'jira', true);
-  assert.deepStrictEqual(activated(), ['teams', 'jira', 'pullRequests', 'perch', 'jira']);
+  assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams', 'jira']);
   assert.strictEqual(roost.state('jira'), 'on');
   assert.strictEqual(ui.contexts['roost.jira.failed'], false);
   assert.strictEqual(ui.errors.length, 1);
@@ -361,47 +361,47 @@ test('stop survives a throwing dispose', async () => {
   await extension.deactivate();
 });
 
-test('switching Perch off mid-turn asks first', async () => {
+test('switching Agents off mid-turn asks first', async () => {
   const { ui, extension, base } = setup();
   let answer = false;
-  fake.parts.perch = { confirmStop: async () => answer };
+  fake.parts.agents = { confirmStop: async () => answer };
   const roost = await activate(extension, base);
   const asked = () => fake.calls.filter((c) => c[0] === 'confirmStop').map((c) => c[1]);
 
-  ui.inspect['roost.perch.enabled'] = { defaultValue: true, globalValue: true, workspaceValue: false };   // switched off for this workspace
-  await setEnabled(ui, 'perch', false);
-  assert.deepStrictEqual(asked(), ['perch']);
-  assert.strictEqual(roost.state('perch'), 'on', 'cancelled: still on');
-  assert.deepStrictEqual(ui.updates, [['roost.perch.enabled', undefined, 2]], 'the switch is put back, in the workspace: its value there removed, as the user setting is on');
-  assert.strictEqual(ui.contexts['roost.perch.failed'], false);
+  ui.inspect['roost.agents.enabled'] = { defaultValue: true, globalValue: true, workspaceValue: false };   // switched off for this workspace
+  await setEnabled(ui, 'agents', false);
+  assert.deepStrictEqual(asked(), ['agents']);
+  assert.strictEqual(roost.state('agents'), 'on', 'cancelled: still on');
+  assert.deepStrictEqual(ui.updates, [['roost.agents.enabled', undefined, 2]], 'the switch is put back, in the workspace: its value there removed, as the user setting is on');
+  assert.strictEqual(ui.contexts['roost.agents.failed'], false);
   assert.ok(!fake.calls.some((c) => c[0] === 'deactivate'), 'not stopped');
-  assert.deepStrictEqual(activated(), ['teams', 'jira', 'pullRequests', 'perch'], 'and not started a second time');
+  assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams'], 'and not started a second time');
 
   answer = true;
-  await setEnabled(ui, 'perch', false);
-  assert.strictEqual(roost.state('perch'), 'off');
-  assert.strictEqual(ui.contexts['roost.perch.failed'], false);
+  await setEnabled(ui, 'agents', false);
+  assert.strictEqual(roost.state('agents'), 'off');
+  assert.strictEqual(ui.contexts['roost.agents.failed'], false);
   assert.strictEqual(ui.updates.length, 1, 'nothing written back');
 
-  await setEnabled(ui, 'perch', true);
+  await setEnabled(ui, 'agents', true);
   await extension.deactivate();                       // the window closing: nothing is asked
-  assert.deepStrictEqual(asked(), ['perch', 'perch']);
-  assert.strictEqual(roost.state('perch'), 'off');
+  assert.deepStrictEqual(asked(), ['agents', 'agents']);
+  assert.strictEqual(roost.state('agents'), 'off');
 });
 
 test('the switch is put back as it was at that scope', async () => {
   const { ui, extension, base } = setup();
-  fake.parts.perch = { confirmStop: async () => false };
+  fake.parts.agents = { confirmStop: async () => false };
   await activate(extension, base);
   const cases = [
-    [{ defaultValue: true, globalValue: false }, ['roost.perch.enabled', undefined, 1], 'user setting off: removed, the default is on'],
-    [{ defaultValue: true, globalValue: false, workspaceValue: false }, ['roost.perch.enabled', true, 2], 'off for the user too: true in the workspace'],
-    [{ defaultValue: false }, ['roost.perch.enabled', true, 1], 'a default that is off: true for the user'],
+    [{ defaultValue: true, globalValue: false }, ['roost.agents.enabled', undefined, 1], 'user setting off: removed, the default is on'],
+    [{ defaultValue: true, globalValue: false, workspaceValue: false }, ['roost.agents.enabled', true, 2], 'off for the user too: true in the workspace'],
+    [{ defaultValue: false }, ['roost.agents.enabled', true, 1], 'a default that is off: true for the user'],
   ];
   for (const [inspect, want, why] of cases) {
     ui.updates.length = 0;
-    ui.inspect['roost.perch.enabled'] = inspect;
-    await setEnabled(ui, 'perch', false);
+    ui.inspect['roost.agents.enabled'] = inspect;
+    await setEnabled(ui, 'agents', false);
     assert.deepStrictEqual(ui.updates, [want], why);
   }
   await extension.deactivate();
@@ -409,10 +409,10 @@ test('the switch is put back as it was at that scope', async () => {
 
 test("a confirmStop that throws does not keep the part on", async () => {
   const { ui, extension, base } = setup();
-  fake.parts.perch = { confirmStop: async () => { throw new Error('no dialog'); } };
+  fake.parts.agents = { confirmStop: async () => { throw new Error('no dialog'); } };
   const roost = await activate(extension, base);
-  await setEnabled(ui, 'perch', false);
-  assert.strictEqual(roost.state('perch'), 'off');
+  await setEnabled(ui, 'agents', false);
+  assert.strictEqual(roost.state('agents'), 'off');
   assert.ok(ui.out.some((l) => l.includes('no dialog')));
   await extension.deactivate();
 });
@@ -475,8 +475,8 @@ test('a part whose activate never ends blocks neither Roost nor the others', asy
   const roost = await within(extension.activate(base));
   assert.notStrictEqual(roost, 'timed out', "Roost's activate returned");
   for (let i = 0; i < 10; i++) await tick();
-  assert.deepStrictEqual(activated(), ['teams', 'jira', 'pullRequests', 'perch']);
-  for (const id of ['jira', 'pullRequests', 'perch']) assert.strictEqual(roost.state(id), 'on', id);
+  assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams']);
+  for (const id of ['agents', 'jira', 'pullRequests']) assert.strictEqual(roost.state(id), 'on', id);
 });
 
 test('a failed start or stop does not block later ones', async () => {

@@ -16,7 +16,7 @@ const has = (f) => files.includes(f);
 for (const f of [
   'extension/package.json',
   'extension/src/extension.js',
-  'extension/parts/perch/src/extension.js',
+  'extension/parts/agents/src/extension.js',
   'extension/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
   // licences: Roost's own (vsce renames LICENSE), and the dependencies' that are .md files
   'extension/LICENSE.txt',

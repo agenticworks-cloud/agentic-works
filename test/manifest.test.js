@@ -229,10 +229,10 @@ test('real tree builds', () => {
   const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()].filter((e) => e.command !== 'roost.openSettings');
   for (const e of entries) assert.ok(switches.some((s) => e.when.startsWith(s)), JSON.stringify(e));
   // Every command of a part is gated in the Command Palette by that part's switch.
-  // (a command's prefix is its part's folder name or id)
-  const owner = Object.fromEntries(parts.flatMap((p) => [[path.basename(p.dir), p.id], [p.id, p.id]]));
+  // (a command's part is the one whose package.json contributes it: command ids kept the parts' old names)
+  const owner = Object.fromEntries(parts.flatMap((p) => (JSON.parse(fs.readFileSync(path.join(p.dir, 'package.json'), 'utf8')).contributes.commands || []).map((c) => [c.command, p.id])));
   for (const { command } of m.contributes.commands.filter((c) => c.command !== 'roost.openSettings')) {
-    const id = owner[command.split('.')[0]];
+    const id = owner[command];
     const want = `config.roost.${id}.enabled && !roost.${id}.failed`;
     const entries = m.contributes.menus.commandPalette.filter((e) => e.command === command);
     assert.ok(entries.length && entries.every((e) => e.when.startsWith(want)), `${command} gated by ${want}`);
