@@ -74,7 +74,7 @@
           "type": "webview",
           "id": "kestrel.prs",
           "name": "PRs",
-          "when": "config.roost.prs.enabled && !roost.prs.failed"
+          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed"
         }
       ],
       "perch": [
@@ -416,11 +416,11 @@
         },
         {
           "command": "kestrel.watch",
-          "when": "config.roost.prs.enabled && !roost.prs.failed && (false)"
+          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed && (false)"
         },
         {
           "command": "kestrel.refresh",
-          "when": "config.roost.prs.enabled && !roost.prs.failed"
+          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed"
         },
         {
           "command": "perch.insertText",
@@ -592,7 +592,7 @@
         },
         {
           "command": "kestrel.refresh",
-          "when": "config.roost.prs.enabled && !roost.prs.failed && (view == kestrel.prs)",
+          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed && (view == kestrel.prs)",
           "group": "navigation@1"
         },
         {
@@ -774,7 +774,7 @@
             "order": 1,
             "description": "Jira & Confluence: switch this part on or off."
           },
-          "roost.prs.enabled": {
+          "roost.pullRequests.enabled": {
             "type": "boolean",
             "default": true,
             "order": 2,

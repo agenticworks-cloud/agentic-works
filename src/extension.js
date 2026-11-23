@@ -199,7 +199,7 @@ class Roost {
   // or a command that fails, is not retried later.
   async firstStart() {
     if (this.base.globalState.get(FIRST_START_KEY)) return;
-    if (this.parts.has('prs') && this.state('prs') === 'on') {
+    if (this.parts.has('pullRequests') && this.state('pullRequests') === 'on') {
       try {
         await vscode.commands.executeCommand(PRS_VIEW_COMMAND);
       } catch (err) {

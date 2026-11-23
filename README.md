@@ -20,7 +20,7 @@ Open **Settings → Roost** (the gear on the Perch view, the **Settings** row at
 |---|---|
 | Teams | `roost.teams.enabled` |
 | Jira & Confluence | `roost.jira.enabled` |
-| PRs | `roost.prs.enabled` |
+| PRs | `roost.pullRequests.enabled` |
 | Perch | `roost.perch.enabled` |
 
 A switch takes effect at once, with no reload. A part that is off shows no icon, panel tab or commands; its open

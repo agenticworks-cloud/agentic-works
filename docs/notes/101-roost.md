@@ -126,7 +126,7 @@ lives in a small `roost.json` the script starts from. *(my call; extensionKind a
 ### Parts, and switching them
 
 One setting per part, all `true` by default: today `roost.perch.enabled`, `roost.teams.enabled`,
-`roost.jira.enabled`, `roost.prs.enabled` *(ids: my call)*. Roost's loader finds the parts by reading the
+`roost.jira.enabled`, `roost.pullRequests.enabled` *(ids: my call)*. Roost's loader finds the parts by reading the
 same `part.json` files at runtime, so it has no list of parts to edit either.
 
 - Roost's `activate` starts each enabled part by calling that part's own `activate` with a **context of its own**:
@@ -282,7 +282,8 @@ The import:
 
 ## Settled while planning (2026-11-23)
 
-- Part ids: `perch`, `teams` (chirp), `jira` (jay), `prs` (kestrel); parts are ordered by folder name everywhere.
+- Part ids: `perch`, `teams` (chirp), `jira` (jay), `pullRequests` (kestrel); parts are ordered by folder name everywhere.
+  kestrel's id was `prs` until it became `pullRequests`, so its Settings switch reads "Pull Requests" not "Prs".
 - A part's context is the real one with its own `subscriptions` and its folder as `extensionUri`, so each
   part's media and webview resource roots resolve under `parts/<name>/`; `globalState`, `workspaceState` and
   `secrets` are shared (every part already prefixes its keys).
@@ -376,4 +377,3 @@ What was found (2026-11-23):
   returns but the sidebar does not refocus Perch. One click; no data lost.
 - chirp's and jay's tab lists match unrevived tabs by title: two tabs with one title (chirp's "Teams chat" before
   its list loads) can drop the wrong entry, and an unrevived tab moved between groups goes to the end of the list.
-- The PRs switch's label in Settings reads "Prs": VS Code derives the label from the key.

@@ -34,7 +34,7 @@ const restore = (key) => { const p = vscode.window.createWebviewPanel('jay.ticke
 const setJira = async (on) => { ui.setConfig('roost.jira.enabled', on); await wait(30); };
 
 (async () => {
-  for (const id of ['teams', 'prs', 'perch']) ui.config[`roost.${id}.enabled`] = false;   // only jay
+  for (const id of ['teams', 'pullRequests', 'perch']) ui.config[`roost.${id}.enabled`] = false;   // only jay
   ui.config['jay.confluence.enabled'] = false;
 
   // window 1: jay on; VS Code restores a ticket tab, jay takes it and keeps it

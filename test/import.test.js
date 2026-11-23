@@ -12,7 +12,7 @@ const parts = {
   perch: { id: 'perch', title: 'Perch', file: 'src/extension.js' },
   chirp: { id: 'teams', title: 'Teams', file: 'src/api.js' },
   jay: { id: 'jira', title: 'Jira & Confluence', file: 'src/api.js' },
-  kestrel: { id: 'prs', title: 'PRs', file: 'src/github.js' },
+  kestrel: { id: 'pullRequests', title: 'PRs', file: 'src/github.js' },
 };
 
 for (const [dir, want] of Object.entries(parts)) {

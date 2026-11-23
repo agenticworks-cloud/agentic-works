@@ -1,1 +1,1 @@
-{ "id": "prs", "title": "PRs", "entry": "src/extension.js", "needs": [] }
+{ "id": "pullRequests", "title": "PRs", "entry": "src/extension.js", "needs": [] }
