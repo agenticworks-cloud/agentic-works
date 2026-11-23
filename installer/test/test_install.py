@@ -800,7 +800,7 @@ class TestGitHub(_Installer):
             ("debian", ("https://cli.github.com/packages stable main", "apt-get install -y gh"), ()),
             ("rhel", ("dnf install -y dnf-command\\(config-manager\\)",
                       "dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo",
-                      "dnf install -y gh --repo gh-cli"), ("apt-get",)),
+                      "dnf install -y gh"), ("apt-get", "--repo")),  # --repo gh-cli would hide git, which gh needs
             ("fedora", ("dnf install -y gh",), ("config-manager", "apt-get")),
             ("macos", ("brew install gh",), ("apt-get", "dnf")),
         )

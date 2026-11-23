@@ -692,10 +692,11 @@ install_gh() {  # GitHub's CLI: Homebrew; GitHub's apt or rpm repository; Fedora
       # shellcheck disable=SC2086
       run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y gh ;;
     rhel)
+      # Not `--repo gh-cli`, as GitHub's page has it: that hides the system repositories, and gh needs their git.
       # shellcheck disable=SC2086
       run $SUDO dnf install -y 'dnf-command(config-manager)' &&
         run $SUDO dnf config-manager --add-repo "$GH_RPM_REPO" &&
-        run $SUDO dnf install -y gh --repo gh-cli ;;
+        run $SUDO dnf install -y gh ;;
     fedora)
       # shellcheck disable=SC2086
       run $SUDO dnf install -y gh ;;
