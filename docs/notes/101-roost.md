@@ -271,7 +271,10 @@ Plan: `docs/superpowers/plans/2026-11-23-roost.md` (deleted when the work merges
 - **A Roost installer** *(Sean, 2026-11-23)*: one command for people anywhere that installs VS Code first (the
   OS's package manager or the official download), then the Roost extension, so someone who has never set up an
   editor gets Roost in one step. It turns VS Code's built-in Copilot off (`"chat.disableAIFeatures": true`),
-  since Roost's Claude and Codex tabs take its place, and skips the Welcome page. Public, so nothing
+  since Roost's Claude and Codex tabs take its place, skips the Welcome page, and keeps the secondary sidebar
+  closed (`"workbench.secondarySideBar.defaultVisibility": "hidden"`), where Claude Code's and ChatGPT's own chat
+  views would otherwise open: those two extensions stay installed (Perch runs their `claude` and `codex`), but
+  Perch's tabs replace their views. Public, so nothing
   company-specific; C3's installer (c3securitytools note 802) stays a separate layer on top.
 
 - **Stronger links** through shared services in `src/` (see *Links between parts, for now*).
