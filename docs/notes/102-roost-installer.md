@@ -155,6 +155,25 @@ The failure that matters most — the standalone four are installed:
 A download that fails its check: the `.vsix` is deleted, never installed, `✗ Roost: the download did not match its
 checksum — run the installer again`; the other steps still run, and the exit status is 1.
 
+## Settled while planning (2026-11-23)
+
+- Files: `installer/roost-install.sh` (bash 3.2-safe) and `installer/roost-install-helper` (Python, stdlib only: the
+  settings merge and `state.vscdb`), carved from the C3 installer's generic half; tests in `installer/test/` with
+  Python's `unittest` (no extra dependency) and the C3 installer's stub-on-PATH harness.
+- Step names for `--skip`: `vscode path standalone roost companions settings icons open`.
+- Release URL `https://github.com/seanahn/roost/releases/download/v<version>/roost-<version>.vsix`; the script
+  carries `@ROOST_VERSION@` / `@ROOST_SHA256@`, stamped by `make release`; an unstamped script refuses the Roost step.
+- `make release` writes `dist/roost-<version>.vsix` and `dist/roost-install.sh` (the helper inlined as a
+  here-document written to a temp file at start); `make release-publish` creates the GitHub release with `gh` — Sean's
+  action, never run by the build.
+- On macOS, `python3` counts only if Command Line Tools are present (`xcode-select -p`), so the settings and icons
+  steps never trigger Apple's install dialog.
+- Fedora uses Microsoft's yum repository with `dnf`. As root (containers), `code` calls get `--user-data-dir` and
+  VS Code is not opened, as in the C3 installer.
+- The icon layout also hides every activity-bar container of an installed `openai.chatgpt` (its Codex views).
+
+Implementation plan: `docs/superpowers/plans/2026-11-23-roost-installer.md` (deleted when the work merges).
+
 ## Left to the builder
 
 - How the generic half is split out of `perch-install` (copy and trim, or a shared source both repos build from).
