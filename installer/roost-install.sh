@@ -654,10 +654,14 @@ install_roost_vsix() {  # $1 = temp dir: download this release's .vsix there, ch
   elif [ "$(lower "$sum")" != "$(lower "$ROOST_SHA256")" ]; then
     ROOST_ERROR="the download did not match its checksum — run the installer again"
   elif ! code_cli --install-extension "$vsix"; then
-    ROOST_ERROR="VS Code couldn't install it; see $LOG"
+    # Roost's extension pack is its companions, which VS Code fetches from the Marketplace as it installs Roost.
+    ROOST_ERROR="VS Code couldn't install it; it also fetches Claude Code, ChatGPT and Perch's audio from the"
+    ROOST_ERROR="$ROOST_ERROR Marketplace, which may be unreachable from here — see $LOG"
   fi
   [ -z "$ROOST_ERROR" ]
 }
+
+ROOST_IN_PLACE=0  # 1 when the Roost step leaves a Roost installed (this release's, an older or a newer one)
 
 ensure_roost() {  # this release's Roost: installed, upgraded over an older one, or a newer one left alone
   local current="" detail="installed $ROOST_VERSION"
@@ -677,6 +681,7 @@ ensure_roost() {  # this release's Roost: installed, upgraded over an older one,
     step_end skipped "VS Code isn't installed"
     return 0
   fi
+  [ -z "$current" ] || ROOST_IN_PLACE=1
   if [ -n "$current" ]; then
     case $(version_cmp "$current" "$ROOST_VERSION") in
       eq) step_end already; return 0 ;;
@@ -698,6 +703,7 @@ ensure_roost() {  # this release's Roost: installed, upgraded over an older one,
   elif [ "$DRY_RUN" = 1 ]; then
     step_end done "dry run"
   else
+    ROOST_IN_PLACE=1
     step_end done "$detail"
   fi
 }
@@ -728,7 +734,8 @@ ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and co
   done
   case $failed in
     *anthropic.claude-code*|*openai.chatgpt*)
-      agents="; Roost works, but Perch's tabs need Claude Code or ChatGPT to run an agent" ;;
+      agents="; Perch's tabs need Claude Code or ChatGPT to run an agent"
+      [ "$ROOST_IN_PLACE" = 0 ] || agents="; Roost works, but${agents#;}" ;;
   esac
   # shellcheck disable=SC2086
   if [ "$DRY_RUN" = 1 ]; then

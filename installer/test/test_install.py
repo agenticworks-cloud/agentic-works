@@ -62,7 +62,8 @@ CODE = r"""case " $* " in
 esac
 for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "$a" >> "$STUB_LOG"
   [ -z "${CODE_SLEEP:-}" ] || exec sleep "$CODE_SLEEP" ;; esac; done
-[ -n "${CODE_FAIL_ON:-}" ] && case "$*" in *"$CODE_FAIL_ON"*) exit 1 ;; esac
+[ -n "${CODE_FAIL_ON:-}" ] && case "$*" in *"$CODE_FAIL_ON"*) [ -z "${CODE_FAIL_MSG:-}" ] || echo "$CODE_FAIL_MSG" >&2
+  exit 1 ;; esac
 """
 # sudo and brew "install ... <word>" put $STUB_INSTALLS/<word> on PATH (gh, unless a test adds more), as the real
 # install would.
@@ -947,6 +948,26 @@ class TestRoost(_Served):
         self.assertEqual(self.leftovers(), [])
         self.assertIn("  ✓ Companions (installed", out)  # the run goes on
 
+    def test_marketplace_blocked(self) -> None:
+        """Installing Roost's .vsix makes VS Code fetch its extension pack (the companions) from the Marketplace; with
+        the Marketplace blocked that install fails: the Roost line says it may be the Marketplace, and the
+        Companions line doesn't claim Roost works."""
+        gallery = ("Error while installing extensions: Failed Installing Extensions: anthropic.claude-code "
+                   "(getaddrinfo ENOTFOUND marketplace.visualstudio.com)")
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS="", CODE_FAIL_ON="--install-extension",
+                                                CODE_FAIL_MSG=gallery))
+        self.assertEqual(rc, 1, out)
+        roost = [mark for mark in self.marks(out) if mark.startswith("✗ Roost: ")]
+        self.assertEqual(len(roost), 1, out)
+        self.assertTrue(roost[0].startswith("✗ Roost: VS Code couldn't install it; it also fetches Claude Code, "
+                                            "ChatGPT and Perch's audio from the Marketplace, which may be unreachable "
+                                            "from here — see "), roost)
+        companions = [mark for mark in self.marks(out) if mark.startswith("✗ Companions: ")]
+        self.assertEqual(len(companions), 1, out)
+        self.assertIn("Perch's tabs need Claude Code or ChatGPT to run an agent", companions[0])
+        self.assertNotIn("Roost works", companions[0])
+        self.assertIn(gallery, Path(out.split("Details of what failed: ")[1].split()[0]).read_text())
+
     def test_download_failure_reported(self) -> None:
         rc, out = self.run_pipe(self.served_env("missing.vsix", CODE_EXTENSIONS=""))
         self.assertEqual(rc, 1, out)
@@ -1000,7 +1021,7 @@ class TestCompanions(_Installer):
         failed = [mark for mark in self.marks(out) if mark.startswith("✗ Companions: ")]
         self.assertEqual(len(failed), 1, out)
         self.assertTrue(failed[0].startswith("✗ Companions: openai.chatgpt "), failed)
-        self.assertIn("Perch's tabs need Claude Code or ChatGPT", failed[0])
+        self.assertIn("; Roost works, but Perch's tabs need Claude Code or ChatGPT", failed[0])
         installs = [line.split()[-1] for line in self.logged("--install-extension")]
         self.assertEqual(installs, list(COMPANIONS))  # the others still went in
 

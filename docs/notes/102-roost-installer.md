@@ -78,7 +78,11 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    companions by id from the Marketplace if missing: `anthropic.claude-code`, `openai.chatgpt` (Perch runs their
    `claude` and `codex`) and `seanahn.perch-audio`. *(my call: explicitly, rather than trusting a `.vsix`'s
    extension pack to pull them)* A companion that cannot be installed (the Marketplace blocked, say) is `✗` with its
-   name; Roost still works, but Perch's tabs need Claude Code or ChatGPT to run an agent, which the line says.
+   name; Roost still works, but Perch's tabs need Claude Code or ChatGPT to run an agent, which the line says. With
+   the Marketplace blocked, Roost's own install fails too (VS Code fetches its extension pack, the companions, as it
+   installs the `.vsix`): `✗ Roost: VS Code couldn't install it; it also fetches Claude Code, ChatGPT and Perch's
+   audio from the Marketplace, which may be unreachable from here — see <log>`, and the companions' line then
+   leaves out "Roost still works".
 4b. **GitHub, for the PRs panel.** kestrel reads pull requests through the GitHub CLI and cannot sign in by itself, so:
    install `gh` if missing (Homebrew; GitHub's apt / rpm repository, as the C3 installer does), then, if `gh auth
    status` fails, ask "Sign in to GitHub now, so Roost can show your pull requests? [Y/n]" and run `gh auth login
