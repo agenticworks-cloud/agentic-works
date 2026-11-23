@@ -175,7 +175,7 @@ class Conversations {
     tab.messages = items.filter(shown);
     tab.next = next;
     const conv = this.conv(tab);
-    tab.panel.title = this.titleFor(tab.ref);
+    this.setTitle(tab, this.titleFor(tab.ref));
     tab.header = this.headerOf(tab, conv, me.id);
     tab.panel.webview.postMessage({ type: 'init', ref: tab.ref, title: tab.panel.title, members: conv.members || [], kind: conv.kind, me: { id: me.id }, canSend: this.canSend(tab), people: this.people(tab, me.id) });
     tab.panel.webview.postMessage({ type: 'messages', reset: true, more: !!next, messages: tab.messages.map((x) => viewMessage(x, me.id)) });
@@ -210,8 +210,14 @@ class Conversations {
     if (h === tab.header) return;
     tab.header = h;
     const v = JSON.parse(h);
-    tab.panel.title = v.title;
+    this.setTitle(tab, v.title);
     tab.panel.webview.postMessage(Object.assign({ type: 'header' }, v));
+  }
+
+  /** The tab's title, kept with it in the saved list: a tab restored after a reload is known by it (savedTabs.js). */
+  setTitle(tab, title) {
+    tab.panel.title = title;
+    if (this.saved) this.saved.retitled(tab.key, title);
   }
 
   /** New, edited and (for posts) newly replied-to messages since the last poll. */

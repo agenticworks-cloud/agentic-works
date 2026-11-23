@@ -405,6 +405,7 @@ function activate(context, deps = {}) {
   }
   function dispose() {
     if (switchingOff) saved.switchOff(() => conversations.closeAll()); else saved.windowClosing();
+    saved.dispose();
     for (const p of pollers) p.stop(); stopWatching();
   }
 

@@ -25,6 +25,10 @@ function install() {
   // the editor's Microsoft provider: ui.session(scopes, options) answers getSession; calls are recorded
   ui.session = () => undefined;
   const windowState = new Emitter();
+  // the editor's tabs: one group; ui.openTab / ui.closeTab change it and fire onDidChangeTabs
+  const tabChange = new Emitter();
+  const group0 = { viewColumn: 1, isActive: true, tabs: [], activeTab: null };
+  const tabGroups = { all: [group0], activeTabGroup: group0, onDidChangeTabs: tabChange.event };
   const Uri = {
     file: (p) => ({ fsPath: p, path: p, scheme: 'file', toString: () => 'file://' + p }),
     joinPath: (u, ...parts) => Uri.file(require('path').join(u.fsPath, ...parts)),
@@ -51,6 +55,7 @@ function install() {
       registerWebviewViewProvider: (id, provider) => { ui.providers[id] = provider; return { dispose() {} }; },
       registerWebviewPanelSerializer: (id, s) => { ui.serializer = s; return { dispose() {} }; },
       createWebviewPanel,
+      tabGroups,
       createOutputChannel: () => ({ appendLine: (l) => ui.out.push(l), dispose() {} }),
       showErrorMessage: (m) => { ui.out.push('error: ' + m); },
       showInformationMessage: async (m) => { ui.infos.push(m); return undefined; },
@@ -67,6 +72,15 @@ function install() {
     env: { openExternal: async (u) => { ui.opened.push(u.toString()); return true; }, clipboard: { writeText: async (t) => { ui.copied.push(t); } } },
   };
   Module._load = function (request, ...rest) { return request === 'vscode' ? vscode : origLoad.call(this, request, ...rest); };
+  /** A webview tab ({ label, viewType }, prefixed as VS Code reports it), e.g. one restored after a reload that has no page yet. */
+  ui.openTab = ({ label, viewType }) => {
+    const t = { label, input: { viewType: 'mainThreadWebview-' + viewType }, group: group0, isActive: false };
+    group0.tabs.push(t);
+    tabChange.fire({ opened: [t], closed: [], changed: [] });
+    return t;
+  };
+  ui.closeTab = (t) => { group0.tabs = group0.tabs.filter((x) => x !== t); tabChange.fire({ opened: [], closed: [t], changed: [] }); };
+  ui.resetTabs = () => { group0.tabs = []; };
   ui.setFocus = (f) => { ui.focused = f; windowState.fire({ focused: f }); };
   ui.setConfig = (key, value) => { ui.config[key] = value; configChange.fire({ affectsConfiguration: (sec) => key === sec || key.startsWith(sec + '.') }); };
   /** Shows the sidebar: resolves the registered view provider with a fake view. */

@@ -341,6 +341,33 @@ test('off at startup: a tab Roost closed comes back when chirp starts', async ()
   h2.api.dispose();
 });
 
+// After a reload VS Code brings a tab back only as it is shown: one behind another sits in the tab groups with no page
+test('a reload with a tab not yet shown: no second tab, even after its title changed', async () => {
+  ui.focused = true; ui.panels.length = 0; ui.resetTabs();
+  const ws = memento();
+  const h = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 });
+  // restored before the chat list loads: titled 'Teams chat' at first, then the chat's name
+  const first = require('vscode').window.createWebviewPanel('chirp.conversation', 'old', 1, {});
+  await ui.serializer.deserializeWebviewPanel(first, { ref: { kind: 'chat', id: PLAT } });
+  assert.strictEqual(first.title, 'Teams chat');
+  ui.resolveSidebar(); first.webview._receive({ type: 'ready' }); await settle();
+  assert.strictEqual(first.title, 'Design Team Chat');
+  ext.deactivate(); for (const p of ui.panels) p.dispose();   // the window closes
+
+  ui.panels.length = 0;
+  const waiting = ui.openTab({ label: 'Design Team Chat', viewType: 'chirp.conversation' });
+  const h2 = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar();
+  await settle(60);
+  assert.strictEqual(ui.panels.length, 0, 'its tab is there, waiting to be shown');
+
+  ui.closeTab(waiting);                                // the user closes it without ever showing it
+  ext.deactivate();
+  start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar();
+  await settle(60);
+  assert.strictEqual(ui.panels.length, 0, 'and it is gone for good');
+  void h; void h2;
+});
+
 test('a closed tab does not poll again after sign-in comes back', async () => {
   ui.focused = true; ui.panels.length = 0;
   const h = start(chatWorld()); ui.resolveSidebar(); await settle();
