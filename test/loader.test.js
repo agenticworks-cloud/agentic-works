@@ -506,6 +506,61 @@ test('a failed start or stop does not block later ones', async () => {
   }
 });
 
+// First start: a memento for globalState shared by two activations; the PRs view command is recorded.
+function firstStartSetup(config) {
+  const env = setup(config);
+  const store = new Map();
+  env.base.globalState = { get: (k) => store.get(k), update: async (k, v) => { store.set(k, v); } };
+  env.store = store;
+  env.opened = [];
+  env.ui.commands['workbench.view.extension.kestrel'] = () => { env.opened.push(1); };
+  return env;
+}
+async function activateFirst(env) {
+  const roost = await env.extension.activate(env.base);
+  await roost.firstStarted;
+  return roost;
+}
+
+test('first start: PRs on opens the PRs tab once and records it', async () => {
+  const env = firstStartSetup({});
+  await activateFirst(env);
+  assert.strictEqual(env.opened.length, 1);
+  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  await env.extension.deactivate();
+  env.base.subscriptions.splice(0).forEach((d) => d.dispose());
+  env.ui.commands = { 'workbench.view.extension.kestrel': env.ui.commands['workbench.view.extension.kestrel'] };
+  await activateFirst(env);
+  assert.strictEqual(env.opened.length, 1, 'a second activation does not open it');
+  await env.extension.deactivate();
+});
+
+test('first start: PRs off opens nothing and still records', async () => {
+  const env = firstStartSetup({ 'roost.prs.enabled': false });
+  await activateFirst(env);
+  assert.strictEqual(env.opened.length, 0);
+  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  await env.extension.deactivate();
+});
+
+test('first start: a failing command is logged and still recorded', async () => {
+  const env = firstStartSetup({});
+  env.ui.commands['workbench.view.extension.kestrel'] = () => { throw new Error('no such view'); };
+  await activateFirst(env);
+  assert.ok(env.ui.out.some((l) => l.includes('PRs tab') && l.includes('no such view')));
+  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  await env.extension.deactivate();
+});
+
+test('first start: does not hold up activation or the parts', async () => {
+  const env = firstStartSetup({});
+  env.ui.commands['workbench.view.extension.kestrel'] = () => new Promise(() => {});
+  const roost = await within(env.extension.activate(env.base));
+  assert.notStrictEqual(roost, 'timed out');
+  assert.strictEqual(await within(roost.ready), undefined, 'the parts start');
+  await env.extension.deactivate();
+});
+
 (async () => {
   let failed = 0;
   for (const { name, fn } of tests) {

@@ -155,6 +155,14 @@ same `part.json` files at runtime, so it has no list of parts to edit either.
   extension host process, so a part that hangs or spins already affects the others. Isolation in this design
   is about start-up and stopping.
 
+### First start
+
+On its very first activation Roost opens the PRs tab once (`workbench.view.extension.kestrel`, kestrel's panel
+container), so the bottom panel, closed on a fresh profile, shows it. It runs after the parts have started, is not
+awaited by `activate`, and has no setting. Whatever happens (PRs off or failed, the command failing, which is
+logged to the Roost output channel) `roost.firstStart.done` is then recorded in the base context's `globalState`,
+so it never happens again. Perch's own `perch.firstStart.openClaudeTab` stays separate, for installers.
+
 ### Links between parts, for now
 
 The existing links keep working unchanged, because the commands and files keep their names. Where a part calls

@@ -11,6 +11,8 @@ const { readParts, partContext } = require('./parts');
 
 const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
+const FIRST_START_KEY = 'roost.firstStart.done';
+const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
 const isEnabled = (id) => vscode.workspace.getConfiguration('roost').get(`${id}.enabled`, true);
 const errorText = (e) => (e && e.stack) || String(e);
 
@@ -192,6 +194,25 @@ class Roost {
     await Promise.allSettled([...keys, ...starts]);
   }
 
+  // Roost's very first activation: once the parts have started, the bottom panel opens on the PRs tab (it is closed
+  // on a fresh profile), then roost.firstStart.done is recorded, whatever happened: a PRs part that is off or failed,
+  // or a command that fails, is not retried later.
+  async firstStart() {
+    if (this.base.globalState.get(FIRST_START_KEY)) return;
+    if (this.parts.has('prs') && this.state('prs') === 'on') {
+      try {
+        await vscode.commands.executeCommand(PRS_VIEW_COMMAND);
+      } catch (err) {
+        this.log(`Roost could not open the PRs tab on its first start: ${errorText(err)}`);
+      }
+    }
+    try {
+      await this.base.globalState.update(FIRST_START_KEY, true);
+    } catch (err) {
+      this.log(`Roost could not record its first start: ${errorText(err)}`);
+    }
+  }
+
   onConfigChange(event) {
     if (this.closed) return;           // Roost is stopping: a change now starts nothing
     for (const id of this.parts.keys()) {
@@ -223,6 +244,8 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand('roost.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:seanahn.roost')));
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
   r.ready = r.startAll().catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
+  // after the parts have started, and not awaited here: activation does not wait for it
+  r.firstStarted = r.ready.then(() => r.firstStart()).catch((err) => r.log(`Roost first start failed: ${errorText(err)}`));
   return r;
 }
 
