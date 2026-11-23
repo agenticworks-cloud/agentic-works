@@ -61,7 +61,9 @@ through files in `~/.chirp` and `~/.jay`.
 ### The repo
 
 `/git/roost`, pushed to `github.com/seanahn/roost` (public, like Perch). Each repo is imported once with
-`git subtree add` from its `main` (kestrel's `master`), keeping full history, under `parts/<name>/`. The layout
+a temporary clone of its `main` (kestrel's `master`) rewritten with `git filter-repo --to-subdirectory-filter
+parts/<name>` and merged with `--allow-unrelated-histories`, keeping full history, under `parts/<name>/`. Commit
+SHAs inside Roost differ from the originals'; messages, authors and dates are kept. The layout
 is built so that **a future part is one more folder** under `parts/`, with nothing else edited by hand *(Sean)*:
 
 ```
@@ -228,7 +230,7 @@ The import:
 ```
  /git/perch, chirp, jay, kestrel            /git/roost                        github seanahn/roost
     | [phase-green, attachment-note landed on main]   |                              |
-    |-- git subtree add --prefix=parts/perch main --->|                              |
+    |-- clone; filter-repo → parts/perch; merge ----->|                              |
     |-- … parts/chirp, parts/jay, parts/kestrel ----->|                              |
     |                                                 |-- part.json ×4; Roost src; make manifest (+ npm deps)
     |                                                 |-- npm install; make test (all parts, local)

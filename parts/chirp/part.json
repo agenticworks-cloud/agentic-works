@@ -1,0 +1,1 @@
+{ "id": "teams", "title": "Teams", "entry": "src/extension.js", "needs": [] }

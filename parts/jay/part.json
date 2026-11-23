@@ -1,0 +1,1 @@
+{ "id": "jira", "title": "Jira & Confluence", "entry": "src/extension.js", "needs": [] }
