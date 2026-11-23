@@ -411,6 +411,24 @@ class TestPlatform(_Installer):
                 rc, out = self.run_sourced(env, 'os_from_release "$1" || echo unsupported', str(release))
                 self.assertEqual(out.strip().splitlines()[-1], want, out)
 
+    def test_sudo_is_refused(self) -> None:
+        """`sudo bash roost-install.sh`: stop at Platform, before anything is installed as root for someone else."""
+        rc, out = self.run_sourced(self.env("ubuntu", ALL_PRESENT, SUDO_USER="alice"), 'id() { echo 0; }; main')
+        self.assertEqual(rc, 1, out)
+        self.assertIn("  ✗ Platform: Run it without sudo: bash roost-install.sh — it asks for your password when it "
+                      "needs it.\n", out)
+        self.assertEqual([mark.split(":")[0] for mark in self.marks(out)], ["✗ Platform"], out)
+        self.assertRegex(out, r"\nDone: 0 ✓  0 –  1 ✗\n")
+        self.assertEqual(self.stub_log(), [])
+
+        # Root itself (a container, or sudo from root): runs as before.
+        for extra in ({}, {"SUDO_USER": "root"}):
+            with self.subTest(extra=extra):
+                self.log.write_text("")
+                rc, out = self.run_sourced(self.env("ubuntu", ALL_PRESENT, **extra), 'id() { echo 0; }; main')
+                self.assertEqual(rc, 0, out)
+                self.assertIn("  ✓ Platform (ubuntu, x86_64)", out)
+
     def test_platform_line(self) -> None:
         rc, out = self.run_pipe(self.env("fedora", ALL_PRESENT, ROOST_INSTALL_FAKE_ARCH="aarch64"))
         self.assertEqual(rc, 0, out)

@@ -209,6 +209,12 @@ detect_platform() {  # sets OS=macos|ubuntu|debian|rhel|fedora and ARCH=arm64|x8
   esac
   if [ "$(id -u)" != 0 ]; then
     SUDO=sudo
+  elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    # `sudo bash roost-install.sh`: VS Code, its settings and the PATH block would go to root, not to this user.
+    step_end failed "Run it without sudo: bash roost-install.sh — it asks for your password when it needs it."
+    printf '\n'
+    tally
+    exit 1
   else
     AS_ROOT=1
     [ "$OS" = macos ] || CODE_DATA="$HOME/.config/Code"

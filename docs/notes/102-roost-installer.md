@@ -56,6 +56,9 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
 ## What it does, in order
 
 1. **Platform.** macOS (arm64, x86_64), or Linux by `/etc/os-release`; anything else stops with the supported list.
+   Run with `sudo` (root, with `SUDO_USER` someone else), it stops here too: `✗ Platform: Run it without sudo: bash
+   roost-install.sh — it asks for your password when it needs it.` (VS Code's settings, the PATH block and the
+   extensions would otherwise go to root). Root itself (a container) runs as below.
 2. **VS Code.** If `code` is missing: macOS — Homebrew (`brew install --cask visual-studio-code`), installing
    Homebrew first if needed; Ubuntu/Debian — Microsoft's apt repository; RHEL/Rocky/Fedora — Microsoft's yum
    repository. Then make sure `code` is on the PATH for this run and for new terminals (one marked block in the
