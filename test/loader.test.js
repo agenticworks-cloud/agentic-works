@@ -104,6 +104,17 @@ test('enabled parts start, disabled do not', async () => {
   await extension.deactivate();
 });
 
+test('0.1.0\'s roost.perch.enabled still decides Agents until roost.agents.enabled is set', async () => {
+  let { extension, base } = setup({ 'roost.perch.enabled': false });
+  await activate(extension, base);
+  assert.deepStrictEqual([...activated()].sort(), ['jira', 'pullRequests', 'teams'], 'Agents off, as Perch was');
+  await extension.deactivate();
+  ({ extension, base } = setup({ 'roost.perch.enabled': false, 'roost.agents.enabled': true }));
+  await activate(extension, base);
+  assert.ok(activated().includes('agents'), 'the new switch wins once set');
+  await extension.deactivate();
+});
+
 test('roost.openSettings is registered with every part off and opens Roost\'s settings', async () => {
   const { ui, extension, base } = setup({ 'roost.teams.enabled': false, 'roost.jira.enabled': false, 'roost.pullRequests.enabled': false, 'roost.agents.enabled': false });
   await activate(extension, base);

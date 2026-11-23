@@ -13,7 +13,20 @@ const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
 const FIRST_START_KEY = 'roost.firstStart.done';
 const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
-const isEnabled = (id) => vscode.workspace.getConfiguration('roost').get(`${id}.enabled`, true);
+// The Agents part was called perch in 0.1.0: while roost.agents.enabled is set nowhere, a roost.perch.enabled the
+// user set then still decides (read only, never written or removed).
+const OLD_SWITCH = { agents: 'perch' };
+const isEnabled = (id) => {
+  const config = vscode.workspace.getConfiguration('roost');
+  const old = OLD_SWITCH[id];
+  if (old) {
+    const now = config.inspect(`${id}.enabled`) || {};
+    const setNow = [now.globalValue, now.workspaceValue, now.workspaceFolderValue].some((v) => v !== undefined);
+    const before = config.get(`${old}.enabled`);
+    if (!setNow && typeof before === 'boolean') return before;
+  }
+  return config.get(`${id}.enabled`, true);
+};
 const errorText = (e) => (e && e.stack) || String(e);
 
 class Roost {
