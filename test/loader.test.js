@@ -399,6 +399,16 @@ test("a part that fails to start closes its restored panels", async () => {
   await extension.deactivate();
 });
 
+test('a setting change after Roost has stopped starts nothing', async () => {
+  const { ui, extension, base } = setup({ 'roost.prs.enabled': false });
+  const roost = await activate(extension, base);
+  await extension.deactivate();
+  const n = activated().length;
+  await setEnabled(ui, 'prs', true);
+  assert.strictEqual(activated().length, n);
+  assert.strictEqual(roost.state('prs'), 'off');
+});
+
 test('a part whose activate never ends blocks neither Roost nor the others', async () => {
   const { extension, base } = setup();
   fake.parts.teams = { activate: () => new Promise(() => {}) };

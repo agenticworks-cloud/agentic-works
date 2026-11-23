@@ -5,7 +5,7 @@
 // still has the tab. One closed by a switch-off has none, and is opened again as soon as chirp starts; the others are
 // opened after a short wait, unless VS Code shows a tab for them by then.
 
-const RESTORE_GRACE_MS = 4000;
+const RESTORE_GRACE_MS = Number(process.env.CHIRP_RESTORE_GRACE_MS) > 0 ? Number(process.env.CHIRP_RESTORE_GRACE_MS) : 4000;   // shortened by tests
 
 /**
  * @param o.state      a Memento (context.workspaceState); without one nothing is kept

@@ -160,6 +160,7 @@ class Roost {
   }
 
   onConfigChange(event) {
+    if (this.closed) return;           // Roost is stopping: a change now starts nothing
     for (const id of this.parts.keys()) {
       if (!event.affectsConfiguration(contextKey(id))) continue;
       // a failure is already in the output channel (queue)
@@ -180,10 +181,10 @@ let roost = null;
 function activate(context) {
   const output = vscode.window.createOutputChannel('Roost');
   context.subscriptions.push(output);
-  roost = new Roost(context, readParts(context.extensionPath), output);
-  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => roost.onConfigChange(e)));
+  const r = new Roost(context, readParts(context.extensionPath), output);
+  roost = r;
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => r.onConfigChange(e)));
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
-  const r = roost;
   r.ready = r.startAll().catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
   return r;
 }
