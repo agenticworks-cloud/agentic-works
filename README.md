@@ -11,6 +11,41 @@ Perch, Teams and Jira & Confluence each have their own icon in the activity bar;
 Each part was a separate extension before (Perch, chirp, jay and kestrel); Roost carries their histories under
 `parts/`.
 
+## Install
+
+Download `roost-install.sh` from the latest release and run it in a terminal:
+
+```sh
+curl -fsSLO https://github.com/seanahn/roost/releases/latest/download/roost-install.sh
+bash roost-install.sh
+```
+
+Run it without `sudo`: it asks for your password when it needs it, after listing what it adds system-wide. It:
+
+- installs VS Code if it is missing (Homebrew on macOS, Microsoft's package repository on Linux) and puts `code` on
+  the PATH;
+- offers to uninstall the standalone Perch, chirp, jay and kestrel extensions, which would clash with Roost;
+- installs Roost (checked against its SHA-256) and its companions, Claude Code, ChatGPT and perch-audio;
+- installs the GitHub CLI and offers one `gh auth login`, for the PRs panel;
+- sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
+  and trims the activity-bar icons on a VS Code that has never been started;
+- opens VS Code.
+
+It prints a ✓ / – / ✗ checklist and is safe to run again; a second run changes nothing that is in place. Running
+the newest installer is also how Roost is updated.
+
+| Flag | |
+|---|---|
+| `--dry-run` | print each command instead of running it |
+| `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions github settings icons open` |
+| `--yes` | answer yes to uninstalling the standalone four (needed with no terminal); never answers the GitHub sign-in |
+| `--no-open` | don't open VS Code at the end |
+| `--help` | the options |
+
+Supported: macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora, on a desktop
+where VS Code runs. Not Windows, and not a server reached over Remote-SSH. The design:
+[docs/notes/102-roost-installer.md](docs/notes/102-roost-installer.md).
+
 ## Switching parts on and off
 
 Open **Settings → Roost** (the gear on the Perch view, the **Settings** row at the end of the Perch explorer, or
