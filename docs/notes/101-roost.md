@@ -159,6 +159,19 @@ PR session", "insert text into an agent's message box"), which a part provides a
 rather than by another part's command names. That is where the stronger links grow. *(Sean: stronger links
 later; the place for them: my call)*
 
+### Settings, from the explorer
+
+The Perch view is an explorer (Sessions, Skills, MCP, Agents, Commands). Roost adds a way to its settings
+there *(Sean)*:
+
+- a **gear** in the view's title bar, and a **Settings** row at the end of the explorer's sections;
+- both run `roost.openSettings`, which opens VS Code's Settings filtered to Roost (`@ext:seanahn.roost`): the
+  parts' on/off switches first, then every part's own settings (`perch.*`, `chirp.*`, `jay.*`, `kestrel.*`).
+  *(the filter and placement: my call)*
+
+The gear and the row belong to Roost, not to the Perch part, so they stay even if Perch's tabs are the only
+part switched on; if the Perch part is off, the same command is in the Command Palette as **Roost: Settings**.
+
 ### The C3 installer
 
 c3securitytools' installer (note 802) installs the four standalone extensions today. Installing Roost beside them
@@ -222,6 +235,15 @@ The import:
     |                                                 |   [a test fails: fix in Roost before the first push]
     |                                                 |-- push ----------------------------->|
 ```
+
+## Follow-ups (after this project)
+
+- **Stronger links** through shared services in `src/` (see *Links between parts, for now*).
+- **chirp: a company's own Microsoft app.** chirp signs in with its own built-in app (an unverified publisher),
+  which many companies block users from approving. Add `chirp.signIn.clientId` and `chirp.signIn.tenant`
+  (default: chirp's app and `organizations`), so the editor sign-in and the sign-in code can use an app the
+  company's admins already approved. Today a locked-down company's only route is a token file from another tool.
+  *(Sean)*
 
 ## Left to the builder
 
