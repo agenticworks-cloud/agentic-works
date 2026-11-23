@@ -293,13 +293,14 @@ function install(state, { extensions, config, catalogs, meter, globals, voice, a
   const globalState = makeMemento(globals);
   const secrets = Object.assign(new Map(), { get: async function (k) { return this.has(k) ? Map.prototype.get.call(this, k) : undefined; }, store: async function (k, v) { Map.prototype.set.call(this, k, v); }, delete: async function (k) { Map.prototype.delete.call(this, k); } });
   if (meter && meter.secrets) for (const [k, v] of Object.entries(meter.secrets)) Map.prototype.set.call(secrets, k, v);
-  const perch = ext.activate({ subscriptions: [], workspaceState: memento, globalState, secrets, extensionUri: { path: '/ext/fennets.perch' }, globalStorageUri: { fsPath: storageDir() } });
+  const context = { subscriptions: [], workspaceState: memento, globalState, secrets, extensionUri: { path: '/ext/fennets.perch' }, globalStorageUri: { fsPath: storageDir() } };
+  const perch = ext.activate(context);
   const changeConfig = (patch) => { Object.assign(cfgBox, patch); for (const f of ui.listeners.config) f({ affectsConfiguration: (sec) => Object.keys(patch).some((k) => ('perch.' + k).startsWith(sec)) }); };
   const waitingTab = (label) => { const t = { label, input: { viewType: 'mainThreadWebview-perch.session' } }; ui.waiting.push(t); return t; };
   const restorePanel = (sid, title) => { const p = makePanel('perch.session', title || 'restored', { viewColumn: 2, preserveFocus: true }, {}); ui.serializers['perch.session'].deserializeWebviewPanel(p, sid === undefined ? undefined : { sid }); return p; };
   const changeExtensions = (patch) => { for (const [k, v] of Object.entries(patch)) { if (v) installed[k] = v; else delete installed[k]; } for (const f of ui.listeners.extensions) f(); };
   const tabsChanged = (e) => { for (const f of ui.listeners.tabs) f(Object.assign({ opened: [], closed: [], changed: [] }, e)); };
-  return { perch, registered, commands, memento, globalState, secrets, picks, cats, loads, box, ui, ibox, changeConfig, changeExtensions, restorePanel, waitingTab, tabsChanged, vbox, abox, store, vscode: vscodeStub };
+  return { ext, context, perch, registered, commands, memento, globalState, secrets, picks, cats, loads, box, ui, ibox, changeConfig, changeExtensions, restorePanel, waitingTab, tabsChanged, vbox, abox, store, vscode: vscodeStub };
 }
 
 function fakeView() {

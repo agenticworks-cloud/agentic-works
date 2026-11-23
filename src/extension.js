@@ -1,6 +1,9 @@
 'use strict';
 // Roost's entry point: starts each part under parts/ whose roost.<id>.enabled setting is on, with a context of its
 // own; starts or stops a part when its setting changes; a part that throws at start is reported once and left off.
+// Before a part is switched off it may say no (its confirmStop), which puts the switch back on. While a part is off,
+// tabs VS Code brings back for it are closed, so they do not hang without a page; the part's own saved tab list,
+// which it restores from when it starts, is left as it is.
 const path = require('node:path');
 const vscode = require('vscode');
 const { readParts, partContext } = require('./parts');
@@ -13,8 +16,8 @@ class Roost {
   constructor(base, parts, output) {
     this.base = base;
     this.output = output;
-    // id → { part, state: 'on'|'off'|'failed', context, module, queue }
-    this.parts = new Map(parts.map((part) => [part.id, { part, state: 'off', context: null, module: null, queue: Promise.resolve() }]));
+    // id → { part, state: 'on'|'off'|'failed', context, module, queue, closers }
+    this.parts = new Map(parts.map((part) => [part.id, { part, state: 'off', context: null, module: null, queue: Promise.resolve(), closers: null }]));
   }
 
   state(id) { return this.entry(id).state; }
@@ -40,6 +43,7 @@ class Roost {
     return this.queue(id, async (e) => {
       if (e.state === 'on') return;
       const { part } = e;
+      this.stopClosingTabs(e);           // the part registers its own serializers
       const context = partContext(this.base, part);
       e.context = context;
       try {
@@ -49,6 +53,7 @@ class Roost {
         e.state = 'failed';
         this.log(`${part.title} could not start: ${errorText(err)}`);
         await this.release(e);
+        this.closeRestoredTabs(e);
         await this.setKey(part.id, false);
         vscode.window.showErrorMessage(`Roost: ${part.title} could not start.`, 'Show Log').then((choice) => {
           if (choice === 'Show Log') this.output.show();
@@ -60,13 +65,51 @@ class Roost {
     });
   }
 
-  stop(id) {
+  // `ask`: the user switched it off, so the part may say no first (the window closing asks nothing).
+  stop(id, { ask = false } = {}) {
     return this.queue(id, async (e) => {
       if (e.state === 'off') return;
+      if (ask && e.state === 'on' && !(await this.confirmStop(e))) {
+        await this.keepOn(e.part.id);
+        return;
+      }
       await this.setKey(e.part.id, false);
       if (e.state === 'on') await this.release(e);
       e.state = 'off';
+      this.closeRestoredTabs(e);
     });
+  }
+
+  // The part's confirmStop, if it has one; one that throws is logged and does not keep the part on.
+  async confirmStop(e) {
+    if (!e.module || typeof e.module.confirmStop !== 'function') return true;
+    try {
+      return (await e.module.confirmStop()) !== false;
+    } catch (err) {
+      this.log(`${e.part.title}: confirmStop threw, stopping anyway: ${errorText(err)}`);
+      return true;
+    }
+  }
+
+  // Puts roost.<id>.enabled back to true at the scope where it was set to false: the workspace's, else the user's.
+  async keepOn(id) {
+    const config = vscode.workspace.getConfiguration('roost');
+    const key = `${id}.enabled`;
+    const set = config.inspect(key) || {};
+    const target = set.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+    await config.update(key, true, target);
+  }
+
+  // While a part is off: a serializer for each of its webview types, closing a tab VS Code restores for it.
+  closeRestoredTabs(e) {
+    if (e.closers || this.closed) return;
+    e.closers = e.part.webviews.map((type) =>
+      vscode.window.registerWebviewPanelSerializer(type, { deserializeWebviewPanel: async (panel) => panel.dispose() }));
+  }
+
+  stopClosingTabs(e) {
+    for (const d of e.closers || []) d.dispose();
+    e.closers = null;
   }
 
   // Disposes the part's subscriptions, each on its own, then calls its deactivate.
@@ -90,22 +133,32 @@ class Roost {
   setKey(id, on) { return vscode.commands.executeCommand('setContext', contextKey(id), on); }
 
   // Every key false first, so nothing shows for a part that is off or fails; each turns true as its part starts.
-  // The parts start side by side: one whose activate never ends holds up none of the others.
+  // The parts start side by side: one whose activate never ends holds up none of the others. Nothing here is awaited
+  // before the parts' activate calls, so each part registers its serializers before VS Code restores its tabs, as
+  // it does when it is an extension of its own.
   async startAll() {
-    for (const id of this.parts.keys()) await this.setKey(id, false);
-    await Promise.allSettled([...this.parts.keys()].filter(isEnabled).map((id) => this.start(id)));
+    const keys = [...this.parts.keys()].map((id) => this.setKey(id, false));
+    const starts = [];
+    for (const [id, e] of this.parts) {
+      if (isEnabled(id)) starts.push(this.start(id));
+      else this.closeRestoredTabs(e);
+    }
+    await Promise.allSettled([...keys, ...starts]);
   }
 
   onConfigChange(event) {
     for (const id of this.parts.keys()) {
       if (!event.affectsConfiguration(contextKey(id))) continue;
       // a failure is already in the output channel (queue)
-      (isEnabled(id) ? this.start(id) : this.stop(id)).catch(() => {});
+      (isEnabled(id) ? this.start(id) : this.stop(id, { ask: true })).catch(() => {});
     }
   }
 
+  // The window closing: every part stops, and no serializer is left behind.
   async stopAll() {
+    this.closed = true;
     await Promise.all([...this.parts.keys()].map((id) => this.stop(id)));
+    for (const e of this.parts.values()) this.stopClosingTabs(e);
   }
 }
 

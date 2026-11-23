@@ -1190,6 +1190,7 @@ class PerchView {
     this.ticketTimer = null;
     this.confluenceSite = null;      // the Confluence site jay is signed in to (an origin), whose /wiki/ links open in jay (note 108)
     this.closing = false;
+    this.switchingOff = false;       // confirmStop said yes: the dispose that follows closes the editor tabs (closeTabs)
     this.graceTimer = null;
     this.firstStartTimer = null;     // perch.firstStart.openClaudeTab's look, once the wait for restored tabs is over
     this.leftGroups = new Set();     // editor groups a Perch tab has just left, looked at by unlockGroups
@@ -2634,7 +2635,21 @@ class PerchView {
   /** A line in the Perch output channel: what the page asked and what the host did, for the few things worth tracing. */
   trace(line) { if (this.out) { try { this.out.appendLine(new Date().toISOString() + ' ' + line); } catch (_) { /* the channel is gone */ } } }
 
+  /**
+   * Switched off while the window stays open (confirmStop said yes): the editor tabs close, as they would with the
+   * window, and the sessions are kept. VS Code will not bring these tabs back, so each is marked as having none, and
+   * the next start opens them again at once.
+   */
+  closeTabs() {
+    for (const s of this.sessions) if (s.location === 'editor') s.paneled = false;
+    this.persist();
+    this.closing = true;
+    for (const { panel } of [...this.panels.values()]) panel.dispose();
+    this.panels.clear();
+  }
+
   dispose() {
+    if (this.switchingOff) this.closeTabs();
     this.closing = true;             // the editor tabs are going away with the window, not being closed by the user
     clearTimeout(this.graceTimer);
     clearTimeout(this.firstStartTimer);
@@ -2702,9 +2717,31 @@ function activate(context) {
   perch.refreshTicketProjects();
   perch.ticketTimer = setInterval(() => perch.refreshTicketProjects(), TICKET_PROJECTS_MS);
   if (perch.ticketTimer.unref) perch.ticketTimer.unref();
+  current = perch;
   return perch;   // exposed for tests
 }
 
-function deactivate() {}
+let current = null;   // the PerchView of this activation, which confirmStop looks at
 
-module.exports = { activate, deactivate };
+/**
+ * Asked by a host that switches Perch off while the window stays open (Roost), just before it does: while any tab's
+ * turn is running, whether to stop it; true to go ahead, and then the stop closes Perch's editor tabs (closeTabs),
+ * which a window closing leaves to VS Code. A standalone Perch is never asked.
+ */
+async function confirmStop() {
+  const perch = current;
+  if (!perch) return true;
+  const go = !perch.sessions.some((s) => s.busy)
+    || (await vscode.window.showWarningMessage("Stop the running turn and close Perch's tabs?", { modal: true }, 'Stop')) === 'Stop';
+  if (go) perch.switchingOff = true;
+  return go;
+}
+
+// The PerchView itself is disposed with the context's subscriptions. What the module holds goes too, so an activate
+// in the same process (Roost switching Perch on again) starts as after a reload.
+function deactivate() {
+  current = null;
+  lastFile = null; front = null; frontFile = null;
+}
+
+module.exports = { activate, deactivate, confirmStop };

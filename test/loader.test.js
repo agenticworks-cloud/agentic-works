@@ -32,9 +32,14 @@ function fixture() {
 module.exports = {
   activate: (context, deps) => { f.calls.push(['activate', ${JSON.stringify(id)}, deps]); const p = f.parts[${JSON.stringify(id)}]; return p && p.activate ? p.activate(context) : undefined; },
   deactivate: () => { f.calls.push(['deactivate', ${JSON.stringify(id)}]); const p = f.parts[${JSON.stringify(id)}]; return p && p.deactivate ? p.deactivate() : undefined; },
+  confirmStop: () => { f.calls.push(['confirmStop', ${JSON.stringify(id)}]); const p = f.parts[${JSON.stringify(id)}]; return p && p.confirmStop ? p.confirmStop() : Promise.resolve(true); },
 };\n`,
     );
   }
+  // jay's webview types, as its package.json names them
+  fs.writeFileSync(path.join(root, 'parts', 'jay', 'package.json'), JSON.stringify({
+    activationEvents: ['onStartupFinished', 'onWebviewPanel:jay.ticket', 'onCommand:jay.open', 'onWebviewPanel:jay.page'],
+  }));
   return root;
 }
 
@@ -119,7 +124,9 @@ test('readParts lists parts in folder order', async () => {
   assert.deepStrictEqual(parts.map((p) => p.id), ['teams', 'jira', 'prs', 'perch']);
   assert.deepStrictEqual(parts[1], {
     id: 'jira', title: 'Jira & Confluence', dir: path.join(root, 'parts', 'jay'), entry: 'src/extension.js', needs: [],
+    webviews: ['jay.ticket', 'jay.page'],
   });
+  assert.deepStrictEqual(parts[0].webviews, [], 'a part without a package.json has none');
 });
 
 test('part context points at the part folder', async () => {
@@ -248,6 +255,86 @@ test('stop survives a throwing dispose', async () => {
   assert.ok(ui.out.some((l) => l.includes('bad dispose')));
   await roost.start('prs');
   assert.strictEqual(roost.state('prs'), 'on');
+  await extension.deactivate();
+});
+
+test('switching Perch off mid-turn asks first', async () => {
+  const { ui, extension, base } = setup();
+  let answer = false;
+  fake.parts.perch = { confirmStop: async () => answer };
+  const roost = await activate(extension, base);
+  const asked = () => fake.calls.filter((c) => c[0] === 'confirmStop').map((c) => c[1]);
+
+  ui.inspect['roost.perch.enabled'] = { globalValue: true, workspaceValue: false };   // switched off for this workspace
+  await setEnabled(ui, 'perch', false);
+  assert.deepStrictEqual(asked(), ['perch']);
+  assert.strictEqual(roost.state('perch'), 'on', 'cancelled: still on');
+  assert.deepStrictEqual(ui.updates, [['roost.perch.enabled', true, 2]], 'the switch is put back, in the workspace');
+  assert.strictEqual(ui.contexts['roost.perch.enabled'], true);
+  assert.ok(!fake.calls.some((c) => c[0] === 'deactivate'), 'not stopped');
+  assert.deepStrictEqual(activated(), ['teams', 'jira', 'prs', 'perch'], 'and not started a second time');
+
+  answer = true;
+  await setEnabled(ui, 'perch', false);
+  assert.strictEqual(roost.state('perch'), 'off');
+  assert.strictEqual(ui.contexts['roost.perch.enabled'], false);
+  assert.strictEqual(ui.updates.length, 1, 'nothing written back');
+
+  await setEnabled(ui, 'perch', true);
+  await extension.deactivate();                       // the window closing: nothing is asked
+  assert.deepStrictEqual(asked(), ['perch', 'perch']);
+  assert.strictEqual(roost.state('perch'), 'off');
+});
+
+test("a confirmStop that throws does not keep the part on", async () => {
+  const { ui, extension, base } = setup();
+  fake.parts.perch = { confirmStop: async () => { throw new Error('no dialog'); } };
+  const roost = await activate(extension, base);
+  await setEnabled(ui, 'perch', false);
+  assert.strictEqual(roost.state('perch'), 'off');
+  assert.ok(ui.out.some((l) => l.includes('no dialog')));
+  await extension.deactivate();
+});
+
+test("off part's restored panel is closed", async () => {
+  const { ui, extension, base } = setup({ 'roost.jira.enabled': false });
+  fake.parts.jira = {
+    activate: (c) => {
+      for (const t of ['jay.ticket', 'jay.page']) {
+        c.subscriptions.push(ui.vscode.window.registerWebviewPanelSerializer(t, { deserializeWebviewPanel: async (p) => { p.restoredBy = 'jay'; } }));
+      }
+    },
+  };
+  const roost = await activate(extension, base);
+  for (const t of ['jay.ticket', 'jay.page']) assert.strictEqual(ui.restorePanel(t).disposed, true, `${t} closed while jira is off`);
+  assert.deepStrictEqual(Object.keys(ui.serializers).sort(), ['jay.page', 'jay.ticket'], 'only the off part has serializers');
+
+  await setEnabled(ui, 'jira', true);
+  assert.strictEqual(roost.state('jira'), 'on');
+  assert.deepStrictEqual(ui.errors, [], 'no duplicate-serializer error');
+  const p = ui.restorePanel('jay.ticket');
+  assert.deepStrictEqual([p.disposed, p.restoredBy], [false, 'jay'], 'the part restores its own tabs once on');
+
+  await setEnabled(ui, 'jira', false);
+  assert.strictEqual(ui.restorePanel('jay.page').disposed, true, 'closed again once off');
+  await setEnabled(ui, 'jira', true);
+  assert.strictEqual(roost.state('jira'), 'on');
+  await extension.deactivate();
+  assert.deepStrictEqual(Object.keys(ui.serializers), [], 'none left once Roost stops');
+});
+
+test("a part that fails to start closes its restored panels", async () => {
+  const { ui, extension, base } = setup();
+  fake.parts.jira = {
+    activate: (c) => {
+      c.subscriptions.push(ui.vscode.window.registerWebviewPanelSerializer('jay.ticket', { deserializeWebviewPanel: async () => {} }));
+      throw new Error('boom');
+    },
+  };
+  const roost = await activate(extension, base);
+  assert.strictEqual(roost.state('jira'), 'failed');
+  assert.strictEqual(ui.restorePanel('jay.ticket').disposed, true);
+  assert.strictEqual(ui.restorePanel('jay.page').disposed, true);
   await extension.deactivate();
 });
 

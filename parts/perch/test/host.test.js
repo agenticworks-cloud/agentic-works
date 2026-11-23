@@ -3828,5 +3828,62 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.perch.dispose();
   }
 
+  // ---- switched off inside Roost, which disposes the context's subscriptions and calls deactivate, as a window
+  // closing does: asked first while a turn runs (confirmStop), and on again, the same tabs come back
+  {
+    const m = install(undefined, { config: { newTabs: 'sidebar' } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    const asked = [], warn = m.vscode.window.showWarningMessage;
+    m.vscode.window.showWarningMessage = (...a) => { asked.push(a); return warn(...a); };
+    assert.strictEqual(await m.ext.confirmStop(), true, 'nothing running: no question');
+    assert.deepStrictEqual(asked, []);
+    v.fire({ type: 'send', sid: c, text: 'hold the line' }); await flush();
+    assert.strictEqual(m.perch.get(c).busy, true);
+    m.ui.answers = [undefined];
+    assert.strictEqual(await m.ext.confirmStop(), false, 'the question dismissed: Perch stays on');
+    assert.deepStrictEqual(asked, [["Stop the running turn and close Perch's tabs?", { modal: true }, 'Stop']]);
+    m.ui.answers = ['Stop'];
+    assert.strictEqual(await m.ext.confirmStop(), true, '"Stop": Perch goes off');
+    m.perch.dispose();
+  }
+  {
+    const path = require('path');
+    const live = new Map();   // the timers made while Perch runs, and not yet fired or cleared
+    const real = { setTimeout, setInterval, clearTimeout, clearInterval };
+    const track = (make, once) => (fn, ms, ...a) => { let t = null; t = make(() => { if (once) live.delete(t); fn(...a); }, ms); live.set(t, new Error('made here').stack); return t; };
+    const untrack = (clear) => (t) => { live.delete(t); clear(t); };
+    Object.assign(global, { setTimeout: track(real.setTimeout, true), setInterval: track(real.setInterval, false), clearTimeout: untrack(real.clearTimeout), clearInterval: untrack(real.clearInterval) });
+    let m, ids, again;
+    try {
+      m = install(undefined, { config: { newTabs: 'editor' } }); await flush();
+      m.commands['perch.newClaude'](); m.commands['perch.newCodex'](); await flush();
+      ids = m.perch.sessions.map((s) => s.id);
+      assert.strictEqual(m.ui.panels.filter((p) => !p.disposed).length, 2, 'two editor tabs');
+      // a file focused, then a Perch tab: the file is the one a message would name
+      const file = { selection: { isEmpty: true, start: { line: 0, character: 0 }, end: { line: 0, character: 0 }, active: { line: 0, character: 0 } }, document: { uri: { scheme: 'file', fsPath: path.join(process.cwd(), 'a.js') }, languageId: 'javascript', getText: () => '' } };
+      m.ui.editor = file; for (const f of m.ui.listeners.editor) f(file);
+      m.ui.editor = undefined; for (const f of m.ui.listeners.editor) f(undefined); m.ui.visible = [file];
+      assert.strictEqual(await m.ext.confirmStop(), true);   // Roost asks before every switch-off, and goes on
+      for (const d of m.context.subscriptions.splice(0)) d.dispose();
+      await m.ext.deactivate();
+      assert.deepStrictEqual([...live.values()], [], 'no timer Perch made is left running');
+    } finally { Object.assign(global, real); }
+    assert(m.ui.panels.every((p) => p.disposed), 'its editor tabs are closed');
+    assert.deepStrictEqual(m.memento._dump()['perch.sessions.v1'].sessions.map((t) => t.id), ids, 'and kept, as a window closing keeps them');
+    // on again: the same module, as Roost requires it once
+    again = m.ext.activate(Object.assign({}, m.context, { subscriptions: [] }));
+    assert.deepStrictEqual(again.sessions.map((s) => s.id), ids, 'the same two sessions');
+    assert.deepStrictEqual(m.ui.panels.filter((p) => !p.disposed).map((p) => p.title), again.sessions.map((s) => s.title), 'each with its editor tab again, at once: VS Code has none to bring back');
+    await wait(120);
+    assert.strictEqual(m.ui.panels.filter((p) => !p.disposed).length, 2, 'and not a second one after the wait');
+    const x = again.sessions[1];
+    x.ide = true;
+    const p = m.ui.panels.filter((q) => !q.disposed)[1]; p.fire({ type: 'ready' }); await flush();
+    p.fire({ type: 'send', sid: x.id, text: 'fresh start' }); await flush();
+    assert.strictEqual(created[created.length - 1].sent.pop(), 'fresh start', 'the file focused before the stop is forgotten, as after a reload');
+    again.dispose(); m.ui.visible = undefined;
+  }
+
   console.log('HOST OK');
 })().catch((e) => { console.error('HOST FAILED:', e.stack || e.message); process.exit(1); });

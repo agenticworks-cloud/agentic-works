@@ -3,8 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Every folder of <root>/parts that has a part.json, in folder-name order: { id, title, dir, entry, needs }.
-// `entry` is as written in part.json, relative to `dir`.
+// Every folder of <root>/parts that has a part.json, in folder-name order: { id, title, dir, entry, needs, webviews }.
+// `entry` is as written in part.json, relative to `dir`; `webviews` are the webview types its package.json activates
+// on (onWebviewPanel:<type>), the tabs VS Code may bring back for it.
 function readParts(root) {
   const partsDir = path.join(root, 'parts');
   return fs
@@ -15,8 +16,15 @@ function readParts(root) {
     .map((name) => {
       const dir = path.join(partsDir, name);
       const { id, title, entry, needs } = JSON.parse(fs.readFileSync(path.join(dir, 'part.json'), 'utf8'));
-      return { id, title, dir, entry, needs: needs || [] };
+      return { id, title, dir, entry, needs: needs || [], webviews: webviewTypes(dir) };
     });
+}
+
+function webviewTypes(dir) {
+  const file = path.join(dir, 'package.json');
+  if (!fs.existsSync(file)) return [];
+  const events = JSON.parse(fs.readFileSync(file, 'utf8')).activationEvents || [];
+  return events.filter((e) => e.startsWith('onWebviewPanel:')).map((e) => e.slice('onWebviewPanel:'.length));
 }
 
 // Roost's context as the part's own: everything of `base` (globalState, workspaceState, secrets, storage and log

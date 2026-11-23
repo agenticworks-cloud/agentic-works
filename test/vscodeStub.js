@@ -1,7 +1,8 @@
 'use strict';
 // A fake vscode module, installed for require('vscode'), so Roost's loader runs without VS Code. It records what
-// Roost does: context keys, error messages, the output channel, registered commands; tests set ui.config and call
-// ui.changeConfig(keys) to fire onDidChangeConfiguration.
+// Roost does: context keys, error messages, the output channel, registered commands and webview serializers, setting
+// writes; tests set ui.config (and ui.inspect for the scopes a value is set at) and call ui.changeConfig(keys) to fire
+// onDidChangeConfiguration, and ui.restorePanel(viewType) to have VS Code bring back a tab of that type.
 const Module = require('module');
 const path = require('path');
 const origLoad = Module._load;
@@ -12,7 +13,7 @@ class Emitter {
 }
 
 function install() {
-  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0 };
+  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [] };
   const configChange = new Emitter();
   ui.changeConfig = (keys) => configChange.fire({ affectsConfiguration: (s) => keys.some((k) => k === s || k.startsWith(s + '.')) });
   const Uri = {
@@ -23,11 +24,24 @@ function install() {
       return { ...u, path: p, fsPath: path.join(u.fsPath, ...parts), toString: () => `${u.scheme}://${u.authority || ''}${p}` };
     },
   };
+  // a tab VS Code brings back: handed to the serializer registered for its type, as after a window reload
+  ui.restorePanel = (viewType, state) => {
+    const panel = { viewType, disposed: false, dispose() { this.disposed = true; } };
+    const z = ui.serializers[viewType];
+    if (z) z.deserializeWebviewPanel(panel, state);
+    return panel;
+  };
   const vscode = {
     Uri, EventEmitter: Emitter,
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     window: {
       createOutputChannel: (name) => ({ name, appendLine: (l) => ui.out.push(l), show() { ui.shown++; }, dispose() {} }),
       showErrorMessage: (m, ...items) => { ui.errors.push({ message: m, items }); return Promise.resolve(ui.errorChoice); },
+      registerWebviewPanelSerializer: (viewType, z) => {
+        if (ui.serializers[viewType]) throw new Error(`A serializer for '${viewType}' is already registered`);
+        ui.serializers[viewType] = z;
+        return { dispose() { if (ui.serializers[viewType] === z) delete ui.serializers[viewType]; } };
+      },
     },
     commands: {
       registerCommand: (id, fn) => {
@@ -50,6 +64,18 @@ function install() {
         get: (key, dflt) => {
           const full = section ? `${section}.${key}` : key;
           return full in ui.config ? ui.config[full] : dflt;
+        },
+        inspect: (key) => {
+          const full = section ? `${section}.${key}` : key;
+          return ui.inspect[full] || { globalValue: ui.config[full] };
+        },
+        // records the write, then changes the value and tells the listeners, as the real one does
+        update: async (key, value, target) => {
+          const full = section ? `${section}.${key}` : key;
+          ui.updates.push([full, value, target]);
+          delete ui.inspect[full];
+          ui.config[full] = value;
+          ui.changeConfig([full]);
         },
       }),
       onDidChangeConfiguration: configChange.event,
