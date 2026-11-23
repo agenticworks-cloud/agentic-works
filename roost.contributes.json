@@ -1,0 +1,6 @@
+{
+  "commands": [{ "command": "roost.openSettings", "title": "Roost: Settings", "icon": "$(gear)" }],
+  "menus": {
+    "view/title": [{ "command": "roost.openSettings", "when": "view == perch.main", "group": "navigation@99" }]
+  }
+}

@@ -184,6 +184,8 @@ function activate(context) {
   const r = new Roost(context, readParts(context.extensionPath), output);
   roost = r;
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => r.onConfigChange(e)));
+  // Roost's own, whatever parts are on: the Settings page filtered to this extension's switches and the parts' settings
+  context.subscriptions.push(vscode.commands.registerCommand('roost.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:seanahn.roost')));
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
   r.ready = r.startAll().catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
   return r;

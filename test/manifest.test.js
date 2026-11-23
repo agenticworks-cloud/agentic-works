@@ -209,11 +209,12 @@ test('real tree builds', () => {
   // Every view and menu entry carries its part's switch; every icon path exists.
   const ids = { chirp: 'teams', jay: 'jira', kestrel: 'prs', perch: 'perch' };
   const switches = Object.values(ids).map((id) => `roost.${id}.enabled`);
-  const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()];
+  // (roost.openSettings is Roost's own, in no part's switch: asserted in its own test)
+  const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()].filter((e) => e.command !== 'roost.openSettings');
   for (const e of entries) assert.ok(switches.some((s) => e.when.startsWith(s)), JSON.stringify(e));
   // Every command of a part is gated in the Command Palette by that part's switch.
   const owner = { perch: 'perch', chirp: 'teams', jay: 'jira', kestrel: 'prs' };
-  for (const { command } of m.contributes.commands) {
+  for (const { command } of m.contributes.commands.filter((c) => c.command !== 'roost.openSettings')) {
     const want = `roost.${owner[command.split('.')[0]]}.enabled`;
     const entries = m.contributes.menus.commandPalette.filter((e) => e.command === command);
     assert.ok(entries.length && entries.every((e) => e.when.startsWith(want)), `${command} gated by ${want}`);
@@ -235,6 +236,30 @@ test('real tree builds', () => {
   walk(withPaths);
   assert.deepStrictEqual(m.extensionKind, ['workspace']);
   assert.deepStrictEqual(m.categories, ['AI', 'Chat']);
+});
+
+test('roost.openSettings is Roost\'s own: in no part\'s switch, on the Perch view\'s title bar', () => {
+  const m = buildManifest(root);
+  const cmd = m.contributes.commands.find((c) => c.command === 'roost.openSettings');
+  assert.deepStrictEqual([cmd.title, cmd.icon], ['Roost: Settings', '$(gear)']);
+  assert.deepStrictEqual(m.contributes.menus['view/title'].filter((e) => e.command === 'roost.openSettings'), [
+    { command: 'roost.openSettings', when: 'view == perch.main', group: 'navigation@99' },
+  ]);
+  assert.deepStrictEqual(m.contributes.menus.commandPalette.filter((e) => e.command === 'roost.openSettings'), [], 'always in the Command Palette');
+});
+
+test('roost.contributes.json merges without a part switch and may not clash with a part', () => {
+  const dir = fixture((t) => (t['roost.contributes.json'] = {
+    commands: [{ command: 'roost.x', title: 'Roost: X' }],
+    menus: { 'view/title': [{ command: 'roost.x', when: 'view == a.view' }] },
+  }));
+  const m = buildManifest(dir);
+  assert.ok(m.contributes.commands.some((c) => c.command === 'roost.x'));
+  assert.ok(m.contributes.menus['view/title'].some((e) => e.command === 'roost.x' && e.when === 'view == a.view'));
+  const clash = fixture((t) => (t['roost.contributes.json'] = { commands: [{ command: 'a.x', title: 'again' }] }));
+  assert.throws(() => buildManifest(clash), /duplicate command id a\.x/);
+  const odd = fixture((t) => (t['roost.contributes.json'] = { grammars: [] }));
+  assert.throws(() => buildManifest(odd), /roost\.contributes\.json.*grammars/);
 });
 
 test('checked-in manifest equals a fresh build', () => {

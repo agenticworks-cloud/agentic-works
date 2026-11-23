@@ -329,6 +329,11 @@
       {
         "command": "perch.codex.clearApiKey",
         "title": "Perch: Forget the OpenAI API Key for Codex"
+      },
+      {
+        "command": "roost.openSettings",
+        "title": "Roost: Settings",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
@@ -664,6 +669,11 @@
           "command": "perch.moveAllToEditor",
           "when": "roost.perch.enabled && (view == perch.main)",
           "group": "2_models@3"
+        },
+        {
+          "command": "roost.openSettings",
+          "when": "view == perch.main",
+          "group": "navigation@99"
         }
       ],
       "editor/title": [

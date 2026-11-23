@@ -164,6 +164,16 @@ function buildManifest(root) {
     }
     for (const ext of pkg.extensionPack || []) if (!extensionPack.includes(ext)) extensionPack.push(ext);
   }
+  // Roost's own contributions: not subject to any part's switch, since they stay while every part is off.
+  const ownFile = path.join(root, 'roost.contributes.json');
+  if (fs.existsSync(ownFile)) {
+    const own = readJson(ownFile);
+    for (const k of Object.keys(own)) {
+      if (!KNOWN_POINTS.has(k) || NO_PATHS.has(k)) throw new Error(`roost.contributes.json contributes ${k}, which build-manifest.js does not merge`);
+    }
+    for (const c of own.commands || []) claim('command', c.command, 'roost');
+    merge(contributes, own, 'roost.contributes.json contributes');
+  }
   contributes.configuration = { title: 'Roost', properties };
 
   const manifest = { ...roost, main: './src/extension.js', activationEvents, contributes };

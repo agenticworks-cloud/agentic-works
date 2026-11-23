@@ -852,6 +852,9 @@ assert.deepStrictEqual(rows().map((r) => r[0]), ['supertrend'], 'typing filters 
 $$('#past .row').filter(shown)[0].click(); assert.deepStrictEqual(out.pop(), { type: 'openPast', key: 'claude:c2' }, 'a click opens it');
 $('#past input').value = ''; $('#past input').dispatchEvent(new window.Event('input'));
 $('#past .refresh').click(); assert.deepStrictEqual(out.pop(), { type: 'pastRefresh' });
+// the last row of the explorer, whatever tab shows, is Settings; a click asks the host for them
+assert.deepStrictEqual($$('#past > *').pop().textContent, 'Settings', 'Settings, last');
+$$('#past > *').pop().click(); assert.deepStrictEqual(out.splice(0), [{ type: 'openSettings' }]);
 // the explorer's other tabs: what Claude Code (and Codex, for MCP) load here. A tab shows its list across the view; the choice
 // is told to the host, which keeps it; the search searches the tab showing; a click opens the file, at its entry where known
 host({ type: 'past', tab: 'sessions', failed: [], sessions: [{ key: 'claude:c1', kind: 'claude', title: 'gate run', when: '2m', open: false }], skills: [

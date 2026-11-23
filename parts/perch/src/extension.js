@@ -2219,6 +2219,7 @@ class PerchView {
       case 'openExternal': { const u = String(msg.url || ''); if (/^https:\/\/(chatgpt\.com|platform\.openai\.com|claude\.ai|console\.anthropic\.com)\//.test(u)) vscode.env.openExternal(vscode.Uri.parse(u)); return; }   // the vendors' own pages, nothing else
       case 'history': this.pickSession(); return;
       case 'pastRefresh': this.sendPast(); return;
+      case 'openSettings': Promise.resolve().then(() => vscode.commands.executeCommand('roost.openSettings')).catch(() => { /* Perch on its own: no Roost to answer */ }); return;
       case 'explorerTab': if (EXPLORER_TABS.includes(msg.tab)) this.context.globalState.update(EXPLORER_TAB_KEY, msg.tab); return;   // the tab the explorer shows, for next time
       case 'renamePast': { const p = this.pastByKey && this.pastByKey.get(String(msg.key)); if (p) this.renamePast(p).then(() => this.sendPast()); return; }
       case 'forkPast': { const p = this.pastByKey && this.pastByKey.get(String(msg.key)); if (p) this.forkPast(p); return; }

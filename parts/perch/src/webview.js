@@ -223,6 +223,8 @@ ${glyphCss}
   #past .row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #past .row .w { flex: none; font-size: 11px; color: var(--vscode-descriptionForeground); }
   #past .none { padding: 4px; }
+  #past .settings { margin-top: 6px; padding: 3px 4px; border-radius: 3px; cursor: pointer; color: var(--vscode-descriptionForeground); }
+  #past .settings:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
   #past .row .tw { flex: none; width: 12px; font-size: 10px; color: var(--vscode-descriptionForeground); text-align: center; }
   #past .row .tw:not(:empty) { cursor: pointer; }
   #past .file { padding: 2px 4px 2px 26px; border-radius: 3px; cursor: pointer; font-size: 12px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -555,7 +557,10 @@ ${glyphCss}
     };
     find.addEventListener('input', show);
     if (etabOn === 'sessions') sessionRows(rows); else itemRows(rows, etabOn);
-    box.append(hd, find, rows); show();
+    // last, whatever tab shows: Roost's settings (the host runs roost.openSettings where Roost is there to answer)
+    const settings = el('div', 'settings', 'Settings'); settings.title = 'Open the settings of this extension';
+    settings.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+    box.append(hd, find, rows, settings); show();
   }
   function sessionRows(rows) {
     const list = explorer.sessions, failed = explorer.failed;

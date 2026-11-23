@@ -103,6 +103,17 @@ test('enabled parts start, disabled do not', async () => {
   await extension.deactivate();
 });
 
+test('roost.openSettings is registered with every part off and opens Roost\'s settings', async () => {
+  const { ui, extension, base } = setup({ 'roost.teams.enabled': false, 'roost.jira.enabled': false, 'roost.prs.enabled': false, 'roost.perch.enabled': false });
+  await activate(extension, base);
+  assert.deepStrictEqual(activated(), []);
+  const opened = [];
+  ui.commands['workbench.action.openSettings'] = (...a) => opened.push(a);
+  await ui.vscode.commands.executeCommand('roost.openSettings');
+  assert.deepStrictEqual(opened, [['@ext:seanahn.roost']]);
+  await extension.deactivate();
+});
+
 test('every context key is set before any part starts', async () => {
   const { ui, extension, base } = setup({ 'roost.prs.enabled': false });
   ui.asyncSetContext = true;                          // applied later, in the order sent, as VS Code applies them

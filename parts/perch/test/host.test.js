@@ -1486,6 +1486,13 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     v.fire({ type: 'explorerTab', tab: 'nonsense' }); v.fire({ type: 'pastRefresh' }); await flush(); await flush();
     assert.strictEqual(v.past().tab, 'mcp', 'a tab that is not one is ignored');
     v.fire({ type: 'explorerTab', tab: 'sessions' });
+    // the Settings row: Roost's command opens its settings; standalone, with no such command, nothing shows
+    m.ui.commandAnswers = { 'roost.openSettings': () => undefined };
+    v.fire({ type: 'openSettings' }); await flush(); await flush();
+    assert.deepStrictEqual(m.ui.executedWith.filter(([id]) => id === 'roost.openSettings'), [['roost.openSettings']], 'the row runs Roost\'s settings command');
+    m.ui.commandAnswers = { 'roost.openSettings': () => { throw new Error("command 'roost.openSettings' not found"); } };
+    v.fire({ type: 'openSettings' }); await flush(); await flush();
+    assert.deepStrictEqual([m.ui.errors.length, m.ui.warnings.length], [0, 0], 'no Roost: nothing to say, nothing shown');
     assert.deepStrictEqual(m.store.lists.pop(), { dir: process.cwd(), limit: 200 }, 'the sessions of the workspace folder');
     // a row clicked: the session opens in a tab, as from the Sessions command, and the list says it is open
     const made = created.length;
