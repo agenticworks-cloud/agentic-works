@@ -1,6 +1,7 @@
 # 101 — Roost: Perch, chirp, jay and kestrel as one extension
 
-Proposal, 2026-11-23. Written against Perch 0.7.42, chirp 0.2.5, jay 0.2.4, kestrel 0.1.10.
+Built, 2026-11-23 (0.1.0). Written against Perch 0.7.42, chirp 0.2.5, jay 0.2.4, kestrel 0.1.10; imported at Perch
+0.7.44. How to build, install and use it: [README.md](../../README.md).
 
 ## Intent
 
@@ -62,7 +63,9 @@ through files in `~/.chirp` and `~/.jay`.
 
 `/git/roost`, pushed to `github.com/seanahn/roost` (public, like Perch). Each repo is imported once with
 a temporary clone of its `main` (kestrel's `master`) rewritten with `git filter-repo --to-subdirectory-filter
-parts/<name>` and merged with `--allow-unrelated-histories`, keeping full history, under `parts/<name>/`. Commit
+parts/<name>` and merged with `--allow-unrelated-histories`, keeping full history, under `parts/<name>/`, so `git
+log` and `git blame` work on the `parts/` paths (a first import that left each file with a one-commit log under its
+new path was redone this way). Commit
 SHAs inside Roost differ from the originals'; messages, authors and dates are kept. The layout
 is built so that **a future part is one more folder** under `parts/`, with nothing else edited by hand *(Sean)*:
 
@@ -86,7 +89,7 @@ roost/
 { "id": "teams", "title": "Teams", "entry": "src/extension.js", "needs": [] }
 ```
 
-`id` names its switch (`roost.<id>.enabled`) and its context key `roost.<id>.failed`; `title` is what settings and messages call it;
+`id` names its switch (`roost.<id>.enabled`) and the context key `roost.<id>.failed` Roost sets when it fails to start; `title` is what settings and messages call it;
 `entry` exports the part's `activate` (and `deactivate`); `needs` lists parts it cannot work without (none
 today: every existing link already tolerates the other part being absent). The part keeps its own
 `package.json` for its `contributes` block (and, for Perch, its npm dependencies), as today.
@@ -104,7 +107,7 @@ the parts: it reads every `parts/*/part.json` and that part's `package.json`, an
   `kestrel.*` settings and commands, the `perch`, `chirp` and `jay` activity-bar containers and the `kestrel`
   panel container, the webview types (`perch.session`, `chirp.conversation`, `jay.ticket`, `jay.page`). So the
   user's settings keep working and the C3 installer's activity-bar layout (c3securitytools' note 802) does not
-  change;
+  change, plus Roost's own `roost.openSettings` from `roost.contributes.json`;
 - `when: config.roost.<id>.enabled && !roost.<id>.failed` added to each part's views, menu entries (the Command
   Palette's included) and keybindings, combined with any `when` the part already has (view containers take no
   `when`: VS Code hides one whose views are all hidden);
@@ -117,7 +120,8 @@ the parts: it reads every `parts/*/part.json` and that part's `package.json`, an
 It **fails** on any id two parts both contribute, on a part without `part.json`, and on a `needs` that names no
 part. A test checks that the checked-in manifest equals a fresh build, so a part's change without `make
 manifest` fails the tests rather than shipping a stale manifest. Roost's own identity (name, version,
-publisher, icon) lives in a small `roost.json` the script starts from. *(my call)*
+publisher, icon, `extensionKind: ["workspace"]` so it runs beside the code over Remote-SSH, categories AI and Chat)
+lives in a small `roost.json` the script starts from. *(my call; extensionKind and categories: build)*
 
 ### Parts, and switching them
 
@@ -139,15 +143,25 @@ same `part.json` files at runtime, so it has no list of parts to edit either.
 - A part's own background work (chirp's and kestrel's pollers, jay's mirror, Perch's timers) must stop with the
   part. Where a part keeps a timer outside its subscriptions today (Perch's `ticketTimer`, `firstStartTimer`,
   cleared only by its own `dispose`), Roost's tests check that stopping the part leaves no timer running.
+- **Parts start side by side** (`Promise.allSettled`), and Roost's `activate` does not wait for them, so one part
+  that hangs holds up neither the others nor Roost. A start or stop that fails is logged and that part's later
+  switches still run.
 - **Retry:** switching a part off and on again retries a part that failed to start. From a failed start until
   the next good one, `roost.<id>.failed` is true (no icon or commands), whatever the setting says. *(my call)*
 - **Switching a part off with tabs open** works like closing the window for that part *(my call)*: its editor
   tabs close, its agents stop, and its own saved tab list is kept, so switching it on again restores them as a
-  window reload does. If a Perch turn is running, Roost asks first ("Stop the running turn and close Perch's
-  tabs?"); cancelling sets the setting back to on.
+  window reload does. Before stopping a part Roost calls its `confirmStop()` if it exports one; `false` puts the
+  setting back on, at the scope it was changed in. Perch's asks while a turn runs ("Stop the running turn and
+  close Perch's tabs?"). chirp and jay kept no tab list of their own before Roost, so both got one in the build:
+  the open conversations (with their titles), tickets and pages, in `workspaceState`; their `confirmStop()` only
+  marks the stop as a switch-off, so their tabs close and stay listed. On start they reopen, after a 4-second wait
+  for VS Code's own restore, any listed tab VS Code did not bring back; a listed tab that was never shown and that
+  the user closes is forgotten.
 - **A part that is off at startup:** Roost still registers that part's webview serializers, so tabs VS Code
   restores for it are not lost: they are closed quietly and the part's saved tab list kept, so switching the
-  part on brings them back. *(my call)*
+  part on brings them back. *(my call)* Roost also tracks every serializer a part registers itself, by webview
+  type, and removes it when the part stops or fails, so a part that threw after registering one (jay registers
+  its outside its subscriptions) can be retried without "already registered".
 - **Commands of a part that is off** are not registered (the part registers them in its `activate`). A call to
   one from another part, a keybinding or a script fails as a missing command does today when the other
   extension is not installed; existing callers already handle that.
@@ -201,6 +215,11 @@ list and Perch's remembered tab state start empty. Files in `~/.chirp`, `~/.jay`
 records are shared and carry over. No migration. *(my call: one sign-in, for one user, is cheaper than
 migration code.)*
 
+### Keybindings
+
+A part's keybindings carry the same `when` as its views and commands, so a chord stays unbound while its part is
+off. *(build)*
+
 ### Tests and packaging
 
 `make test` runs each part's existing suite from its folder (Perch's `make test-offline` and `make test`,
@@ -208,7 +227,18 @@ the others' `make test`), plus Roost's own tests: the manifest (a fresh build eq
 duplicate ids; every view and menu of a part carries its `when`), starting and stopping parts, and isolation.
 Adding a part: its folder with `part.json` under `parts/`, then `make manifest` and `make test`. `make package` builds one
 `.vsix`; `make install` symlinks Roost into the extension folders as `seanahn.roost-<version>`, the pattern
-Perch uses. Roost starts at version 0.1.0.
+Perch uses. Roost starts at version 0.1.0. `make deps` runs `npm ci` against the checked-in root lockfile, then in
+each part. The package test (`make test-package`, which packages first) is outside `make test`, which must not need
+a built artifact.
+
+vsce reads only the root `.vscodeignore`, so Perch's exclusions moved there: the agents' platform programs (the
+Claude Agent SDK's and Codex's per-platform packages, hundreds of megabytes; Perch runs the ones inside the
+vendors' own extensions), source maps, Markdown, lockfiles, tests, docs, `__pycache__`, Perch's audio companion,
+and the files only the manifest build reads (`roost.json`, `roost.contributes.json`, `.gitignore`). Excluding
+`node_modules/**/*.md` also dropped licence files (the Claude Agent SDK's licence is its README), so scoped `!`
+lines bring every dependency's `LICENSE*`/`LICENCE*` back without re-including the agents' programs. The `.vsix`
+went from 495 MB to 10 MB; the package test checks the exclusions, the licence files and a size under 20 MB.
+The root `LICENSE` is MIT (Sean Ahn, 2026), as each part's is.
 
 ## Flows
 
@@ -261,9 +291,9 @@ The import:
 - For a part that is off, Roost registers a serializer for each of its webview types (from its
   `onWebviewPanel:` activation events) that closes restored panels, and removes it before starting the part.
   Where stopping a part today clears its saved tab list (Perch's `dispose` closing the window), a stop keeps it.
-- A part's views and commands are gated on its setting and `roost.<id>.failed`
-  (`config.roost.<id>.enabled && !roost.<id>.failed`), not on a context key `roost.<id>.enabled` Roost would
-  set: settings context keys exist from the first frame, so icons do not arrive late and restored sidebars are
+- A part's views, menus, palette entries and keybindings are gated on its setting and `roost.<id>.failed`
+  (`config.roost.<id>.enabled && !roost.<id>.failed`), not on a key Roost would set when it starts the part:
+  settings context keys exist from the first frame, so icons do not arrive late and restored sidebars are
   not lost. Roost clears every `roost.<id>.failed` as it starts and sets it for a part that fails; switching a
   part off or on, and closing the window, set no key. *(final review, Ruling 10)*
 - Roost's own contributions (the `roost.openSettings` command and its gear on the Perch view's title) live in
@@ -272,7 +302,8 @@ The import:
 - `make deps / test / test-live / manifest / install / package`; the `.vsix` carries the root `node_modules`
   only; perch-audio is still built and published from `parts/perch/audio` as its own package.
 
-Plan: `docs/superpowers/plans/2026-11-23-roost.md` (deleted when the work merges).
+Built: branch `feat/roost-0.1`; the plan's last commit: <this commit>. The plan
+(`docs/superpowers/plans/2026-11-23-roost.md`) is deleted; this note is the record.
 
 ## Follow-ups (after this project)
 
@@ -300,6 +331,8 @@ Plan: `docs/superpowers/plans/2026-11-23-roost.md` (deleted when the work merges
 
 ## Verification
 
+What was asked:
+
 - `make test` green; a fresh window with Roost and none of the four standalone extensions shows the Perch,
   Teams and Jira & Confluence icons and the PRs panel tab; each part works as its standalone did.
 - Turning each part off hides its icon or tab and its commands at once, and stops its polling; turning it on
@@ -308,3 +341,34 @@ Plan: `docs/superpowers/plans/2026-11-23-roost.md` (deleted when the work merges
 - `git log -- parts/perch/src/extension.js` in Roost shows Perch's full history.
 - A throwaway fifth part (a folder with `part.json` and one view) appears with its own switch after `make
   manifest`, with no other file edited.
+
+What was found (2026-11-23):
+
+- **History:** after the filter-repo import every source commit of a part's file is in Roost's log of it
+  (commit counts 194 / 35 / 21 / 42 for Perch, chirp, jay, kestrel; identical trees and blobs); `make test`'s
+  import test checks it against the imported commits.
+- **Fifth part:** a throwaway `parts/zz-demo/` (part.json, a view container, a view, a command) got its switch
+  `roost.demo.enabled` after the four, its view gated on it and its command in the palette gated too, and the
+  loader found it, with only `package.json` regenerated. The first run failed one of Roost's own tests, which
+  listed the four parts by hand; the tests now take the parts from `parts/`, and with the demo present `make
+  manifest && make test` passes with nothing but `package.json` and the new folder changed. After removing it,
+  `make manifest` gives a byte-identical `package.json`.
+- **Live run** (Sean; a separate VS Code 1.129 profile; Roost symlinked by `make install`): a Perch tab ran a
+  Claude turn (the vendors' programs were found); the Perch explorer showed the Settings row and the gear; both
+  opened Settings filtered to Roost with the four switches first; Teams switched off and on again, its icon back;
+  first start opened the PRs panel, which listed a real open PR; Roost's output log stayed empty (no part failure,
+  no serializer warning). The settings sections and the first-start PRs tab were added during this run.
+- **Not checked live:** the Teams and Jira & Confluence views' content, the PRs and Jira switches, a part made to
+  throw (covered by the loader's tests only), and tabs restored across a part that is off at startup (covered by
+  the loader's and the parts' tests only).
+
+## Parked
+
+- The loader ignores `needs` at runtime: the manifest build checks that it names parts, and no part uses it.
+- chirp and jay reopen their saved tabs after 4 seconds even where VS Code chose not to restore them (the cost
+  of their tab lists, accepted).
+- While Perch's stop question is open the setting already reads off, so Perch's sidebar hides; on Cancel the icon
+  returns but the sidebar does not refocus Perch. One click; no data lost.
+- chirp's and jay's tab lists match unrevived tabs by title: two tabs with one title (chirp's "Teams chat" before
+  its list loads) can drop the wrong entry, and an unrevived tab moved between groups goes to the end of the list.
+- The PRs switch's label in Settings reads "Prs": VS Code derives the label from the key.
