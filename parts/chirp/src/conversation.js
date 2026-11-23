@@ -53,6 +53,7 @@ class Conversations {
    * @param o.onRead(chatId)    a chat was marked read (the sidebar un-bolds it)
    * @param o.onOpened(key)     a conversation was opened (its mention clears)
    * @param o.addPoller(run, everyMs)
+   * @param o.saved             the open tabs, kept for a host that closes them (savedTabs.js); optional
    */
   constructor(o) {
     Object.assign(this, o);
@@ -60,16 +61,18 @@ class Conversations {
     this.front = null;   // the tab most recently in front
   }
 
-  open(ref) {
+  /** `preserveFocus`: a tab opened again from the saved list, not by the user. */
+  open(ref, { preserveFocus = false } = {}) {
     const key = keyOf(ref);
     const tab = this.tabs.get(key);
     if (tab) { tab.panel.reveal(); if (tab.loaded) this.onOpened(key); return tab; }
-    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, this.titleFor(ref), vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')] });
+    const where = preserveFocus ? { viewColumn: vscode.ViewColumn.Active, preserveFocus: true } : vscode.ViewColumn.Active;
+    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, this.titleFor(ref), where, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')] });
     return this.attach(panel, ref);
   }
 
   restore(panel, state) {
-    if (!state || !state.ref) { panel.dispose(); return; }
+    if (!state || !state.ref || this.tabs.has(keyOf(state.ref))) { panel.dispose(); return; }   // no memory, or reopened already
     this.attach(panel, state.ref);
   }
 
@@ -93,6 +96,7 @@ class Conversations {
     const tab = { key, ref: this.named(ref), panel, messages: [], next: null, pendingRead: false, loaded: false, poller: null };
     this.tabs.set(key, tab);
     panel.title = this.titleFor(tab.ref);
+    if (this.saved) this.saved.opened(key, tab.ref, panel.title);
     panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'teams-tab.svg');
     panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')] };
     panel.webview.html = this.html(panel.webview);
@@ -104,6 +108,7 @@ class Conversations {
     panel.onDidDispose(() => {
       if (tab.poller) (tab.poller.remove || tab.poller.stop)();
       this.tabs.delete(key);
+      if (this.saved) this.saved.closed(key);
       if (this.front === tab) this.front = null;
       if (this.mirror.pathFor(tab.ref.id)) this.mirror.closed(tab.ref.id);
     });

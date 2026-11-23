@@ -72,13 +72,13 @@ function start(world, o = {}) {
   world.marked = world.marked || []; world.messages = world.messages || {};
   const fetch = graph(world);
   const watched = [];
-  const context = { extensionUri: { fsPath: path.join(__dirname, '..') }, globalState: o.memento || memento(), subscriptions: [] };
+  const context = { extensionUri: { fsPath: path.join(__dirname, '..') }, globalState: o.memento || memento(), workspaceState: o.workspaceState || memento(), subscriptions: [] };
   // the 0.1.x tests run under the token-file method; o.method picks another, with no token file configured
   ui.config['chirp.signIn.method'] = o.method || 'auto';
   ui.config['chirp.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
   ui.config['chirp.agentFiles'] = true;
   const sec = o.secrets || secrets();
-  const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: (f, opts, fn) => watched.push(fn), unwatchFile: () => {}, secrets: sec, sleep: async () => {}, clientId: 'cid' });
+  const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: (f, opts, fn) => watched.push(fn), unwatchFile: () => {}, secrets: sec, sleep: async () => {}, clientId: 'cid', restoreGraceMs: o.restoreGraceMs });
   const h = { api, fetch, dir, context, watched, world, secrets: sec };
   running.push(h);
   return h;
@@ -271,6 +271,74 @@ test('a tab restored after reload loads its chat', async () => {
   panel.webview._receive({ type: 'ready' }); await settle();
   assert.ok(panel.webview.posted.some((x) => x.type === 'messages'));
   panel.dispose(); h.api.dispose();
+});
+
+// Roost switches chirp off (confirmStop, then deactivate) and on again (activate) in the same window
+const OTHER = '19:0b5c3d7e9f1a2b4c6d8e0f1a3b5c7d9e@thread.v2';
+function twoChats() {
+  const w = chatWorld();
+  w.chats.push(chat(OTHER, { topic: 'Ops Chat', lastMessagePreview: msg('o1', 'b', '2026-11-17T10:00:00Z') }));
+  w.messages[OTHER] = [msg('o1', 'b', '2026-11-17T10:00:00Z', 'hi')];
+  return w;
+}
+const openRefs = () => ui.panels.filter((p) => !p.disposed).map((p) => p.webview.posted.find((x) => x.type === 'init')).map((i) => i && i.ref.id);
+
+test('tabs come back after off/on', async () => {
+  ui.focused = true; ui.panels.length = 0;
+  const ws = memento();
+  const h = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar(); await settle();
+  await openTab(h, PLAT); await openTab(h, OTHER);
+  assert.strictEqual(await ext.confirmStop(), true, 'chirp never says no');
+  ext.deactivate();
+  assert.ok(ui.panels.every((p) => p.disposed), 'its tabs close with it');
+
+  const h2 = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar();
+  for (const p of ui.panels.filter((q) => !q.disposed)) p.webview._receive({ type: 'ready' });
+  await settle(60);
+  assert.deepStrictEqual(openRefs(), [PLAT, OTHER], 'the same two, at once and once');
+  assert.deepStrictEqual(ui.panels.filter((p) => !p.disposed).map((p) => p.title), ['Design Team Chat', 'Ops Chat']);
+  h2.api.dispose();
+});
+
+test('a tab closed by the user is not reopened; the window closing keeps them', async () => {
+  ui.focused = true; ui.panels.length = 0;
+  const ws = memento();
+  const h = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar(); await settle();
+  const a = await openTab(h, PLAT); await openTab(h, OTHER);
+  a.dispose();
+  ext.deactivate();                                    // no confirmStop: the window closing, which leaves the tabs to VS Code
+  assert.strictEqual(ui.panels.filter((p) => !p.disposed).length, 1, 'the tab stays, for VS Code to restore');
+  for (const p of ui.panels) p.dispose();              // and VS Code closes it with the window
+
+  ui.panels.length = 0;
+  const h2 = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar();
+  // VS Code restores it after the reload: it is not opened a second time
+  const back = require('vscode').window.createWebviewPanel('chirp.conversation', 'Ops Chat', 1, {});
+  await ui.serializer.deserializeWebviewPanel(back, { ref: { kind: 'chat', id: OTHER } });
+  await settle(60);
+  assert.deepStrictEqual(ui.panels.filter((p) => !p.disposed), [back], 'only the restored one');
+  h2.api.dispose();
+});
+
+test('off at startup: a tab Roost closed comes back when chirp starts', async () => {
+  ui.focused = true; ui.panels.length = 0;
+  const ws = memento();
+  const h = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar(); await settle();
+  await openTab(h, PLAT);
+  ext.deactivate(); for (const p of ui.panels) p.dispose();   // the window closes
+  // the next window: chirp is off, and Roost's serializer closes the tab VS Code restores
+  ui.panels.length = 0;
+  require('vscode').window.createWebviewPanel('chirp.conversation', 'Design Team Chat', 1, {}).dispose();
+  const h2 = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar();
+  assert.strictEqual(ui.panels.filter((p) => !p.disposed).length, 0, 'not at once: VS Code may still bring it back');
+  await settle(60);
+  for (const p of ui.panels.filter((q) => !q.disposed)) p.webview._receive({ type: 'ready' });
+  await settle();
+  assert.deepStrictEqual(openRefs(), [PLAT], 'opened after the wait');
+  const again = require('vscode').window.createWebviewPanel('chirp.conversation', 'Design Team Chat', 1, {});
+  await ui.serializer.deserializeWebviewPanel(again, { ref: { kind: 'chat', id: PLAT } });
+  assert.strictEqual(again.disposed, true, 'a late restore of the same chat is closed, not a second tab');
+  h2.api.dispose();
 });
 
 test('a closed tab does not poll again after sign-in comes back', async () => {
@@ -530,6 +598,7 @@ test('conversation tabs carry the Teams icon', async () => {
   const h = start(chatWorld()); ui.resolveSidebar(); await settle();
   const panel = await openTab(h, PLAT);
   assert.ok(panel.iconPath && /media[\\/]teams-tab\.svg$/.test(panel.iconPath.fsPath), 'a chat tab');
+  panel.dispose();                                     // a restored tab for a chat that already has one is closed
   const restored = require('vscode').window.createWebviewPanel('chirp.conversation', 'old', 1, {});
   await ui.serializer.deserializeWebviewPanel(restored, { ref: { kind: 'chat', id: PLAT } });
   assert.ok(restored.iconPath && /teams-tab\.svg$/.test(restored.iconPath.fsPath), 'a tab restored after a reload');
@@ -724,7 +793,7 @@ function startWithTicks(world, o = {}) {
   fs.writeFileSync(tokenFile, JSON.stringify({ access_token: o.token || MY_TOKEN, refresh_token: 'r', client_id: 'c', tenant_id: 'tid', expires_at: Date.now() / 1000 + 3600 }));
   world.marked = []; world.messages = world.messages || {};
   const fetch = graph(world);
-  const context = { extensionUri: { fsPath: path.join(__dirname, '..') }, globalState: o.memento || memento(), subscriptions: [] };
+  const context = { extensionUri: { fsPath: path.join(__dirname, '..') }, globalState: o.memento || memento(), workspaceState: o.workspaceState || memento(), subscriptions: [] };
   ui.config['chirp.signIn.method'] = o.method || 'auto';
   ui.config['chirp.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
   ui.config['chirp.agentFiles'] = true;

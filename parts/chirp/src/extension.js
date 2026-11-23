@@ -13,10 +13,12 @@ const { createMentionState, scanChannelMentions } = require('./mentions');
 const { Sidebar } = require('./sidebar');
 const { createMirror } = require('./mirror');
 const { Conversations, VIEW_TYPE } = require('./conversation');
+const { createSavedTabs } = require('./savedTabs');
 
 const CHAT_LIST_MS = 30000;
 const CHECK_PARALLEL = 4;
 const LISTS_KEY = 'chirp.lists';
+const OPEN_TABS_KEY = 'chirp.openTabs.v1';   // workspaceState: the conversation tabs open in this workspace (savedTabs.js)
 const CHANNELS_WANTED = 'chirp.channelsWanted';
 const USER_SIGNED_OUT = 'chirp.userSignedOut';   // shared by windows, kept across reloads: only Sign In clears it
 const NO_TOKEN_FILE = 'Set chirp.signIn.tokenFile to the token file to use.';
@@ -32,7 +34,8 @@ const expandHome = (p) => (p && p.startsWith('~') ? path.join(os.homedir(), p.sl
 let current = null;
 
 /**
- * @param deps for tests: fetch, chirpDir, watchFile, unwatchFile, setInterval, clearInterval, secrets, sleep, clientId
+ * @param deps for tests: fetch, chirpDir, watchFile, unwatchFile, setInterval, clearInterval, secrets, sleep, clientId,
+ *             restoreGraceMs
  * @returns the running extension: refresh(), dispose(), and its parts for the later wiring
  */
 function activate(context, deps = {}) {
@@ -303,8 +306,11 @@ function activate(context, deps = {}) {
   };
 
   const mirror = createMirror({ dir: deps.chirpDir || path.join(os.homedir(), '.chirp'), enabled: () => cfg('agentFiles') !== false });
+  // the open tabs, for a host that switches chirp off and on again in one window (Roost)
+  const saved = createSavedTabs({ state: context.workspaceState, key: OPEN_TABS_KEY, viewType: VIEW_TYPE, tabGroups: vscode.window.tabGroups, graceMs: deps.restoreGraceMs });
+  let switchingOff = false;   // confirmStop said yes: dispose closes the tabs, which a window closing leaves to VS Code
   const conversations = new Conversations({
-    api, g, mirror, log, isFocused, extensionUri: context.extensionUri,
+    saved, api, g, mirror, log, isFocused, extensionUri: context.extensionUri,
     me: ensureMe, meId: () => (s.me ? s.me.id : null), tenantId: () => auth.tenantId(),
     getChat: (id) => s.chats.find((c) => c.id === id), getChannel,
     addPoller: (run, everyMs) => addPoller(run, everyMs),
@@ -397,7 +403,10 @@ function activate(context, deps = {}) {
     if (s.signedOut) { if (userOut()) return; try { await auth.accessToken(); await authenticated(); } catch (_) { return; } return; }
     try { await guarded(pollChats)(); } catch (_) { /* shown as a status; the poller backs off */ }
   }
-  function dispose() { for (const p of pollers) p.stop(); stopWatching(); }
+  function dispose() {
+    if (switchingOff) saved.switchOff(() => conversations.closeAll()); else saved.windowClosing();
+    for (const p of pollers) p.stop(); stopWatching();
+  }
 
   // the lists from the last run show at once; the first polls replace them
   const cached = context.globalState.get(LISTS_KEY);
@@ -408,10 +417,22 @@ function activate(context, deps = {}) {
   // a first run has nothing cached: the sidebar says it's loading until each list's first answer
   sidebar.update({ signIn: null, account: null, channels: s.channels, chatsLoaded: !!cached, teamsLoaded: !!(cached && cached.teams && cached.teams.length) });
   startUp().catch(log);
-  current = { mentionPoller, teamsPoller, teamRows, pollers, refresh, dispose, g, api, get auth() { return auth; }, mentions, sidebar, mirror, conversations, log, state: s, addPoller, chatPoller, isFocused, onPollError, chatRows };
+  saved.restore({
+    isOpen: (key) => conversations.tabs.has(key),
+    open: (e) => conversations.open(e.data, { preserveFocus: true }),
+    openTitles: () => [...conversations.tabs.values()].map((t) => t.panel.title),
+  });
+  current = { switchOff: () => { switchingOff = true; }, mentionPoller, teamsPoller, teamRows, pollers, refresh, dispose, g, api, get auth() { return auth; }, mentions, sidebar, mirror, conversations, log, state: s, addPoller, chatPoller, isFocused, onPollError, chatRows };
   return current;
 }
 
 function deactivate() { if (current) current.dispose(); current = null; }
 
-module.exports = { activate, deactivate, CHAT_LIST_MS };
+/** Asked by a host that switches chirp off while the window stays open (Roost), just before it does: chirp never says
+ *  no, and the stop then closes its tabs, keeping the list of them to open again when it is switched on. */
+async function confirmStop() {
+  if (current) current.switchOff();
+  return true;
+}
+
+module.exports = { activate, deactivate, confirmStop, CHAT_LIST_MS };
