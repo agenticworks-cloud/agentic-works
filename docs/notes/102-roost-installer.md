@@ -81,9 +81,10 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    name; Roost still works, but Perch's tabs need Claude Code or ChatGPT to run an agent, which the line says.
 4b. **GitHub, for the PRs panel.** kestrel reads pull requests through the GitHub CLI and cannot sign in by itself, so:
    install `gh` if missing (Homebrew; GitHub's apt / rpm repository, as the C3 installer does), then, if `gh auth
-   status` fails, ask "Sign in to GitHub now, for the PRs panel? [Y/n]" and run `gh auth login --web` on Y. No
-   terminal, or `n`: `– GitHub: run \`gh auth login\` to see your pull requests`. `--yes` does not answer this one
-   (a browser sign-in is never automatic). *(my call)*
+   status` fails, ask "Sign in to GitHub now, so Roost can show your pull requests? [Y/n]" and run `gh auth login
+   --web` on Y; after a sign-in, the line under it says `gh auth login` may have set git's credential helper in
+   `~/.gitconfig`. No terminal, or `n`: `– GitHub: run \`gh auth login\` to see your pull requests`. `--yes` does not
+   answer this one (a browser sign-in is never automatic). *(my call)*
 5. **The look** (note 101, *Follow-ups*), in the user settings file, each key only if not already set; a settings
    file with comments is never rewritten (the lines are printed instead):
    - `"chat.disableAIFeatures": true` — VS Code's built-in Copilot off; Roost's tabs take its place;

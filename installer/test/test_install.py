@@ -1080,15 +1080,17 @@ class TestGitHub(_Installer):
         self.assertIn("  ✓ GitHub (already)\n      signed in as octocat\n", out)
         self.assertNotIn("Sign in to GitHub", out)
         self.assertEqual(self.logged("gh auth login"), [])
+        self.assertNotIn("credential helper", out)  # this run signed nothing in
 
     def test_gh_sign_in_on_yes(self) -> None:
         self.gh_auth.unlink()
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("", "for-gh")))
         self.assertEqual(rc, 0, out)
-        self.assertIn("      Sign in to GitHub now, for the PRs panel? [Y/n]", out)
+        self.assertIn("      Sign in to GitHub now, so Roost can show your pull requests? [Y/n]", out)
         self.assertEqual(len(self.logged("gh auth login --web")), 1, self.stub_log())
         self.assertEqual(self.logged("gh-stdin"), ["gh-stdin for-gh"])  # gh read the terminal
-        self.assertIn("  ✓ GitHub (signed in as octocat)", out)
+        self.assertIn("  ✓ GitHub (signed in as octocat)\n"
+                      "      `gh auth login` may have set git's credential helper in ~/.gitconfig\n", out)
 
         # n: no sign-in, a note instead.
         self.gh_auth.unlink()
@@ -1097,6 +1099,7 @@ class TestGitHub(_Installer):
         self.assertEqual(rc, 0, out)
         self.assertIn("  – GitHub: run `gh auth login` to see your pull requests", out)
         self.assertEqual(self.logged("gh auth login"), [])
+        self.assertNotIn("credential helper", out)
 
         # A sign-in that doesn't finish is ✗.
         self.log.write_text("")

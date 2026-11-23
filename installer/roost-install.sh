@@ -824,7 +824,7 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
     fi
     return 0
   fi
-  ask_yn "Sign in to GitHub now, for the PRs panel? [Y/n]"
+  ask_yn "Sign in to GitHub now, so Roost can show your pull requests? [Y/n]"
   rc=$?
   if [ "$rc" != 0 ]; then
     step_end skipped "${installed}run \`gh auth login\` to see your pull requests"
@@ -834,6 +834,7 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
   if gh_signed_in; then
     user=$(github_user)
     step_end done "${installed}signed in${user:+ as $user}"
+    step_say "\`gh auth login\` may have set git's credential helper in ~/.gitconfig"
   else
     step_end failed "${installed}gh auth login didn't finish; run \`gh auth login\` to see your pull requests"
   fi
