@@ -18,11 +18,13 @@ class Roost {
   constructor(base, parts, output) {
     this.base = base;
     this.output = output;
-    // id → { part, state: 'on'|'off'|'failed', failed, context, module, queue, closers }
-    // `failed`: what roost.<id>.failed was last set to
+    // id → { part, state: 'on'|'off'|'failed', failed, context, module, queue, closers, serializers }
+    // `failed`: what roost.<id>.failed was last set to; `serializers`: the part's own, however it registered them
     this.parts = new Map(parts.map((part) => [part.id, {
-      part, state: 'off', failed: false, context: null, module: null, queue: Promise.resolve(), closers: null,
+      part, state: 'off', failed: false, context: null, module: null, queue: Promise.resolve(), closers: null, serializers: new Set(),
     }]));
+    this.owners = new Map();           // webview type → its part's entry
+    for (const e of this.parts.values()) for (const type of e.part.webviews) this.owners.set(type, e);
   }
 
   state(id) { return this.entry(id).state; }
@@ -114,7 +116,7 @@ class Roost {
     e.closers = [];
     for (const type of e.part.webviews) {
       try {
-        e.closers.push(vscode.window.registerWebviewPanelSerializer(type, { deserializeWebviewPanel: async (panel) => panel.dispose() }));
+        e.closers.push(this.registerSerializer(type, { deserializeWebviewPanel: async (panel) => panel.dispose() }));
       } catch (err) {   // the part left one of its own registered
         this.log(`${e.part.title}: tabs of ${type} cannot be closed while it is off: ${errorText(err)}`);
       }
@@ -126,10 +128,33 @@ class Roost {
     e.closers = null;
   }
 
-  // Disposes the part's subscriptions, each on its own, then calls its deactivate.
+  // Every serializer a part registers is noted against the part that owns its webview type, so one it keeps
+  // outside its subscriptions (or leaves behind when it throws) is still removed when it stops or fails. Roost's own
+  // tab closers go through VS Code's function directly. Where the function cannot be replaced, nothing is noted.
+  trackSerializers() {
+    const w = vscode.window;
+    const register = w.registerWebviewPanelSerializer;
+    this.registerSerializer = (type, s) => register.call(w, type, s);
+    const tracked = (type, s) => {
+      const d = register.call(w, type, s);
+      const e = this.owners.get(type);
+      if (e) e.serializers.add(d);
+      return d;
+    };
+    try {
+      w.registerWebviewPanelSerializer = tracked;
+      this.untrackSerializers = () => { if (w.registerWebviewPanelSerializer === tracked) w.registerWebviewPanelSerializer = register; };
+    } catch (err) {
+      this.log(`Roost cannot note the parts' webview serializers: ${errorText(err)}`);
+    }
+  }
+
+  // Disposes the part's subscriptions and serializers, each on its own, then calls its deactivate.
   async release(e) {
     const { part, context } = e;
-    for (const d of context ? context.subscriptions.splice(0) : []) {
+    const serializers = [...e.serializers];
+    e.serializers.clear();
+    for (const d of [...(context ? context.subscriptions.splice(0) : []), ...serializers]) {
       try {
         if (d && typeof d.dispose === 'function') d.dispose();
       } catch (err) {
@@ -157,6 +182,7 @@ class Roost {
   // others. Nothing here is awaited before the parts' activate calls, so each part registers its serializers before
   // VS Code restores its tabs, as it does when it is an extension of its own.
   async startAll() {
+    this.trackSerializers();
     const keys = [...this.parts.values()].map((e) => this.setFailed(e, false));
     const starts = [];
     for (const [id, e] of this.parts) {
@@ -181,6 +207,7 @@ class Roost {
     this.closed = true;
     await Promise.all([...this.parts.keys()].map((id) => this.stop(id)));
     for (const e of this.parts.values()) this.stopClosingTabs(e);
+    if (this.untrackSerializers) this.untrackSerializers();
   }
 }
 

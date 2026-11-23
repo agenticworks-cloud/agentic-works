@@ -185,8 +185,38 @@ test('a part that throws after registering its own serializer still fails cleanl
   assert.strictEqual(roost.state('jira'), 'failed');
   assert.strictEqual(ui.contexts['roost.jira.failed'], true);
   assert.deepStrictEqual(ui.errors, [{ message: 'Roost: Jira & Confluence could not start.', items: ['Show Log'] }]);
+  assert.strictEqual(ui.restorePanel('jay.ticket').disposed, true, 'its leftover serializer is removed, so its tabs close too');
   assert.strictEqual(ui.restorePanel('jay.page').disposed, true, 'its other type is still closed while it is off');
+  assert.ok(!ui.out.some((l) => l.includes('cannot be closed')), JSON.stringify(ui.out));
   await extension.deactivate();
+});
+
+test('a part that left a serializer outside its subscriptions can be retried', async () => {
+  const { ui, extension, base } = setup();
+  const original = ui.vscode.window.registerWebviewPanelSerializer;
+  let fail = true;
+  fake.parts.jira = {
+    activate: () => {
+      ui.vscode.window.registerWebviewPanelSerializer('jay.ticket', { deserializeWebviewPanel: async (p) => { p.restoredBy = 'jay'; } });   // not in its subscriptions
+      if (fail) throw new Error('boom');
+    },
+  };
+  const roost = await activate(extension, base);
+  assert.strictEqual(roost.state('jira'), 'failed');
+  fail = false;
+  await setEnabled(ui, 'jira', false);
+  await setEnabled(ui, 'jira', true);
+  assert.strictEqual(roost.state('jira'), 'on', ui.out.join('\n'));
+  assert.strictEqual(ui.contexts['roost.jira.failed'], false);
+  assert.strictEqual(ui.restorePanel('jay.ticket').restoredBy, 'jay');
+  // a normal stop removes it too, and the part starts again
+  await setEnabled(ui, 'jira', false);
+  assert.strictEqual(ui.restorePanel('jay.ticket').disposed, true, 'closed while off');
+  await setEnabled(ui, 'jira', true);
+  assert.strictEqual(roost.state('jira'), 'on', ui.out.join('\n'));
+  await extension.deactivate();
+  assert.deepStrictEqual(Object.keys(ui.serializers), [], 'none left once Roost stops');
+  assert.strictEqual(ui.vscode.window.registerWebviewPanelSerializer, original, "VS Code's own function is put back");
 });
 
 test('readParts lists parts in folder order', async () => {
