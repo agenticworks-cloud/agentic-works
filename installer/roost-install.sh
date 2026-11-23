@@ -59,6 +59,7 @@ SUDO=""
 TTY_OPEN=0
 CLASH=""  # why Roost can't go in beside the standalone four; when set, Roost fails and the steps after it stay out
 VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
+INLINED_HELPER=""  # the released script's own copy of the helper, written to a private temp file at start
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
 
 # ---- the checklist -------------------------------------------------------------------------------------------
@@ -766,15 +767,25 @@ HELPER_OUT=""
 PYTHON=""  # the python3 the helper runs with; python_ok finds it
 PYTHON_WHY=""  # why there is none, when python_ok is false
 
-helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, or the one beside this script
+write_inlined_helper() {  # a released script carries the helper as a here-document (make release fills this in)
+  # @INLINED_HELPER@
+  return 1
+}
+
+helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, the one beside this script, or the inlined one
   local here
   if [ -n "${ROOST_INSTALL_HELPER:-}" ]; then
     printf '%s' "$ROOST_INSTALL_HELPER"
     return 0
   fi
   here=$(dirname "${BASH_SOURCE[0]:-$0}")
-  [ -f "$here/roost-install-helper" ] || return 1
-  printf '%s' "$here/roost-install-helper"
+  if [ -f "$here/roost-install-helper" ]; then
+    printf '%s' "$here/roost-install-helper"
+  elif [ -n "$INLINED_HELPER" ]; then
+    printf '%s' "$INLINED_HELPER"
+  else
+    return 1
+  fi
 }
 
 python_ok() {  # true when there is a python3 to run the helper with (in PYTHON); else PYTHON_WHY says why not
@@ -953,6 +964,7 @@ parse_args() {
 
 cleanup() {  # on exit: the log is kept, and named, only when a step failed and something was logged
   [ -z "$VSIX_DIR" ] || rm -rf "$VSIX_DIR"
+  [ -z "$INLINED_HELPER" ] || rm -f "$INLINED_HELPER"
   if [ "$N_FAIL" != 0 ] && [ -s "$LOG" ]; then
     printf 'Details of what failed: %s\n' "$LOG"
   elif [ "$LOG" != /dev/null ]; then
@@ -971,6 +983,7 @@ main() {  # the steps, in order
   trap cleanup EXIT
   trap 'exit 130' INT  # through the EXIT trap, so an interrupted run leaves no download behind
   trap 'exit 143' TERM
+  write_inlined_helper || INLINED_HELPER=""
   printf 'roost-install — VS Code with Roost%s\n\n' "$([ "$DRY_RUN" = 1 ] && echo ' (dry run)')"
   check_platform
   prepare_sudo

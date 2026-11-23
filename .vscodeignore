@@ -31,3 +31,5 @@ node_modules/**/.github/**
 .gitignore
 roost.json
 roost.contributes.json
+installer/**
+dist/**

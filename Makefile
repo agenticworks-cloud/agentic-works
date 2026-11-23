@@ -6,7 +6,7 @@ EXT_ID = seanahn.roost-$(VERSION)
 EXT_DIRS ?= $(HOME)/.vscode/extensions $(HOME)/.local/share/code-server/extensions $(HOME)/.vscode-server/extensions
 PARTS = $(patsubst %/package-lock.json,%,$(wildcard parts/*/package-lock.json))
 
-.PHONY: manifest deps test test-live install package test-package clean
+.PHONY: manifest deps test test-live install package test-package release release-publish clean
 
 manifest: ; node scripts/build-manifest.js
 
@@ -44,5 +44,21 @@ package: manifest
 test-package: package
 	node test/package.test.js
 
+## dist/: the .vsix and the stamped one-file installer (version and the .vsix's SHA-256 in, helper inlined)
+release: package
+	rm -rf dist && mkdir dist
+	cp $(VSIX) dist/$(VSIX)
+	sh installer/build-release.sh $(VERSION) dist/$(VSIX) dist
+
+## Publish dist/ as a GitHub release. The owner's action: nothing in the build or the tests runs it
+release-publish:
+	@[ -f dist/roost-install.sh ] && [ -f dist/$(VSIX) ] || { echo "dist/ is missing; run make release"; exit 1; }
+	@grep -q '^ROOST_VERSION="$(VERSION)"$$' dist/roost-install.sh || { echo "dist/ is stale (not $(VERSION)); run make release"; exit 1; }
+	@printf 'Roost %s\n\nInstall: curl -fsSL https://github.com/seanahn/roost/releases/latest/download/roost-install.sh | bash\n' \
+	  "$(VERSION)" > dist/release-notes.md
+	gh release create v$(VERSION) dist/roost-install.sh dist/$(VSIX) --repo seanahn/roost --title "Roost $(VERSION)" \
+	  --notes-file dist/release-notes.md
+
 clean:
+	rm -rf dist
 	rm -f roost-*.vsix
