@@ -224,7 +224,7 @@ checksum — run the installer again`; the other steps still run, and the exit s
   VS Code is not opened, as in the C3 installer.
 - The icon layout also hides every activity-bar container of an installed `openai.chatgpt` (its Codex views).
 
-Built: branch feat/installer; the plan's last commit: <this commit>.
+Built: branch feat/installer; the plan's last commit: 8985c57.
 
 ## Left to the builder (settled)
 
