@@ -5,9 +5,9 @@ Each test runs the script in a subprocess with HOME in a temp dir and a PATH of 
 sudo, code, curl, gh, ... each logging its argv to $STUB_LOG) plus the handful of system tools the script needs, so
 "is it installed" is whatever the test puts on PATH. ROOST_INSTALL_FAKE_OS picks the platform. The script run is a
 copy stamped with a test version and SHA-256, as `make release` stamps it; ROOST_INSTALL_HELPER points it at
-installer/roost-install-helper, which a python3 stub stands in for unless a test puts the real python3 on PATH. The `.vsix` downloads go to a local
-HTTP server, with the real curl. One case runs under bash 3.2, the bash macOS ships, in the bash:3.2 container
-(skipped without Docker). No network.
+installer/roost-install-helper, which a python3 stub stands in for unless a test puts the real python3 on PATH.
+The `.vsix` downloads go to a local HTTP server, with the real curl. One case runs under bash 3.2, the bash macOS
+ships, in the bash:3.2 container (skipped without Docker). No network.
 """
 
 from __future__ import annotations
@@ -892,14 +892,19 @@ class TestLook(_Installer):
 
         # Exit 2: skipped, the helper's reason as the detail; exit 1: failed.
         self.log.write_text("")
-        env = self.env("ubuntu", ALL_PRESENT, PY_LAYOUT_RC="2", PY_LAYOUT_OUT="VS Code is running: quit VS Code and rerun.",
-                       PY_SETTINGS_RC="1")
+        env = self.env("ubuntu", ALL_PRESENT, PY_LAYOUT_RC="2",
+                       PY_LAYOUT_OUT="VS Code is running: quit VS Code and rerun.", PY_SETTINGS_RC="1")
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 1, out)
         self.assertIn("  – Icons: VS Code is running: quit VS Code and rerun\n", out)
         failed = [mark for mark in self.marks(out) if mark.startswith("✗ Settings: ")]
         self.assertEqual(len(failed), 1, out)
         self.assertIn("see ", failed[0])
+        self.log.write_text("")
+        rc, out = self.run_pipe({**env, "PY_SETTINGS_RC": "3", "PY_SETTINGS_OUT": "half a thought"})
+        self.assertEqual(rc, 1, out)
+        self.assertIn("  ✗ Settings: couldn't write VS Code's settings; see ", out)
+        self.assertNotIn("half a thought", out)
 
         # --dry-run prints the helper's commands and runs neither.
         self.log.write_text("")
@@ -916,7 +921,9 @@ class TestLook(_Installer):
         env = self.env("ubuntu", ALL_PRESENT)
         del env["ROOST_INSTALL_HELPER"]
         rc, out = self.run_pipe(env, script=SCRIPT)  # unstamped: Roost fails, the rest goes on
+        self.assertEqual(rc, 1, out)
         self.assertEqual(self.python3_calls()[0], f"python3 {HELPER} vscode-settings")
+        self.assertIn("  ✓ Settings (added to settings.json)", out)
 
         self.log.write_text("")
         rc, out = self.run_pipe(env)  # the stamped copy has no helper beside it
@@ -967,8 +974,12 @@ class TestLook(_Installer):
         self.assertIn('"chat.disableAIFeatures": true,', under, out)
 
     def test_no_python3_skips_settings_and_icons(self) -> None:
-        """A Mac without the Command Line Tools: /usr/bin/python3 would open Apple's install dialog, so it isn't run."""
-        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, XCODE_SELECT_FAIL="1"))
+        """macOS's /usr/bin/python3 without the Command Line Tools would open Apple's install dialog: not run.
+        Any other python3 (Homebrew's) runs without them."""
+        # The shim, no Command Line Tools: both skipped, the shim never run. ROOST_INSTALL_PYTHON3 stands in for
+        # what `command -v python3` finds, since a stub can't live at /usr/bin.
+        env = self.env("macos", ALL_PRESENT, XCODE_SELECT_FAIL="1", ROOST_INSTALL_PYTHON3="/usr/bin/python3")
+        rc, out = self.run_pipe(env)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.python3_calls(), [], self.stub_log())
         self.assertEqual(self.logged("xcode-select -p"), ["xcode-select -p"] * 2)
@@ -977,19 +988,36 @@ class TestLook(_Installer):
             self.assertEqual(len(skipped), 1, out)
             self.assertTrue(skipped[0].startswith(f"– {label}: python3 is not installed; "), skipped)
             self.assertIn("xcode-select --install", skipped[0])
+            self.assertIn("brew install python", skipped[0])
+
+        # Homebrew's python3 (anywhere but /usr/bin): runs, the Command Line Tools not asked about.
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, XCODE_SELECT_FAIL="1"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.python3_calls()), 2, self.stub_log())
+        self.assertEqual(self.logged("xcode-select"), [])
+        self.assertIn("  ✓ Settings (added to settings.json)", out)
+
+        # No python3 at all on a Mac: how to get one.
+        self.log.write_text("")
+        stubs = tuple(name for name in ALL_PRESENT if name != "python3")
+        rc, out = self.run_pipe(self.env("macos", stubs))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  – Settings: python3 is not installed; install it (Homebrew: brew install python), "
+                      "then run the installer again\n", out)
+        self.assertIn("  – Icons: python3 is not installed; ", out)
 
         # No python3 at all, on Linux.
         self.log.write_text("")
-        stubs = tuple(name for name in ALL_PRESENT if name != "python3")
         rc, out = self.run_pipe(self.env("fedora", stubs))
         self.assertEqual(rc, 0, out)
-        self.assertIn("  – Settings: python3 is not installed; ", out)
+        self.assertIn("  – Settings: python3 is not installed; install it, then run the installer again\n", out)
         self.assertIn("  – Icons: python3 is not installed; ", out)
 
-        # The Command Line Tools there: python3 runs.
+        # The shim with the Command Line Tools there counts (it runs; here the seam names the stub's path).
         self.log.write_text("")
-        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT))
-        self.assertEqual(len(self.python3_calls()), 2, self.stub_log())
+        rc, out = self.run_sourced(self.env("macos", ALL_PRESENT), 'python_ok && echo "ok $PYTHON"')
+        self.assertIn(f"ok {self.tmp}/stubs/python3", out)
 
     def test_no_open_flag(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))

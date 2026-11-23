@@ -23,6 +23,7 @@
 #   ROOST_INSTALL_VSIX_URL   test seam only: where Roost's .vsix is downloaded from, instead of this release
 #   ROOST_INSTALL_APT_DIR    test seam only: instead of /etc/apt, where existing apt sources are looked for
 #   ROOST_INSTALL_HELPER     roost-install-helper's path, instead of the one beside this script
+#   ROOST_INSTALL_PYTHON3    test seam only: the python3 path taken as found, instead of `command -v python3`
 set -u
 
 # Roost's version and its .vsix's SHA-256: written in by `make release`. A copy without them refuses the Roost step.
@@ -762,6 +763,8 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
 # ---- the look: settings and icons, through roost-install-helper; then VS Code opens ---------------------------
 
 HELPER_OUT=""
+PYTHON=""  # the python3 the helper runs with; python_ok finds it
+PYTHON_WHY=""  # why there is none, when python_ok is false
 
 helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, or the one beside this script
   local here
@@ -774,17 +777,24 @@ helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, or
   printf '%s' "$here/roost-install-helper"
 }
 
-python_ok() {  # true when python3 can run the helper
-  have python3 || return 1
-  # macOS's /usr/bin/python3 is a stub that opens Apple's Command Line Tools install dialog when they're missing.
-  [ "$OS" != macos ] || xcode-select -p > /dev/null 2>&1
-}
-
-no_python_reason() {
-  if [ "$OS" = macos ]; then
-    echo "python3 is not installed; run \`xcode-select --install\`, then run the installer again"
-  else
-    echo "python3 is not installed; install it, then run the installer again"
+python_ok() {  # true when there is a python3 to run the helper with (in PYTHON); else PYTHON_WHY says why not
+  PYTHON=${ROOST_INSTALL_PYTHON3:-$(command -v python3 2> /dev/null)}
+  PYTHON_WHY=""
+  if [ -z "$PYTHON" ]; then
+    if [ "$OS" = macos ]; then
+      PYTHON_WHY="python3 is not installed; install it (Homebrew: brew install python), then run the installer again"
+    else
+      PYTHON_WHY="python3 is not installed; install it, then run the installer again"
+    fi
+    return 1
+  fi
+  # macOS's /usr/bin/python3 is a shim that opens Apple's Command Line Tools install dialog when they're missing;
+  # any other python3 (Homebrew's) is a real one.
+  if [ "$OS" = macos ] && [ "$PYTHON" = /usr/bin/python3 ] && ! xcode-select -p > /dev/null 2>&1; then
+    PYTHON_WHY="python3 is not installed; run \`xcode-select --install\` (or brew install python), then run the"
+    PYTHON_WHY="$PYTHON_WHY installer again"
+    PYTHON=""
+    return 1
   fi
 }
 
@@ -799,11 +809,12 @@ run_helper() {  # $1 = subcommand: its stdout in HELPER_OUT; returns its exit st
     step_say "\$ python3 $helper $1"
     return 0
   fi
-  printf '$ python3 %s %s\n' "$helper" "$1" >> "$LOG"
+  printf '$ %s %s %s\n' "$PYTHON" "$helper" "$1" >> "$LOG"
   # As root on Linux, the user data dir the code calls use.
-  HELPER_OUT=$(env ${CODE_DATA:+"ROOST_VSCODE_USER_DIR=$CODE_DATA/User"} python3 "$helper" "$1" < /dev/null 2>> "$LOG")
+  HELPER_OUT=$(env ${CODE_DATA:+"ROOST_VSCODE_USER_DIR=$CODE_DATA/User"} "$PYTHON" "$helper" "$1" \
+    < /dev/null 2>> "$LOG")
   rc=$?
-  [ "$rc" = 1 ] && HELPER_OUT=""  # an error's own words are in the log
+  case $rc in 0|2) ;; *) HELPER_OUT="" ;; esac  # an error's own words are in the log
   return "$rc"
 }
 
@@ -816,7 +827,7 @@ look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand, $4 = done d
     return 0
   fi
   if ! python_ok; then
-    step_end skipped "$(no_python_reason)"
+    step_end skipped "$PYTHON_WHY"
     return 0
   fi
   run_helper "$3"
