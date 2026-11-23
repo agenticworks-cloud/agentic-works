@@ -80,6 +80,8 @@ STUB_EXTRA = {
     "xcode-select": '[ -z "${XCODE_SELECT_FAIL:-}" ] || exit 2\n',
     "curl": '[ -n "${CURL_FAIL_ON:-}" ] && case "$*" in *"$CURL_FAIL_ON"*) exit 22 ;; esac\n' + WRITE_O,
     "gpg": WRITE_O,
+    # rpm -q finds every package, except ones matching $RPM_MISSING.
+    "rpm": '[ -n "${RPM_MISSING:-}" ] && case "$*" in "-q "*"$RPM_MISSING"*) exit 1 ;; esac\n',
     "code": CODE,
     "sudo": GH_INSTALL,
     "brew": GH_INSTALL,
@@ -282,8 +284,40 @@ class TestVSCode(_Installer):
                 self.assertEqual(rc, 0, out)
                 self.assertIn("  ✓ VS Code (already)", out)
                 installs = [line for line in self.stub_log() if line.split()[0] in ("brew", "apt-get", "dnf", "rpm")
-                            or line.startswith("sudo ")]
+                            and not line.startswith("rpm -q ") or line.startswith("sudo ")]
                 self.assertEqual(installs, [], out)
+
+    def test_fedora_without_libssl3_gets_it(self) -> None:
+        """Fedora 45 ships OpenSSL 4; VS Code's extension signature check (vsce-sign) needs libssl.so.3."""
+        ssl = "libssl.so.3()(64bit)"
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("fedora", ALL_PRESENT, RPM_MISSING="libssl.so.3"))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ VS Code (installed OpenSSL 3, for VS Code's extension signature checks)", out)
+        self.assertEqual(self.logged(f"sudo dnf install -y {ssl}"), [f"sudo dnf install -y {ssl}"], out)
+        self.assertIn("Some installs need administrator rights", out)  # one sudo prompt up front covers it
+
+        # A fresh install: VS Code, then libssl.so.3.
+        rc, out = self.run_pipe(self.env("fedora", ("sudo", "dnf", "rpm", "curl"), RPM_MISSING="libssl.so.3"),
+                                "--dry-run")
+        self.assertEqual(rc, 0, out)
+        lines = out.splitlines()
+        self.assertTrue(0 <= _index(lines, "dnf install -y code") < _index(lines, "dnf install -y libssl.so.3"), out)
+
+    def test_fedora_libssl3_install_fails(self) -> None:
+        env = self.env("fedora", ALL_PRESENT, RPM_MISSING="libssl.so.3")
+        (Path(env["PATH"].split(":")[0]) / "sudo").write_text("#!/bin/sh\nexit 1\n")  # sudo dnf install fails
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("  ✗ VS Code: libssl.so.3 couldn't be installed, and without it VS Code installs no extensions;", out)
+
+    def test_libssl3_only_checked_on_fedora(self) -> None:
+        for os_name in ("ubuntu", "rhel"):
+            with self.subTest(os=os_name):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.env(os_name, ALL_PRESENT, RPM_MISSING="libssl.so.3"))
+                self.assertEqual(rc, 0, out)
+                self.assertEqual(self.logged("libssl"), [], out)
 
     def test_mac_without_admin(self) -> None:
         """Homebrew can't be installed: VS Code is ✗ with the download page, the run goes on, exit 1."""

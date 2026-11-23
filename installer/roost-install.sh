@@ -342,11 +342,36 @@ install_vscode_dnf() {  # RHEL/Rocky and Fedora: Microsoft's yum repository, wit
     run $SUDO dnf install -y code
 }
 
+FEDORA_SSL="libssl.so.3()(64bit)"
+SSL_FAILED=""
+
+fedora_needs_ssl() {  # true on a Fedora without libssl.so.3 (Fedora 45 ships OpenSSL 4)
+  # VS Code checks each Marketplace extension's signature with vsce-sign, a .NET program that loads libssl.so.3
+  # (or .1.1) and aborts without one ("Signature verification failed with 'UnknownError'"); VS Code's rpm doesn't
+  # require it.
+  [ "$OS" = fedora ] || return 1
+  printf '$ rpm -q --whatprovides %s\n' "$FEDORA_SSL" >> "$LOG"
+  ! rpm -q --whatprovides "$FEDORA_SSL" < /dev/null >> "$LOG" 2>&1
+}
+
+install_fedora_ssl() {  # sets SSL_FAILED, the step's detail, when it fails
+  SSL_FAILED="libssl.so.3 couldn't be installed, and without it VS Code installs no extensions; see $LOG, or run"
+  SSL_FAILED="$SSL_FAILED \`dnf install openssl3-libs\`"
+  # shellcheck disable=SC2086
+  run $SUDO dnf install -y "$FEDORA_SSL"
+}
+
 ensure_vscode() {
   skipped vscode "VS Code" && return 0
   step_begin "VS Code"
   if find_code; then
-    step_end already
+    if ! fedora_needs_ssl; then
+      step_end already
+    elif install_fedora_ssl; then
+      step_end done "installed OpenSSL 3, for VS Code's extension signature checks"
+    else
+      step_end failed "$SSL_FAILED"
+    fi
     return 0
   fi
   case $OS in
@@ -360,9 +385,14 @@ ensure_vscode() {
     rhel|fedora) install_vscode_dnf ;;
   esac
   if [ "$DRY_RUN" = 1 ]; then
+    ! fedora_needs_ssl || install_fedora_ssl
     step_end done "dry run"
   elif find_code; then
-    step_end done "installed"
+    if fedora_needs_ssl && ! install_fedora_ssl; then
+      step_end failed "installed, but $SSL_FAILED"
+    else
+      step_end done "installed"
+    fi
   elif [ "$OS" = macos ]; then
     step_end failed "the install didn't give a 'code' command; see $LOG, or download VS Code from $DOWNLOAD_URL"
   else
@@ -901,6 +931,9 @@ needs_root() {  # true when a step that is going to run will install something s
   if ! skip_named vscode && ! find_code; then
     [ "$OS" != macos ] && return 0
     find_brew || return 0
+  fi
+  if ! skip_named vscode && fedora_needs_ssl; then
+    return 0
   fi
   if ! skip_named github && ! have gh; then
     [ "$OS" != macos ] && return 0
