@@ -1,0 +1,255 @@
+'use strict';
+// The extension host against a fake vscode, a fake gh and a fake GitHub client. No network, no real gh.
+const test = require('node:test'); const assert = require('node:assert');
+const { install, memento } = require('./vscodeStub');
+const { ui } = install();
+const ext = require('../src/extension');
+const { GitHubError } = require('../src/github');
+const { THROTTLE_NOTE } = require('../src/poller');
+
+const RATE = { remaining: 4000, resetAt: '2099-01-01T00:00:00Z', cost: 1 };
+const pr = (n, repo) => ({
+  id: `PR_${repo}_${n}`, url: `https://github.com/${repo}/pull/${n}`, number: n, title: `Change ${n}`, repo, account: '',
+  updatedAt: `2026-01-0${n}T00:00:00Z`, headOid: `head${n}`, mergeable: 'MERGEABLE', mergeState: 'CLEAN', isDraft: false,
+  reviewDecision: null, rollup: 'SUCCESS', checks: [{ name: 'test', state: 'success' }], reviews: [], unresolvedThreads: 0,
+  mergeMethods: { squash: true, merge: true, rebase: true },
+});
+const lists = { 'tok-octo-dev': [pr(1, 'acme/widgets')], 'tok-octo-work': [pr(2, 'acme/api')] };
+const STATUS = 'github.com\\n  ✓ Logged in to github.com account octo-dev (keyring)\\n  ✓ Logged in to github.com account octo-work (keyring)\\n'.replace(/\\n/g, '\n');
+
+function world() {
+  const w = { listed: [], byUrl: [], ghCalls: [], scheduled: [], now: Date.parse('2026-03-01T00:00:00Z') };
+  w.run = async (args) => {
+    w.ghCalls.push(args);
+    if (args[1] === 'status') return { code: 0, stdout: STATUS, stderr: '' };
+    return { code: 0, stdout: `tok-${args[args.indexOf('--user') + 1]}\n`, stderr: '' };
+  };
+  w.client = {
+    listPrs: async (token) => { w.listed.push(token); return { items: lists[token] || [], rateLimit: RATE }; },
+    detailPrs: async (token, ids) => ({ prs: (lists[token] || []).filter((p) => ids.includes(p.id)), rateLimit: RATE }),
+    prByUrl: async (token, url) => { w.byUrl.push([token, url]); return { ...pr(9, 'acme/api'), state: 'OPEN', author: 'octo-work' }; },
+    merge: async () => {},
+  };
+  w.timers = { set: (fn, ms) => { w.scheduled.push({ fn, ms }); return w.scheduled.length; }, clear: () => {} };
+  return w;
+}
+const settle = () => new Promise((r) => setImmediate(r));
+const context = () => ({ subscriptions: [], extensionUri: { fsPath: '/x', path: '/x', scheme: 'file' }, globalState: memento() });
+
+async function boot() {
+  ui.out.length = 0; ui.commands = {}; ui.config = {};
+  const w = world();
+  const ctx = context();
+  const api = ext.activate(ctx, { run: w.run, client: w.client, timers: w.timers, now: () => w.now });
+  await settle(); await settle();
+  return { w, ctx, api };
+}
+
+test('activate wires the panel: rows from both accounts arrive', async () => {
+  const { api, ctx } = await boot();
+  const view = ui.resolveView();
+  assert.deepStrictEqual(api.tracker.rows().map((r) => r.pr.account).sort(), ['octo-dev', 'octo-work']);
+  const last = view.webview.posted[view.webview.posted.length - 1];
+  assert.strictEqual(last.rows.length, 2);
+  assert.ok(ui.commands['kestrel.refresh'] && ui.commands['kestrel.watch']);
+  assert.ok(ctx.subscriptions.length > 0);
+  ext.deactivate();
+});
+
+test('the output channel logs each account round with its cost', async () => {
+  await boot();
+  assert.ok(ui.out.some((l) => /^\d{4}-\d\d-\d\dT[\d:.]+Z octo-dev: 1 PRs, cost 2$/.test(l)), ui.out.join('\n'));
+  assert.ok(ui.out.some((l) => / octo-work: 1 PRs, cost 2$/.test(l)));
+  ext.deactivate();
+});
+
+test('kestrel.watch fetches an unknown url via prByUrl', async () => {
+  const { w, api } = await boot();
+  await ui.commands['kestrel.watch']('https://github.com/acme/api/pull/9');
+  await settle(); await settle();
+  assert.deepStrictEqual(w.byUrl.map((c) => c[1]), ['https://github.com/acme/api/pull/9']);
+  assert.ok(api.tracker.rows().some((r) => r.pr.number === 9));
+  ext.deactivate();
+});
+
+test('kestrel.refresh runs another round', async () => {
+  const { w } = await boot();
+  const before = w.listed.length;
+  await ui.commands['kestrel.refresh']();
+  await settle(); await settle();
+  assert.ok(w.listed.length > before);
+  ext.deactivate();
+});
+
+test('a settings change to kestrel.accounts and a window focus both kick a round', async () => {
+  const { w } = await boot();
+  let n = w.listed.length;
+  ui.setConfig('kestrel.accounts', ['octo-dev']);
+  await settle(); await settle();
+  assert.ok(w.listed.length > n);
+  n = w.listed.length;
+  ui.setFocus(false); ui.setFocus(true);
+  await settle(); await settle();
+  assert.ok(w.listed.length > n);
+  ext.deactivate();
+});
+
+test('a throwing poller error is logged to the output channel, not swallowed', async () => {
+  const w = world();
+  w.client.listPrs = async () => { throw new Error('boom'); };
+  ui.out.length = 0;
+  ext.activate(context(), { run: w.run, client: w.client, timers: w.timers, now: () => w.now });
+  await settle(); await settle();
+  assert.ok(ui.out.some((l) => l.includes('boom')), ui.out.join('\n'));
+  ext.deactivate();
+});
+
+test('deactivate stops the poller: no more timers fire a round', async () => {
+  const { w, api } = await boot();
+  ext.deactivate();
+  const n = w.listed.length;
+  await api.poller.kick();
+  await settle();
+  assert.strictEqual(w.listed.length, n);
+});
+
+test('hidden urls load from globalState and are written back on change', async () => {
+  ui.out.length = 0; ui.commands = {};
+  const w = world();
+  const ctx = context();
+  const u1 = 'https://github.com/acme/widgets/pull/1';
+  await ctx.globalState.update('kestrel.hidden', [u1]);
+  const api = ext.activate(ctx, { run: w.run, client: w.client, timers: w.timers, now: () => w.now });
+  await settle(); await settle();
+  assert.strictEqual(api.tracker.rows().find((r) => r.pr.url === u1).hidden, true);
+  assert.strictEqual(api.tracker.badge(), 1);
+  api.tracker.hide('https://github.com/acme/api/pull/2');
+  const urlsOf = () => ctx.globalState.get('kestrel.hidden').map((e) => e.url);
+  assert.deepStrictEqual(urlsOf(), [u1, 'https://github.com/acme/api/pull/2']);
+  assert.ok(ctx.globalState.get('kestrel.hidden').every((e) => 'missingSince' in e));
+  api.tracker.unhide(u1);
+  assert.deepStrictEqual(urlsOf(), ['https://github.com/acme/api/pull/2']);
+  ext.deactivate();
+});
+
+test('the old string-array kestrel.hidden loads, and the next stored value is the new format and round-trips', async () => {
+  ui.out.length = 0; ui.commands = {};
+  const w = world();
+  const ctx = context();
+  const u1 = 'https://github.com/acme/widgets/pull/1';
+  await ctx.globalState.update('kestrel.hidden', [u1]);
+  const api = ext.activate(ctx, { run: w.run, client: w.client, timers: w.timers, now: () => w.now });
+  await settle(); await settle();
+  api.tracker.hide('https://github.com/acme/api/pull/2');
+  const stored = ctx.globalState.get('kestrel.hidden');
+  assert.ok(stored.every((e) => e && typeof e === 'object' && typeof e.url === 'string' && 'missingSince' in e && 'account' in e));
+  assert.deepStrictEqual(stored.map((e) => e.url), [u1, 'https://github.com/acme/api/pull/2']);
+  assert.strictEqual(stored[0].account, 'octo-dev', 'adopted when its list returned it');
+  ext.deactivate();
+  const ctx2 = context();
+  await ctx2.globalState.update('kestrel.hidden', JSON.parse(JSON.stringify(stored)));
+  const api2 = ext.activate(ctx2, { run: w.run, client: w.client, timers: w.timers, now: () => w.now });
+  assert.deepStrictEqual(api2.tracker.hiddenEntries(), stored);
+  ext.deactivate();
+});
+
+test('the throttle note stays for every round the throttle lasts', async () => {
+  ui.out.length = 0; ui.commands = {}; ui.config = {};
+  const w = world();
+  w.client.listPrs = async (token) => { w.listed.push(token); throw new GitHubError('throttle', 'slow'); };
+  const api = ext.activate(context(), { run: w.run, client: w.client, timers: w.timers, now: () => w.now });
+  await settle(); await settle();
+  assert.deepStrictEqual(api.tracker.notes(), [THROTTLE_NOTE], 'round 1');
+  const next = w.scheduled[w.scheduled.length - 1];
+  w.now += next.ms;
+  await next.fn(); await settle();
+  assert.strictEqual(w.listed.length, 2);
+  assert.deepStrictEqual(api.tracker.notes(), [THROTTLE_NOTE], 'round 2');
+  ext.deactivate();
+});
+
+test('focus, Refresh and watch do not poll during a throttle hold', async () => {
+  ui.out.length = 0; ui.commands = {}; ui.config = {};
+  const w = world();
+  w.client.listPrs = async (token) => { w.listed.push(token); throw new GitHubError('throttle', 'slow', { retryAfterMs: 60000 }); };
+  const api = ext.activate(context(), { run: w.run, client: w.client, timers: w.timers, now: () => w.now });
+  await settle(); await settle();
+  const n = w.listed.length;
+  ui.setFocus(false); ui.setFocus(true);
+  await ui.commands['kestrel.refresh']();
+  await ui.commands['kestrel.watch']('https://github.com/acme/api/pull/9');
+  await settle(); await settle();
+  assert.strictEqual(w.listed.length, n);
+  assert.deepStrictEqual(api.tracker.notes(), [THROTTLE_NOTE]);
+  w.now += 60000;
+  await ui.commands['kestrel.refresh']();
+  await settle(); await settle();
+  assert.ok(w.listed.length > n, 'after the hold, Refresh polls');
+  ext.deactivate();
+});
+
+test('accounts are listed on start, on Refresh and on a kestrel.accounts change, not every poll', async () => {
+  const { w } = await boot();
+  const status = () => w.ghCalls.filter((a) => a[1] === 'status').length;
+  assert.strictEqual(status(), 1);
+  const next = w.scheduled[w.scheduled.length - 1];
+  await next.fn(); await settle();
+  assert.strictEqual(status(), 1, 'a timed poll reuses the list');
+  ui.setFocus(false); ui.setFocus(true); await settle(); await settle();
+  assert.strictEqual(status(), 1, 'a focus poll reuses the list');
+  await ui.commands['kestrel.refresh'](); await settle(); await settle();
+  assert.strictEqual(status(), 2);
+  ui.setConfig('kestrel.accounts', ['octo-dev']); await settle(); await settle();
+  assert.strictEqual(status(), 3);
+  ext.deactivate();
+});
+
+test('kestrel.watch ignores anything that is not a github.com PR url', async () => {
+  const { w } = await boot();
+  for (const bad of [undefined, 'https://github.com/acme/api/issues/9', 42]) await ui.commands['kestrel.watch'](bad);
+  await settle(); await settle();
+  assert.deepStrictEqual(w.byUrl, []);
+  ext.deactivate();
+});
+
+test('merging a watched PR unwatches it', async () => {
+  const { w, api } = await boot();
+  const url = 'https://github.com/acme/api/pull/9';
+  await ui.commands['kestrel.watch'](url);
+  await settle(); await settle();
+  assert.strictEqual(api.tracker.rows().find((r) => r.pr.url === url).pr.account, 'octo-work');
+  ui.answer = (m, o, ...items) => items[0];
+  assert.strictEqual(await api.merger.merge(url), 'merged');
+  ui.answer = () => undefined;
+  await settle(); await settle();
+  const n = w.byUrl.length;
+  const next = w.scheduled[w.scheduled.length - 1];
+  await next.fn(); await settle(); await settle();
+  assert.strictEqual(w.byUrl.length, n, 'no more fetches by url');
+  assert.ok(!api.tracker.rows().some((r) => r.pr.url === url));
+  ext.deactivate();
+});
+
+test('a PR merged on GitHub leaves the list and perch is told; a closed one is not', async () => {
+  const { w } = await boot();
+  ui.extraCommands = ['perch.notePrMerged'];
+  const noted = [];
+  ui.extraHandlers['perch.notePrMerged'] = (url) => { noted.push(url); return { result: 'background' }; };
+  const merged = lists['tok-octo-dev'][0];
+  const closed = lists['tok-octo-work'][0];
+  w.client.prByUrl = async (token, url) => { w.byUrl.push([token, url]); return { ...(url === merged.url ? merged : closed), state: url === merged.url ? 'MERGED' : 'CLOSED' }; };
+  const keep = { dev: lists['tok-octo-dev'], work: lists['tok-octo-work'] };
+  lists['tok-octo-dev'] = []; lists['tok-octo-work'] = [];
+  try {
+    await ui.commands['kestrel.refresh']();
+    for (let i = 0; i < 6; i++) await settle();
+    assert.deepStrictEqual(w.byUrl.map((c) => c[1]).sort(), [closed.url, merged.url].sort());
+    assert.deepStrictEqual(w.byUrl.find((c) => c[1] === merged.url)[0], 'tok-octo-dev', 'looked up with its own account');
+    assert.deepStrictEqual(noted, [merged.url]);
+    assert.ok(ui.out.some((l) => l.includes(`${merged.url} was merged outside kestrel; perch: background`)), ui.out.join('\n'));
+  } finally {
+    lists['tok-octo-dev'] = keep.dev; lists['tok-octo-work'] = keep.work;
+    ui.extraCommands = []; delete ui.extraHandlers['perch.notePrMerged'];
+    ext.deactivate();
+  }
+});
