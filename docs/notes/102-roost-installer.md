@@ -105,6 +105,14 @@ Flags: `--dry-run` (print what would be done), `--skip <step>`, `--yes` (answer 
 Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--help`. Exit status 0 when no
 step failed, else 1. *(my call)*
 
+**Administrator rights.** When a step that is going to run installs something system-wide, the run asks for the
+sudo password once, after the Platform line, and first lists exactly what this run adds system-wide, only the items
+that will happen: Homebrew (macOS); curl and ca-certificates, gnupg (a minimal Ubuntu/Debian); Microsoft's VS Code
+package repository and its signing key, and VS Code; OpenSSL 3 (Fedora, for VS Code's extension signature checks);
+GitHub's gh package repository and its signing key, and gh. The lines say it too: `✓ VS Code (installed, with
+OpenSSL 3 for VS Code's extension signature checks)` on a fresh Fedora 45, `✓ GitHub (added GitHub's package
+repository, installed gh; …)`.
+
 **On a Mac without admin rights,** Homebrew cannot be installed: the VS Code step is `✗` with the official download
 link, and the run continues with an existing `code` if there is one.
 

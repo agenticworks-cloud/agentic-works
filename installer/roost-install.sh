@@ -397,10 +397,12 @@ ensure_vscode() {
     ! fedora_needs_ssl || install_fedora_ssl
     step_end done "dry run"
   elif find_code; then
-    if fedora_needs_ssl && ! install_fedora_ssl; then
-      step_end failed "installed, but $SSL_FAILED"
-    else
+    if ! fedora_needs_ssl; then
       step_end done "installed"
+    elif install_fedora_ssl; then
+      step_end done "installed, with OpenSSL 3 for VS Code's extension signature checks"
+    else
+      step_end failed "installed, but $SSL_FAILED"
     fi
   elif [ "$OS" = macos ]; then
     step_end failed "the install didn't give a 'code' command; see $LOG, or download VS Code from $DOWNLOAD_URL"
@@ -715,6 +717,8 @@ ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and co
 
 # ---- GitHub, for kestrel's PRs panel -------------------------------------------------------------------------
 
+GH_REPO_ADDED=0  # 1 once install_gh has added GitHub's package repository
+
 install_gh() {  # GitHub's CLI: Homebrew; GitHub's apt or rpm repository; Fedora's own repository
   case $OS in
     macos)
@@ -728,6 +732,7 @@ install_gh() {  # GitHub's CLI: Homebrew; GitHub's apt or rpm repository; Fedora
             /etc/apt/sources.list.d/github-cli.list \
             "deb [arch=$(deb_arch) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
             binary || return 1
+        GH_REPO_ADDED=1
       fi
       # shellcheck disable=SC2086
       run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y gh ;;
@@ -735,8 +740,10 @@ install_gh() {  # GitHub's CLI: Homebrew; GitHub's apt or rpm repository; Fedora
       # Not `--repo gh-cli`, as GitHub's page has it: that hides the system repositories, and gh needs their git.
       # shellcheck disable=SC2086
       run $SUDO dnf install -y 'dnf-command(config-manager)' &&
-        run $SUDO dnf config-manager --add-repo "$GH_RPM_REPO" &&
-        run $SUDO dnf install -y gh ;;
+        run $SUDO dnf config-manager --add-repo "$GH_RPM_REPO" || return 1
+      GH_REPO_ADDED=1
+      # shellcheck disable=SC2086
+      run $SUDO dnf install -y gh ;;
     fedora)
       # shellcheck disable=SC2086
       run $SUDO dnf install -y gh ;;
@@ -767,6 +774,7 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
       return 0
     fi
     installed="installed gh; "
+    [ "$GH_REPO_ADDED" = 0 ] || installed="added GitHub's package repository, $installed"
   fi
   if [ "$DRY_RUN" = 1 ]; then
     if have gh && gh_signed_in; then
@@ -941,29 +949,44 @@ open_vscode() {  # a new VS Code window, once the checklist is done; not as root
 
 # ---- sudo, the terminal, flags, main -------------------------------------------------------------------------
 
-needs_root() {  # true when a step that is going to run will install something system-wide
-  # VS Code, then gh: on Linux from a system repository; on macOS through Homebrew, whose installer needs
-  # administrator rights.
-  if ! skip_named vscode && ! find_code; then
-    [ "$OS" != macos ] && return 0
-    find_brew || return 0
-  fi
-  if ! skip_named vscode && fedora_needs_ssl; then
-    return 0
-  fi
-  if ! skip_named github && ! have gh; then
-    [ "$OS" != macos ] && return 0
-    find_brew || return 0
-  fi
-  case $OS in ubuntu|debian) skip_named roost || have curl || return 0 ;; esac  # curl, for Roost's download
-  return 1
+system_changes() {  # what the steps that are going to run add system-wide, one per line, in run order; or nothing
+  local vscode=0 gh=0 roost=0 ms_repo=0 gh_repo=0
+  skip_named vscode || find_code || vscode=1
+  skip_named github || have gh || gh=1
+  if ! skip_named roost && { [ "$vscode" = 1 ] || find_code; }; then roost=1; fi
+  case $OS in
+    macos)  # VS Code and gh come through Homebrew, whose installer needs administrator rights
+      if [ "$vscode$gh" != 00 ] && ! find_brew; then echo "Homebrew"; fi ;;
+    ubuntu|debian)
+      [ "$vscode" = 1 ] && ! apt_has_source "packages.microsoft.com/repos/code" && ms_repo=1
+      [ "$gh" = 1 ] && ! apt_has_source "cli.github.com/packages" && gh_repo=1
+      if ! have curl && [ "$ms_repo$gh_repo$roost" != 000 ]; then echo "curl and ca-certificates"; fi
+      if [ "$ms_repo" = 1 ] && ! have gpg; then echo "gnupg"; fi
+      [ "$ms_repo" = 1 ] && echo "Microsoft's VS Code package repository and its signing key"
+      [ "$vscode" = 1 ] && echo "VS Code"
+      [ "$gh_repo" = 1 ] && echo "GitHub's gh package repository and its signing key"
+      [ "$gh" = 1 ] && echo "gh" ;;
+    rhel|fedora)
+      [ "$vscode" = 1 ] && printf '%s\n' "Microsoft's VS Code package repository and its signing key" "VS Code"
+      if ! skip_named vscode && fedora_needs_ssl; then
+        echo "OpenSSL 3 (Fedora, for VS Code's extension signature checks)"
+      fi
+      if [ "$gh" = 1 ] && [ "$OS" = rhel ]; then
+        echo "GitHub's gh package repository and its signing key (with dnf's config-manager plugin)"
+      fi
+      [ "$gh" = 1 ] && echo "gh" ;;
+  esac
+  return 0
 }
 
-prepare_sudo() {  # one password prompt up front, only when something needs installing
+prepare_sudo() {  # one password prompt up front, only when something needs installing, after saying what
+  local changes item
   [ "$DRY_RUN" = 1 ] && return 0
   [ -n "$SUDO" ] || return 0
-  needs_root || return 0
-  printf 'Some installs need administrator rights; sudo may ask for your password.\n'
+  changes=$(system_changes)
+  [ -n "$changes" ] || return 0
+  printf 'Some installs need administrator rights; sudo may ask for your password. This run adds, system-wide:\n'
+  while IFS= read -r item; do printf '  - %s\n' "$item"; done <<< "$changes"
   sudo -v || printf 'sudo failed; the system installs below will fail too.\n'
 }
 

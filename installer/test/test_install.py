@@ -376,6 +376,63 @@ class TestVSCode(_Installer):
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get", "gh", "curl")), "--dry-run")
         self.assertNotIn("ca-certificates", out)
 
+    def disclosed(self, out: str) -> list[str] | None:
+        """The system-wide changes listed before the sudo prompt; None when there was no prompt."""
+        lines = out.splitlines()
+        head = _index(lines, "Some installs need administrator rights")
+        if head < 0:
+            return None
+        self.assertTrue(lines[head].endswith("This run adds, system-wide:"), lines[head])
+        items = []
+        for line in lines[head + 1:]:
+            if not line.startswith("  - "):
+                break
+            items.append(line[4:])
+        return items
+
+    def test_system_wide_changes_are_listed_before_sudo(self) -> None:
+        ms, gh_repo = ("Microsoft's VS Code package repository and its signing key",
+                       "GitHub's gh package repository and its signing key")
+        ssl = "OpenSSL 3 (Fedora, for VS Code's extension signature checks)"
+        cases = (
+            ("ubuntu, nothing there", "ubuntu", ("sudo", "apt-get"), {},
+             ["curl and ca-certificates", "gnupg", ms, "VS Code", gh_repo, "gh"]),
+            ("debian, gh only", "debian", ("sudo", "apt-get", "curl", "code"), {}, [gh_repo, "gh"]),
+            ("rhel, VS Code only", "rhel", ("sudo", "dnf", "rpm", "curl", "gh"), {}, [ms, "VS Code"]),
+            ("rhel, gh only", "rhel", ("sudo", "dnf", "rpm", "curl", "code"), {},
+             ["GitHub's gh package repository and its signing key (with dnf's config-manager plugin)", "gh"]),
+            ("fedora 45, nothing there", "fedora", ("sudo", "dnf", "rpm", "curl"), {"RPM_MISSING": "libssl.so.3"},
+             [ms, "VS Code", ssl, "gh"]),
+            ("fedora 45, VS Code there", "fedora", ALL_PRESENT, {"RPM_MISSING": "libssl.so.3"}, [ssl]),
+            ("macos, no Homebrew", "macos", ("curl", "sudo"), {}, ["Homebrew"]),
+            ("macos, Homebrew there", "macos", ("curl", "sudo", "brew"), {}, None),
+            ("everything there", "ubuntu", ALL_PRESENT, {}, None),
+            ("--skip github", "debian", ("sudo", "apt-get", "curl", "code"), {}, None),
+        )
+        for name, os_name, stubs, extra, want in cases:
+            with self.subTest(name):
+                self.log.write_text("")
+                args = ("--skip", "github") if name == "--skip github" else ()
+                rc, out = self.run_pipe(self.env(os_name, stubs, **extra), *args)
+                self.assertEqual(self.disclosed(out), want, out)
+
+        # The ubuntu case with Microsoft's repository already a source: neither it nor gnupg is added.
+        (self.apt / "sources.list.d" / "vscode.list").write_text("deb https://packages.microsoft.com/repos/code stable main\n")
+        rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get")))
+        self.assertEqual(self.disclosed(out), ["curl and ca-certificates", "VS Code", gh_repo, "gh"], out)
+
+    def test_fresh_fedora_names_openssl3(self) -> None:
+        (self.installs / "code").write_text(STUB.format(name="code", extra=CODE))
+        rc, out = self.run_pipe(self.env("fedora", ("sudo", "dnf", "rpm", "curl", "gh"), RPM_MISSING="libssl.so.3"),
+                                "--skip", "roost", "--skip", "companions")
+        self.assertIn("  ✓ VS Code (installed, with OpenSSL 3 for VS Code's extension signature checks)", out)
+
+        # Without the need: just "installed".
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("fedora", ("sudo", "dnf", "rpm", "curl", "gh")),
+                                "--skip", "roost", "--skip", "companions")
+        self.assertIn("  ✓ VS Code (installed)\n", out)
+
     def test_install_that_gives_no_code_fails(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get", "curl", "gpg")))
         self.assertEqual(rc, 1, out)
@@ -922,7 +979,19 @@ class TestGitHub(_Installer):
         rc, out = self.run_pipe(self.env("ubuntu", no_gh))
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.logged("sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y gh")), 1)
-        self.assertIn("  ✓ GitHub (installed gh; signed in as octocat)", out)
+        self.assertIn("  ✓ GitHub (added GitHub's package repository, installed gh; signed in as octocat)", out)
+
+        # With GitHub's repository a source already (or on Fedora, from its own): no "added".
+        for os_name, source in (("ubuntu", True), ("fedora", False)):
+            with self.subTest(os=os_name):
+                if source:
+                    (self.apt / "sources.list.d" / "github-cli.list").write_text(
+                        "deb https://cli.github.com/packages stable main\n")
+                rc, out = self.run_pipe(self.env(os_name, no_gh))
+                self.assertEqual(rc, 0, out)
+                self.assertIn("  ✓ GitHub (installed gh; signed in as octocat)", out)
+        rc, out = self.run_pipe(self.env("rhel", no_gh))
+        self.assertIn("  ✓ GitHub (added GitHub's package repository, installed gh; signed in as octocat)", out)
 
     def test_github_apt_source_already_there(self) -> None:
         (self.apt / "sources.list.d" / "github-cli.list").write_text(
