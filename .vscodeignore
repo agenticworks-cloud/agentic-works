@@ -1,0 +1,10 @@
+.git/**
+**/test/**
+**/docs/**
+parts/*/node_modules/**
+parts/*/*.vsix
+parts/perch/audio/**
+scripts/**
+Makefile
+**/Makefile
+.superpowers/**
