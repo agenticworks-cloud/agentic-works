@@ -1300,10 +1300,13 @@ class TestLook(_Installer):
                     self.assertEqual(self.logged("platform-python "), [])
                     self.assertIn("  – Settings: python3 is not installed; ", out)
 
-        # The shim with the Command Line Tools there counts (it runs; here the seam names the stub's path).
+        # The shim with the Command Line Tools there (xcode-select -p succeeds): it is a real python3, and used.
+        # Probed through python_ok alone, since the seam's /usr/bin/python3 is this machine's own, not a stub.
         self.log.write_text("")
-        rc, out = self.run_sourced(self.env("macos", ALL_PRESENT), 'python_ok && echo "ok $PYTHON"')
-        self.assertIn(f"ok {self.tmp}/stubs/python3", out)
+        env = self.env("macos", ALL_PRESENT, ROOST_INSTALL_PYTHON3="/usr/bin/python3")
+        rc, out = self.run_sourced(env, 'OS=macos; python_ok && echo "ok $PYTHON"')
+        self.assertEqual(out.strip(), "ok /usr/bin/python3", out)
+        self.assertEqual(self.logged("xcode-select"), ["xcode-select -p"])
 
     def test_no_open_flag(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
