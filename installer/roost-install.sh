@@ -317,10 +317,14 @@ add_apt_repo() {  # $1 = key URL, $2 = keyring path, $3 = sources.list.d file, $
   run_sh "echo '$4' | $SUDO tee $3 > /dev/null"
 }
 
+PREREQS_PLANNED=" "  # a dry run's curl and gpg, printed once and then taken as installed
+
 apt_prereqs() {  # $* = commands needed: installs the missing ones' packages (curl, gpg)
   local need="" tool
   for tool in "$@"; do
     have "$tool" && continue
+    case $PREREQS_PLANNED in *" $tool "*) continue ;; esac
+    [ "$DRY_RUN" = 1 ] && PREREQS_PLANNED="$PREREQS_PLANNED$tool "
     case $tool in curl) need="${need:+$need }curl ca-certificates" ;; gpg) need="${need:+$need }gnupg" ;; esac
   done
   [ -n "$need" ] || return 0  # neither is in a minimal Debian or Ubuntu
@@ -330,9 +334,7 @@ apt_prereqs() {  # $* = commands needed: installs the missing ones' packages (cu
 
 install_vscode_apt() {  # Ubuntu and Debian-based: Microsoft's apt repository (unless a source has it); curl, gnupg
   # shellcheck disable=SC2086
-  if apt_has_source "packages.microsoft.com/repos/code"; then
-    apt_prereqs curl || return 1  # Roost's download needs it all the same
-  else
+  if ! apt_has_source "packages.microsoft.com/repos/code"; then
     apt_prereqs curl gpg &&
       add_apt_repo "$MS_KEY" /usr/share/keyrings/microsoft.gpg /etc/apt/sources.list.d/vscode.list \
         "deb [arch=$(deb_arch) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
@@ -655,6 +657,7 @@ ensure_roost() {  # this release's Roost: installed, upgraded over an older one,
     esac
     detail="upgraded from $current to $ROOST_VERSION"
   fi
+  case $OS in ubuntu|debian) apt_prereqs curl ;; esac  # not in a minimal system; a failure is reported just below
   if ! VSIX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/roost-install-vsix.XXXXXX"); then
     VSIX_DIR=""
     step_end failed "couldn't make a temp dir for the download"
@@ -952,6 +955,7 @@ needs_root() {  # true when a step that is going to run will install something s
     [ "$OS" != macos ] && return 0
     find_brew || return 0
   fi
+  case $OS in ubuntu|debian) skip_named roost || have curl || return 0 ;; esac  # curl, for Roost's download
   return 1
 }
 

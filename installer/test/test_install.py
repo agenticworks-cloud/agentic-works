@@ -64,9 +64,10 @@ for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "
   [ -z "${CODE_SLEEP:-}" ] || exec sleep "$CODE_SLEEP" ;; esac; done
 [ -n "${CODE_FAIL_ON:-}" ] && case "$*" in *"$CODE_FAIL_ON"*) exit 1 ;; esac
 """
-# sudo and brew "install gh" put a gh stub on PATH, as the real install would.
-GH_INSTALL = ('case " $* " in *" install "*" gh "*) [ -z "${GH_STUB_SRC:-}" ] || '
-              '{ cat "$GH_STUB_SRC" > "${0%/*}/gh"; chmod 755 "${0%/*}/gh"; } ;; esac\n')
+# sudo and brew "install ... <word>" put $STUB_INSTALLS/<word> on PATH (gh, unless a test adds more), as the real
+# install would.
+INSTALLS = ('case " $* " in *" install "*) for w in "$@"; do [ -f "${STUB_INSTALLS:-/nonexistent}/$w" ] && '
+            '{ cat "$STUB_INSTALLS/$w" > "${0%/*}/$w"; chmod 755 "${0%/*}/$w"; }; done ;; esac\n')
 # python3 (running the helper) prints $PY_SETTINGS_OUT / $PY_LAYOUT_OUT and exits $PY_SETTINGS_RC / $PY_LAYOUT_RC;
 # it notes the ROOST_VSCODE_USER_DIR it was given.
 PYTHON3 = r"""[ -z "${ROOST_VSCODE_USER_DIR:-}" ] || printf 'user-dir %s\n' "$ROOST_VSCODE_USER_DIR" >> "$STUB_LOG"
@@ -83,8 +84,8 @@ STUB_EXTRA = {
     # rpm -q finds every package, except ones matching $RPM_MISSING.
     "rpm": '[ -n "${RPM_MISSING:-}" ] && case "$*" in "-q "*"$RPM_MISSING"*) exit 1 ;; esac\n',
     "code": CODE,
-    "sudo": GH_INSTALL,
-    "brew": GH_INSTALL,
+    "sudo": INSTALLS,
+    "brew": INSTALLS,
 }
 # gh: signed in while $GH_AUTH_FILE exists; `gh auth login` creates it, logging the line it reads from stdin.
 GH = r"""#!/bin/sh
@@ -149,7 +150,9 @@ class _Installer(unittest.TestCase):
         self.script = stamp(self.tmp / "dist" / "roost-install.sh")
         self.gh_auth = self.tmp / "gh-auth"  # signed in to GitHub while this exists
         self.gh_auth.touch()
-        (self.tmp / "gh-stub").write_text(GH)
+        self.installs = self.tmp / "installs"  # what sudo or brew "install" puts on PATH
+        self.installs.mkdir()
+        (self.installs / "gh").write_text(GH)
         self.apt = self.tmp / "apt"  # stands in for /etc/apt
         (self.apt / "sources.list.d").mkdir(parents=True)
 
@@ -179,7 +182,7 @@ class _Installer(unittest.TestCase):
             "ROOST_INSTALL_HELPER": str(HELPER),
             "CODE_EXTENSIONS": INSTALLED,
             "GH_AUTH_FILE": str(self.gh_auth),
-            "GH_STUB_SRC": str(self.tmp / "gh-stub"),
+            "STUB_INSTALLS": str(self.installs),
             "TMPDIR": str(self.tmp),
             "SHELL": "/bin/bash",
             "TERM": "xterm",
@@ -747,6 +750,29 @@ class TestRoost(_Served):
         for a, b, want in (("1.2.3-beta.1", "1.2.3", "eq"), ("1.2.3", "1.2.4-rc.9", "lt"), ("1.10.0", "1.9.9", "gt")):
             rc, out = self.run_sourced(self.served_env(), 'version_cmp "$1" "$2"', a, b)
             self.assertEqual(out.strip(), want, (a, b))
+
+    def test_curl_installed_for_the_download(self) -> None:
+        """Ubuntu/Debian with VS Code but no curl (a minimal system): curl goes in, under the one sudo prompt, before
+        the .vsix download."""
+        (self.installs / "curl").write_text(f'#!/bin/sh\nexec {shutil.which("curl")} "$@"\n')
+        for os_name in ("ubuntu", "debian"):
+            with self.subTest(os=os_name):
+                self.log.write_text("")
+                shutil.rmtree(self.tmp / "stubs", ignore_errors=True)
+                env = self.env(os_name, ("code", "sudo", "apt-get", "gh"), ROOST_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
+                               CODE_EXTENSIONS=" ".join(f"{c}@1.0.0" for c in COMPANIONS))
+                rc, out = self.run_pipe(env)
+                self.assertEqual(rc, 0, out)
+                self.assertIn("Some installs need administrator rights", out)
+                self.assertIn(f"  ✓ Roost (installed {VERSION})", out)
+                log = self.stub_log()
+                curl = _index(log, "sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates")
+                self.assertTrue(0 <= _index(log, "sudo -v") < curl < _index(log, "vsix-present "), log)
+
+        # A dry run with nothing installed plans curl once, not in each step that needs it.
+        rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get")), "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len([line for line in out.splitlines() if "apt-get install -y curl" in line]), 1, out)
 
     def test_checksum_case_does_not_matter(self) -> None:
         stamp(self.script, sha=SHA.upper())

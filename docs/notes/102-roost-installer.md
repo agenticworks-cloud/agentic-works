@@ -71,7 +71,8 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    ask on (a pipe, a layer), the run stops the same way unless `--yes` was given, which answers Uninstall. If an
    uninstall fails, Roost is not installed (a clash is worse than no Roost) and the run says which one is left.
 4. **Roost.** If the same version is installed: `✓ (already)`. An older one: upgrade. A newer one (an old installer
-   run again): leave it and say so. *(my call)* Otherwise download the release's `.vsix`, check its SHA-256,
+   run again): leave it and say so. *(my call)* Otherwise download the release's `.vsix` (on Ubuntu/Debian, installing
+   curl first if a minimal system has none), check its SHA-256,
    `code --install-extension`. A download that fails (network, proxy, a missing release) or does not match is
    `✗`, the file deleted, nothing installed. Then install the
    companions by id from the Marketplace if missing: `anthropic.claude-code`, `openai.chatgpt` (Perch runs their
