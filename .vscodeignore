@@ -27,3 +27,7 @@ node_modules/**/.github/**
 !node_modules/!(@anthropic-ai|@openai)/**/[Ll][Ii][Cc][Ee][Nn][CcSs][Ee]*
 !node_modules/@anthropic-ai/!(claude-agent-sdk-*)/**/[Ll][Ii][Cc][Ee][Nn][CcSs][Ee]*
 !node_modules/@openai/!(codex-linux-*|codex-darwin-*|codex-win32-*)/**/[Ll][Ii][Cc][Ee][Nn][CcSs][Ee]*
+# read by the manifest build only (scripts/build-manifest.js), not at runtime
+.gitignore
+roost.json
+roost.contributes.json

@@ -40,6 +40,8 @@ const unwanted = [
   /^extension\/node_modules\/.*\.map$/, /^extension\/node_modules\/(?!.*\/licen[cs]e[^/]*$).*\.md$/i, /^extension\/node_modules\/.*\/\.github\//,
   /(^|\/)package-lock\.json$/, /(^|\/)\.env$/, /__pycache__\//,
   /^extension\/parts\/[^/]+\/\.gitignore$/, /^extension\/parts\/[^/]+\/\.vscodeignore$/,
+  // read by the manifest build only
+  /^extension\/\.gitignore$/, /^extension\/roost\.json$/, /^extension\/roost\.contributes\.json$/,
 ];
 const bad = files.filter((f) => unwanted.some((re) => re.test(f)));
 assert.deepStrictEqual(bad.slice(0, 20), [], 'files that stay out of the package');
