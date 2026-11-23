@@ -84,7 +84,8 @@ STUB_EXTRA = {
     # rpm -q finds every package, except ones matching $RPM_MISSING.
     "rpm": '[ -n "${RPM_MISSING:-}" ] && case "$*" in "-q "*"$RPM_MISSING"*) exit 1 ;; esac\n',
     "code": CODE,
-    "sudo": INSTALLS,
+    # sudo -n -v (the keepalive during Homebrew's install) notes the pid of the loop running it.
+    "sudo": '[ "$*" = "-n -v" ] && printf \'keepalive-ppid %s\\n\' "$PPID" >> "$STUB_LOG"\n' + INSTALLS,
     "brew": INSTALLS,
 }
 # gh: signed in while $GH_AUTH_FILE exists; `gh auth login` creates it, logging the line it reads from stdin.
@@ -347,6 +348,55 @@ class TestVSCode(_Installer):
         self.assertIn(f"see {self.tmp}/roost-install-log.", failed[0])
         self.assertIn(DOWNLOAD, failed[0])
         self.assertNotIn("administrator", failed[0])
+
+    def ours(self) -> list[int]:
+        """The pids of processes still running with this test's STUB_LOG in their environment."""
+        found = []
+        for proc in Path("/proc").iterdir():
+            try:
+                if proc.name.isdigit() and str(self.log).encode() in (proc / "environ").read_bytes():
+                    found.append(int(proc.name))
+            except OSError:
+                pass
+        return found
+
+    def test_sudo_kept_alive_while_homebrew_installs(self) -> None:
+        """Homebrew's installer runs sudo itself, and can outlast sudo's timestamp: a background `sudo -n -v` loop
+        runs while it does, and is gone (with its sleep) once it has finished, or the run is stopped."""
+        env = self.env("macos", ("curl", "sudo"), CURL_BODY="sleep 1")
+        rc, out = self.run_pipe(env, "--skip", "github")
+        self.assertEqual(rc, 1, out)  # this Homebrew gives no brew
+        loops = {line.split()[1] for line in self.logged("keepalive-ppid ")}
+        self.assertEqual(len(loops), 1, self.stub_log())
+        log = self.stub_log()
+        self.assertLess(_index(log, "sudo -v"), _index(log, "keepalive-ppid"), log)  # after the one prompt
+        self.assertEqual(self.ours(), [], "the keepalive or its sleep outlived the run")
+
+        # Stopped (SIGTERM) while Homebrew installs: cleanup ends the loop.
+        self.log.write_text("")
+        proc = subprocess.Popen([shutil.which("bash"), str(self.script), "--skip", "github"],
+                                env={**env, "CURL_BODY": "sleep 2"}, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(100):
+                if self.logged("keepalive-ppid"):
+                    break
+                time.sleep(0.05)
+            self.assertTrue(self.logged("keepalive-ppid"), self.stub_log())
+            proc.send_signal(signal.SIGTERM)
+            self.assertEqual(proc.wait(timeout=10), 143)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+        time.sleep(0.2)
+        self.assertEqual(self.ours(), [], "the keepalive or its sleep outlived the run")
+
+        # A dry run, or root (no sudo): no loop.
+        self.log.write_text("")
+        self.run_pipe(env, "--dry-run", "--skip", "github")
+        self.run_sourced(env, 'id() { echo 0; }; main --skip github')
+        self.assertEqual(self.logged("keepalive-ppid"), [])
 
     def test_existing_microsoft_source_is_kept(self) -> None:
         """An apt source for VS Code's repo already there (code's own postinst writes one): no second one, whose

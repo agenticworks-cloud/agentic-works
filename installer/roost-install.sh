@@ -262,15 +262,35 @@ brew_bin() {  # where Homebrew's brew is, or would be after the install
   fi
 }
 
+SUDO_KEEPALIVE=""  # the pid of the loop keeping sudo's timestamp fresh while Homebrew installs
+
+sudo_keepalive_start() {  # Homebrew's installer runs sudo itself, and can take longer than sudo's 5-minute timestamp
+  [ -n "$SUDO" ] && [ "$DRY_RUN" != 1 ] || return 0
+  # shellcheck disable=SC2016
+  ( s=""
+    trap 'kill "$s" 2> /dev/null; exit 0' TERM
+    while sudo -n -v 2> /dev/null; do sleep 50 & s=$!; wait "$s"; done ) < /dev/null > /dev/null 2>&1 &
+  SUDO_KEEPALIVE=$!
+}
+
+sudo_keepalive_stop() {  # the loop, and its sleep
+  [ -n "$SUDO_KEEPALIVE" ] || return 0
+  kill "$SUDO_KEEPALIVE" 2> /dev/null
+  wait "$SUDO_KEEPALIVE" 2> /dev/null
+  SUDO_KEEPALIVE=""
+}
+
 ensure_homebrew() {  # macOS: Homebrew, from its own installer (which needs an administrator account)
   local tmp rc
   find_brew && return 0
   case $HOMEBREW_STATE in planned) return 0 ;; failed) return 1 ;; esac
   step_say "Homebrew is missing; installing it first"
   tmp=$(mktemp "${TMPDIR:-/tmp}/roost-install-homebrew.XXXXXX") || return 1
+  sudo_keepalive_start
   # Downloaded first, then run: a failed download stops here rather than running an empty script.
   run curl -fsSL -o "$tmp" "$HOMEBREW_INSTALLER" && run env NONINTERACTIVE=1 /bin/bash "$tmp"
   rc=$?
+  sudo_keepalive_stop
   rm -f "$tmp"
   if [ "$DRY_RUN" = 1 ]; then
     HOMEBREW_STATE=planned
@@ -1037,6 +1057,7 @@ parse_args() {
 }
 
 cleanup() {  # on exit: the log is kept, and named, only when a step failed and something was logged
+  sudo_keepalive_stop
   [ -z "$VSIX_DIR" ] || rm -rf "$VSIX_DIR"
   [ -z "$INLINED_HELPER" ] || rm -f "$INLINED_HELPER"
   if [ "$N_FAIL" != 0 ] && [ -s "$LOG" ]; then

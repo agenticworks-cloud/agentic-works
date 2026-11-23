@@ -111,7 +111,9 @@ that will happen: Homebrew (macOS); curl and ca-certificates, gnupg (a minimal U
 package repository and its signing key, and VS Code; OpenSSL 3 (Fedora, for VS Code's extension signature checks);
 GitHub's gh package repository and its signing key, and gh. The lines say it too: `✓ VS Code (installed, with
 OpenSSL 3 for VS Code's extension signature checks)` on a fresh Fedora 45, `✓ GitHub (added GitHub's package
-repository, installed gh; …)`.
+repository, installed gh; …)`. Homebrew's installer runs `sudo` itself and can take longer than sudo's timestamp,
+so while it runs a background `sudo -n -v` loop keeps it fresh; the loop ends as soon as the install does (or the
+run is stopped).
 
 **On a Mac without admin rights,** Homebrew cannot be installed: the VS Code step is `✗` with the official download
 link, and the run continues with an existing `code` if there is one.
