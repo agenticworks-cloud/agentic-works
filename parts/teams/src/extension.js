@@ -14,6 +14,7 @@ const { Sidebar } = require('./sidebar');
 const { createMirror } = require('./mirror');
 const { Conversations, VIEW_TYPE } = require('./conversation');
 const { createSavedTabs } = require('./savedTabs');
+const { carryOverSettings, settingKeys } = require('./settingsCarryOver');
 
 const CHAT_LIST_MS = 30000;
 const CHECK_PARALLEL = 4;
@@ -21,7 +22,7 @@ const LISTS_KEY = 'chirp.lists';
 const OPEN_TABS_KEY = 'chirp.openTabs.v1';   // workspaceState: the conversation tabs open in this workspace (savedTabs.js)
 const CHANNELS_WANTED = 'chirp.channelsWanted';
 const USER_SIGNED_OUT = 'chirp.userSignedOut';   // shared by windows, kept across reloads: only Sign In clears it
-const NO_TOKEN_FILE = 'Set chirp.signIn.tokenFile to the token file to use.';
+const NO_TOKEN_FILE = 'Set teams.signIn.tokenFile to the token file to use.';
 const LOST = 'Signed out: sign in again';
 const UNREACHABLE = "Couldn't reach Microsoft. Check the connection and sign in again.";
 const TEAMS_MS = 1800000;
@@ -41,12 +42,14 @@ let current = null;
 function activate(context, deps = {}) {
   const out = vscode.window.createOutputChannel('chirp');
   const log = (e) => out.appendLine(`[${new Date().toISOString()}] ${e && e.stack ? e.stack : e}`);
+  // chirp.* settings were renamed teams.* (Roost): the user's old values, once, at the scopes they were set at
+  carryOverSettings(vscode, context.globalState, { from: 'chirp', to: 'teams', keys: settingKeys(require('../package.json'), 'teams'), log }).catch(log);
   const watchFile = deps.watchFile || fs.watchFile, unwatchFile = deps.unwatchFile || fs.unwatchFile;
   const setIntervalFn = deps.setInterval || setInterval, clearIntervalFn = deps.clearInterval || clearInterval;
   const fetchFn = deps.fetch || ((...a) => globalThis.fetch(...a));
   const clientId = deps.clientId || CHIRP_CLIENT_ID;
   const secrets = deps.secrets || context.secrets;
-  const cfg = (k) => vscode.workspace.getConfiguration('chirp').get(k);
+  const cfg = (k) => vscode.workspace.getConfiguration('teams').get(k);
   const mentions = createMentionState(context.globalState);
   const isFocused = () => vscode.window.state.focused;
 
@@ -351,8 +354,8 @@ function activate(context, deps = {}) {
     vscode.window.onDidChangeWindowState((w) => { if (w.focused) { for (const p of pollers) p.kick(); conversations.onFocus(); } }),
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, { deserializeWebviewPanel: async (panel, state) => conversations.restore(panel, state) }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('chirp.signIn')) onSettings().catch(log);
-      if (e.affectsConfiguration('chirp.agentFiles') && cfg('agentFiles') === false) mirror.clearAll();   // off means the plain-text chats go too
+      if (e.affectsConfiguration('teams.signIn')) onSettings().catch(log);
+      if (e.affectsConfiguration('teams.agentFiles') && cfg('agentFiles') === false) mirror.clearAll();   // off means the plain-text chats go too
     }),
     vscode.commands.registerCommand('chirp.activeConversationFile', () => conversations.activeConversationFile()),
     vscode.commands.registerCommand('chirp.refresh', () => refresh()),

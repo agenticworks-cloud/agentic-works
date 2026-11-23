@@ -52,7 +52,7 @@ function formatChannel(conv, posts) {
   return head.join('\n') + '\n' + (body.length ? '\n' + body.join('\n\n') + '\n' : '');
 }
 
-/** @param enabled() whether files are written at all (setting chirp.agentFiles) */
+/** @param enabled() whether files are written at all (setting teams.agentFiles) */
 function createMirror({ dir, enabled = () => true }) {
   const entries = new Map();   // conversation id -> { path, open }
   let current = null;

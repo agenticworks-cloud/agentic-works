@@ -74,9 +74,9 @@ function start(world, o = {}) {
   const watched = [];
   const context = { extensionUri: { fsPath: path.join(__dirname, '..') }, globalState: o.memento || memento(), workspaceState: o.workspaceState || memento(), subscriptions: [] };
   // the 0.1.x tests run under the token-file method; o.method picks another, with no token file configured
-  ui.config['chirp.signIn.method'] = o.method || 'auto';
-  ui.config['chirp.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
-  ui.config['chirp.agentFiles'] = true;
+  ui.config['teams.signIn.method'] = o.method || 'auto';
+  ui.config['teams.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
+  ui.config['teams.agentFiles'] = true;
   const sec = o.secrets || secrets();
   const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: (f, opts, fn) => watched.push(fn), unwatchFile: () => {}, secrets: sec, sleep: async () => {}, clientId: 'cid', restoreGraceMs: o.restoreGraceMs });
   const h = { api, fetch, dir, context, watched, world, secrets: sec };
@@ -599,7 +599,7 @@ test('sign-in comes back even if the token file does not change again', async ()
   world.marked = []; world.messages = {};
   const fetch = graph(world);
   const context = { extensionUri: { fsPath: path.join(__dirname, '..') }, globalState: memento(), subscriptions: [] };
-  ui.config['chirp.signIn.method'] = 'auto'; ui.config['chirp.signIn.tokenFile'] = tokenFile;
+  ui.config['teams.signIn.method'] = 'auto'; ui.config['teams.signIn.tokenFile'] = tokenFile;
   const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: () => {}, unwatchFile: () => {}, setInterval: (fn) => { ticks.push(fn); return ticks.length; }, clearInterval: () => {}, secrets: secrets(), sleep: async () => {}, clientId: 'cid' });
   running.push({ api });
   const view = ui.resolveSidebar(); await settle();
@@ -762,8 +762,8 @@ test('changing the method signs in again with the new one', async () => {
   ui.focused = true;
   const h = start(chatWorld()); const view = ui.resolveSidebar(); await settle();
   assert.deepStrictEqual(lastState(view).chats.map((r) => r.id), [PLAT], 'signed in by the token file');
-  ui.setConfig('chirp.signIn.tokenFile', '');
-  ui.setConfig('chirp.signIn.method', 'deviceCode'); await settle();
+  ui.setConfig('teams.signIn.tokenFile', '');
+  ui.setConfig('teams.signIn.method', 'deviceCode'); await settle();
   assert.deepStrictEqual(signInState(view), { stage: 'signedOut' }, 'the new method has no session yet');
   const n = graphCalls(h).length; await settle(40);
   assert.strictEqual(graphCalls(h).length, n, 'the old method no longer polls');
@@ -793,7 +793,7 @@ test('turning agent files off stops writing at once', async () => {
   await openTab(h, PLAT);
   const file = path.join(h.dir, '.chirp', 'chats', `Design Team Chat ${shortId(PLAT)}.teams`);
   assert.ok(fs.existsSync(file));
-  ui.setConfig('chirp.agentFiles', false); await settle();
+  ui.setConfig('teams.agentFiles', false); await settle();
   h.world.messages[PLAT].unshift(msg('m9', 'b', '2026-11-17T13:00:00Z', 'after'));
   await h.api.conversations.poll('chat:' + PLAT);
   assert.strictEqual(fs.existsSync(file), false, 'deleted when turned off, and not written again');
@@ -821,9 +821,9 @@ function startWithTicks(world, o = {}) {
   world.marked = []; world.messages = world.messages || {};
   const fetch = graph(world);
   const context = { extensionUri: { fsPath: path.join(__dirname, '..') }, globalState: o.memento || memento(), workspaceState: o.workspaceState || memento(), subscriptions: [] };
-  ui.config['chirp.signIn.method'] = o.method || 'auto';
-  ui.config['chirp.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
-  ui.config['chirp.agentFiles'] = true;
+  ui.config['teams.signIn.method'] = o.method || 'auto';
+  ui.config['teams.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
+  ui.config['teams.agentFiles'] = true;
   const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: () => {}, unwatchFile: () => {}, setInterval: (fn) => { ticks.push(fn); return ticks.length; }, clearInterval: () => {}, secrets: o.secrets || secrets(), sleep: async () => {}, clientId: 'cid' });
   const h = { api, fetch, dir, context, world, ticks, tokenFile };
   running.push(h);
@@ -910,10 +910,10 @@ test('a start-up failure says so and offers Sign in', async () => {
 
 test('the token-file method with no file set says what to do', async () => {
   ui.focused = true;
-  start(chatWorld(), { method: 'tokenFile' }); ui.config['chirp.signIn.tokenFile'] = '';
-  ui.setConfig('chirp.signIn.method', 'tokenFile'); await settle();
+  start(chatWorld(), { method: 'tokenFile' }); ui.config['teams.signIn.tokenFile'] = '';
+  ui.setConfig('teams.signIn.method', 'tokenFile'); await settle();
   const view = ui.resolveSidebar(); await settle();
-  assert.deepStrictEqual(lastState(view).status, { kind: 'signin', text: 'Set chirp.signIn.tokenFile to the token file to use.' });
+  assert.deepStrictEqual(lastState(view).status, { kind: 'signin', text: 'Set teams.signIn.tokenFile to the token file to use.' });
 });
 
 test('losing the login while signed in says so', async () => {
@@ -934,7 +934,7 @@ test('turning agent files off deletes them', async () => {
   await openTab(h, PLAT);
   const file = path.join(h.dir, '.chirp', 'chats', `Design Team Chat ${shortId(PLAT)}.teams`);
   assert.ok(fs.existsSync(file));
-  ui.setConfig('chirp.agentFiles', false); await settle();
+  ui.setConfig('teams.agentFiles', false); await settle();
   assert.strictEqual(fs.existsSync(file), false);
   assert.strictEqual(fs.existsSync(path.join(h.dir, '.chirp', 'current.teams')), false);
 });

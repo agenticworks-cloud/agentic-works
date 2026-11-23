@@ -21,10 +21,10 @@ test('package.json has the listing icon and the new settings', () => {
   assert.deepStrictEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'a PNG');
   assert.deepStrictEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [128, 128], '128×128');
   const props = pkg.contributes.configuration.properties;
-  assert.strictEqual(props['chirp.signIn.method'].default, 'auto');
-  assert.deepStrictEqual(props['chirp.signIn.method'].enum, ['auto', 'editor', 'deviceCode', 'tokenFile']);
-  assert.strictEqual(props['chirp.signIn.tokenFile'].default, '');
-  assert.strictEqual(props['chirp.agentFiles'].default, true);
+  assert.strictEqual(props['teams.signIn.method'].default, 'auto');
+  assert.deepStrictEqual(props['teams.signIn.method'].enum, ['auto', 'editor', 'deviceCode', 'tokenFile']);
+  assert.strictEqual(props['teams.signIn.tokenFile'].default, '');
+  assert.strictEqual(props['teams.agentFiles'].default, true);
   assert.match(pkg.description, /Not affiliated with Microsoft\.$/);
   assert.deepStrictEqual(pkg.keywords, ['teams', 'chat', 'microsoft 365', 'agent']);
 });

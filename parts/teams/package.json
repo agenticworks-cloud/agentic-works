@@ -42,42 +42,42 @@
     "commands": [
       {
         "command": "chirp.refresh",
-        "title": "chirp: Refresh",
+        "title": "Teams: Refresh",
         "icon": "$(refresh)"
       },
       {
         "command": "chirp.focusFilter",
-        "title": "chirp: Filter Chats and Channels"
+        "title": "Teams: Filter Chats and Channels"
       },
       {
         "command": "chirp.activeConversationFile",
-        "title": "chirp: Active Conversation File"
+        "title": "Teams: Active Conversation File"
       },
       {
         "command": "chirp.signIn",
-        "title": "chirp: Sign In",
+        "title": "Teams: Sign In",
         "icon": "$(sign-in)"
       },
       {
         "command": "chirp.signOut",
-        "title": "chirp: Sign Out",
+        "title": "Teams: Sign Out",
         "icon": "$(sign-out)"
       },
       {
         "command": "chirp.enableChannels",
-        "title": "chirp: Enable Channels"
+        "title": "Teams: Enable Channels"
       },
       {
         "command": "chirp.cancelSignIn",
-        "title": "chirp: Cancel Sign-in"
+        "title": "Teams: Cancel Sign-in"
       },
       {
         "command": "chirp.copyAdminLink",
-        "title": "chirp: Copy the Admin Approval Link"
+        "title": "Teams: Copy the Admin Approval Link"
       },
       {
         "command": "chirp.copyCode",
-        "title": "chirp: Copy Sign-in Code and Open the Sign-in Page"
+        "title": "Teams: Copy Sign-in Code and Open the Sign-in Page"
       }
     ],
     "menus": {
@@ -112,7 +112,7 @@
     "configuration": {
       "title": "chirp",
       "properties": {
-        "chirp.signIn.method": {
+        "teams.signIn.method": {
           "type": "string",
           "enum": [
             "auto",
@@ -125,16 +125,16 @@
             "A token file if one is set, otherwise the editor's Microsoft sign-in, otherwise a sign-in code.",
             "The editor's own Microsoft account sign-in, using chirp's app.",
             "A code you enter at microsoft.com/devicelogin; chirp keeps the tokens in the editor's secret storage.",
-            "Reuse the login another tool keeps in a token file (chirp.signIn.tokenFile)."
+            "Reuse the login another tool keeps in a token file (teams.signIn.tokenFile)."
           ],
           "description": "How chirp signs in to Microsoft. See the README's \"Signing in\" section."
         },
-        "chirp.signIn.tokenFile": {
+        "teams.signIn.tokenFile": {
           "type": "string",
           "default": "",
           "description": "A token file another tool keeps (JSON with access_token, refresh_token, client_id, tenant_id, expires_at). When set, chirp reuses that login instead of signing in itself. chirp refreshes it in place and never deletes it."
         },
-        "chirp.agentFiles": {
+        "teams.agentFiles": {
           "type": "boolean",
           "default": true,
           "description": "Write each open conversation to ~/.chirp as plain text (files readable only by you), so an AI agent beside chirp knows which chat is open. Off: no files, and chirp.activeConversationFile returns nothing."

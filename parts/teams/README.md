@@ -24,19 +24,19 @@ chirp is not made by or affiliated with Microsoft.
 
 chirp signs in to Microsoft 365 with a **work or school account**.
 Personal Microsoft accounts aren't supported. There are three ways to
-sign in. The setting `chirp.signIn.method` picks one; the default,
+sign in. The setting `teams.signIn.method` picks one; the default,
 `auto`, picks for you.
 
-| Way | `chirp.signIn.method` | When to use it |
+| Way | `teams.signIn.method` | When to use it |
 | --- | --- | --- |
 | **The editor's Microsoft sign-in** | `editor` | The default. VS Code or Cursor shows its usual account prompt and keeps your sign-in. |
 | **A sign-in code** | `deviceCode` | If the editor's sign-in isn't available. chirp shows a code; you enter it at microsoft.com/devicelogin. chirp keeps the tokens in the editor's secret storage. |
-| **An existing token file** | `tokenFile` | If another tool already signs you in to Microsoft Graph and keeps its tokens in a file. Set `chirp.signIn.tokenFile` to that file, and chirp reuses that login. |
+| **An existing token file** | `tokenFile` | If another tool already signs you in to Microsoft Graph and keeps its tokens in a file. Set `teams.signIn.tokenFile` to that file, and chirp reuses that login. |
 
-With `auto`, chirp uses the token file if `chirp.signIn.tokenFile` is set;
+With `auto`, chirp uses the token file if `teams.signIn.tokenFile` is set;
 otherwise the editor's sign-in; otherwise a sign-in code.
 
-- **Commands:** **chirp: Sign In** and **chirp: Sign Out**, also in the
+- **Commands:** **Teams: Sign In** and **Teams: Sign Out**, also in the
   sidebar's title bar.
 - **Signing out** deletes the cached lists and the conversation files
   under `~/.chirp`, and chirp stays signed out until you sign in again.
@@ -73,7 +73,7 @@ Each open conversation is written as plain text to `~/.chirp/chats/` or
 `~/.chirp/channels/`, and `~/.chirp/current.teams` is the one most
 recently in front. The files are readable only by you. This lets an
 agent beside chirp know which conversation you mean by "the chat". Set
-`chirp.agentFiles` to `false` to turn it off; the files are deleted
+`teams.agentFiles` to `false` to turn it off; the files are deleted
 when you do.
 
 ## Install from source
