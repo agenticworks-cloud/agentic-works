@@ -8,3 +8,17 @@ scripts/**
 Makefile
 **/Makefile
 .superpowers/**
+**/package-lock.json
+**/.env
+**/__pycache__/**
+parts/*/.gitignore
+parts/*/.vscodeignore
+# The agents' programs are not packaged: hundreds of megabytes, and one platform's only. Perch runs the ones inside
+# the vendors' own extensions (parts/perch/src/binaries.js).
+node_modules/@anthropic-ai/claude-agent-sdk-*/**
+node_modules/@openai/codex-linux-*/**
+node_modules/@openai/codex-darwin-*/**
+node_modules/@openai/codex-win32-*/**
+node_modules/**/*.map
+node_modules/**/*.md
+node_modules/**/.github/**

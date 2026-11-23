@@ -12,9 +12,10 @@ manifest: ; node scripts/build-manifest.js
 
 ## Root: the runtime dependencies of every part. Each part with a lockfile (and Perch's audio): its own, for its tests
 deps: manifest
-	npm install --silent
-	@for p in $(PARTS); do echo "deps $$p"; (cd $$p && npm install --silent) || exit 1; done
-	cd parts/perch/audio && npm install --silent
+	npm ci --silent
+	@for p in $(PARTS); do echo "deps $$p"; (cd $$p && npm ci --silent) || exit 1; done
+	@# Perch's audio companion is excluded from the .vsix; its tests (run by Perch's test-offline) need these
+	cd parts/perch/audio && npm ci --silent
 
 ## Offline tests: Roost's own, then each part's, then the manifest is checked against the parts
 test:
@@ -36,7 +37,7 @@ install: deps
 
 ## Build roost-<version>.vsix
 package: manifest
-	npm install --silent
+	npm ci --silent
 	$(VSCE) package
 
 ## Package, then check what the .vsix holds

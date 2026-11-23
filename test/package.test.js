@@ -24,7 +24,18 @@ for (const part of ['perch', 'chirp', 'jay', 'kestrel']) {
   assert.ok(files.some((f) => f.startsWith(`extension/parts/${part}/media/`)), `parts/${part}/media is in the package`);
 }
 
-const bad = files.filter((f) => /\/test\//.test(f) || /\/docs\//.test(f) || /^extension\/parts\/[^/]+\/node_modules\//.test(f) || /\.vsix$/.test(f));
-assert.deepStrictEqual(bad, [], 'test, docs, part node_modules and .vsix files stay out of the package');
+const unwanted = [
+  /\/test\//, /\/docs\//, /^extension\/parts\/[^/]+\/node_modules\//, /\.vsix$/,
+  // the agents' programs: Perch runs the ones inside the vendors' own extensions
+  /^extension\/node_modules\/@anthropic-ai\/claude-agent-sdk-/, /^extension\/node_modules\/@openai\/codex-(linux|darwin|win32)-/,
+  /^extension\/node_modules\/.*\.map$/, /^extension\/node_modules\/.*\.md$/, /^extension\/node_modules\/.*\/\.github\//,
+  /(^|\/)package-lock\.json$/, /(^|\/)\.env$/, /__pycache__\//,
+  /^extension\/parts\/[^/]+\/\.gitignore$/, /^extension\/parts\/[^/]+\/\.vscodeignore$/,
+];
+const bad = files.filter((f) => unwanted.some((re) => re.test(f)));
+assert.deepStrictEqual(bad.slice(0, 20), [], 'files that stay out of the package');
+
+const mb = fs.statSync(vsix).size / 1048576;
+assert.ok(mb < 20, `the package is ${mb.toFixed(1)} MB, over 20 MB`);
 
 console.log('package.test.js passed');
