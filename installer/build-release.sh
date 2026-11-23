@@ -20,7 +20,7 @@ trap 'rm -f "$tmp"' EXIT
 awk -v version="$version" -v sha="$sha" -v helper="$here/roost-install-helper" -v delim="$delim" '
   /^[ \t]*# @INLINED_HELPER@[ \t]*$/ {
     print "  INLINED_HELPER=$(mktemp \"${TMPDIR:-/tmp}/roost-install-helper.XXXXXX\") || return 1"
-    print "  cat > \"$INLINED_HELPER\" << '"'"'" delim "'"'"'"
+    print "  cat > \"$INLINED_HELPER\" << '"'"'" delim "'"'"' || { rm -f \"$INLINED_HELPER\"; INLINED_HELPER=\"\"; return 1; }"
     while ((getline line < helper) > 0) print line
     print delim
     print "  return 0"

@@ -772,20 +772,20 @@ write_inlined_helper() {  # a released script carries the helper as a here-docum
   return 1
 }
 
-helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, the one beside this script, or the inlined one
+helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, the inlined one (a released script), or the one beside this script (the source tree)
   local here
   if [ -n "${ROOST_INSTALL_HELPER:-}" ]; then
     printf '%s' "$ROOST_INSTALL_HELPER"
     return 0
   fi
-  here=$(dirname "${BASH_SOURCE[0]:-$0}")
-  if [ -f "$here/roost-install-helper" ]; then
-    printf '%s' "$here/roost-install-helper"
-  elif [ -n "$INLINED_HELPER" ]; then
+  # The inlined copy first: under `curl | bash`, $0 is `bash` and the sibling lookup would search the current directory.
+  if [ -n "$INLINED_HELPER" ]; then
     printf '%s' "$INLINED_HELPER"
-  else
-    return 1
+    return 0
   fi
+  here=$(dirname "${BASH_SOURCE[0]:-$0}")
+  [ -f "$here/roost-install-helper" ] || return 1
+  printf '%s' "$here/roost-install-helper"
 }
 
 python_ok() {  # true when there is a python3 to run the helper with (in PYTHON); else PYTHON_WHY says why not

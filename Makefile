@@ -6,7 +6,7 @@ EXT_ID = seanahn.roost-$(VERSION)
 EXT_DIRS ?= $(HOME)/.vscode/extensions $(HOME)/.local/share/code-server/extensions $(HOME)/.vscode-server/extensions
 PARTS = $(patsubst %/package-lock.json,%,$(wildcard parts/*/package-lock.json))
 
-.PHONY: manifest deps test test-live install package test-package release release-publish clean
+.PHONY: manifest deps test test-live install package test-package release release-test release-publish clean
 
 manifest: ; node scripts/build-manifest.js
 
@@ -50,10 +50,17 @@ release: package
 	cp $(VSIX) dist/$(VSIX)
 	sh installer/build-release.sh $(VERSION) dist/$(VSIX) dist
 
+## make release, then the release tests (which fail, rather than skip, without dist/)
+release-test: release
+	ROOST_REQUIRE_DIST=1 python3 -m unittest installer/test/test_release.py
+
 ## Publish dist/ as a GitHub release. The owner's action: nothing in the build or the tests runs it
 release-publish:
 	@[ -f dist/roost-install.sh ] && [ -f dist/$(VSIX) ] || { echo "dist/ is missing; run make release"; exit 1; }
 	@grep -q '^ROOST_VERSION="$(VERSION)"$$' dist/roost-install.sh || { echo "dist/ is stale (not $(VERSION)); run make release"; exit 1; }
+	@sha=$$(cd dist && (sha256sum $(VSIX) 2> /dev/null || shasum -a 256 $(VSIX)) | cut -d' ' -f1); \
+	  grep -q "^ROOST_SHA256=\"$$sha\"$$" dist/roost-install.sh || { echo "dist/ is stale (the .vsix doesn't match the installer's checksum); run make release"; exit 1; }; \
+	  [ ! -f $(VSIX) ] || cmp -s $(VSIX) dist/$(VSIX) || { echo "dist/ is stale (differs from $(VSIX)); run make release"; exit 1; }
 	@printf 'Roost %s\n\nInstall: curl -fsSL https://github.com/seanahn/roost/releases/latest/download/roost-install.sh | bash\n' \
 	  "$(VERSION)" > dist/release-notes.md
 	gh release create v$(VERSION) dist/roost-install.sh dist/$(VSIX) --repo seanahn/roost --title "Roost $(VERSION)" \
