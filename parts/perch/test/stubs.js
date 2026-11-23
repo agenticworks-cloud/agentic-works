@@ -1,0 +1,319 @@
+'use strict';
+// Shared test stubs: a fake vscode module and fake agents, so host tests make no model calls.
+const Module = require('module');
+const origLoad = Module._load;
+
+function makeMemento(initial) { const m = new Map(Object.entries(initial || {})); return { get: (k) => m.get(k), update: (k, v) => { if (v === undefined) m.delete(k); else m.set(k, JSON.parse(JSON.stringify(v))); return Promise.resolve(); }   /* like the real one, undefined deletes */, _dump: () => Object.fromEntries(m) }; }
+
+const ALL = ['low', 'medium', 'high', 'xhigh', 'max'];
+// shaped like what the real agents report
+const CATALOGS = {
+  claude: { defaultModel: { label: 'Opus 5.5', model: 'claude-opus-resolved', efforts: ALL, defaultEffort: '' }, models: [
+    { value: 'opus', label: 'Opus 5.5', resolved: 'claude-opus-resolved', description: 'For complex work', efforts: ALL, defaultEffort: '' },
+    { value: 'fable', label: 'Fable 5.1', resolved: 'claude-fable-resolved', description: 'For your toughest challenges', efforts: ALL, defaultEffort: '' },
+    { value: 'haiku', label: 'Haiku 4.5', resolved: 'claude-haiku-resolved', description: 'Fastest', efforts: [], defaultEffort: '' },
+    { value: 'claude-opus-4-6', label: 'Opus 4.6', resolved: 'claude-opus-4-6', description: '', efforts: ['low', 'medium', 'high', 'max'], defaultEffort: '' },
+  ], commands: [{ name: 'compact', description: 'Summarise the conversation so far', hint: '[instructions]' }, { name: 'clear', description: 'Start over', hint: '' }] },
+  codex: { defaultModel: { label: 'GPT-5.6-Sol', slug: 'gpt-5.6-sol', efforts: [...ALL, 'ultra'], defaultEffort: 'ultra' }, models: [
+    { value: 'gpt-6-sol', label: 'GPT-6-Sol', description: '', efforts: [...ALL, 'ultra'], defaultEffort: 'ultra' },
+    { value: 'gpt-6-luna', label: 'GPT-6-Luna', description: '', efforts: ALL, defaultEffort: 'medium' },
+    { value: 'gpt-5.5', label: 'GPT-5.5', description: '', efforts: ['low', 'medium', 'high', 'xhigh'], defaultEffort: 'medium' },
+  ] },
+};
+const CODEX_LIMITS = (a, b) => [{ kind: 'session', label: '5h', name: '5h session', percent: a, resetsAt: new Date(Date.now() + 2 * 3600000 + 60000).toISOString(), model: null }, { kind: 'weekly_all', label: 'wk', name: 'Weekly', percent: b, resetsAt: new Date(Date.now() + 150 * 3600000).toISOString(), model: null }];
+const flush = () => new Promise((r) => setImmediate(r));   // lets the async catalog load settle
+const realMeter = origLoad.call(Module, require.resolve('../src/meter.js'), module, false);
+const realModels = origLoad.call(Module, require.resolve('../src/models.js'), module, false);   // the loaders are faked; the pure helpers are real
+const realStore = origLoad.call(Module, require.resolve('../src/sessionStore.js'), module, false);   // the records are faked; names and times are real
+const HOUR = 3600000;
+const LIMITS = () => [{ kind: 'session', percent: 9, resetsAt: new Date(Date.now() + HOUR + 60000).toISOString(), model: null }, { kind: 'weekly_all', percent: 5, resetsAt: new Date(Date.now() + 150 * HOUR).toISOString(), model: null }];
+
+const created = [];   // every FakeAgent constructed, in order
+const engines = [];   // every FakeEngine constructed, in order
+// Answers at once, unless the message starts with "hold": then it stays busy until finish() is called, which is how
+// the tests get a turn that is still running. As Claude it queues further messages itself, as the real agent does.
+const knobs = { relayCost: 0.0001 };   // what the fake gateway puts on each response; null for a streamed response, which carries none
+// knobs.startsOn: what a fake Claude on default starts on, as ANTHROPIC_MODEL or the settings' model make the real one; unset, the
+// built-in default, claude-opus-resolved, which is also where setModel('') takes it, as it takes the real one
+const PRICES = { 'claude-opus-5-5': { input_cost_per_token: 5e-6, output_cost_per_token: 2.5e-5, cache_creation_input_token_cost: 6.25e-6, cache_read_input_token_cost: 5e-7 }, 'openai.gpt-6-luna': { input_cost_per_token: 1e-7, output_cost_per_token: 5e-7, cache_creation_input_token_cost: 1.25e-7, cache_read_input_token_cost: 1e-8 }, 'xai/grok-4.6': { input_cost_per_token: 2e-6, output_cost_per_token: 6e-6, cache_read_input_token_cost: 5e-7 }, 'gpt-6.1-sol': { input_cost_per_token: 2e-6, output_cost_per_token: 1e-5, cache_creation_input_token_cost: 2.5e-6, cache_read_input_token_cost: 2e-7 } };
+let storage = null;
+/** The extension's storage directory for a test run, holding a fresh price table so a gateway turn is priced without a fetch. */
+function storageDir() {
+  if (!storage) {
+    storage = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'perch-storage-'));
+    require('fs').writeFileSync(require('path').join(storage, 'litellm-prices.json'), JSON.stringify(PRICES));
+    require('../src/prices').fetch = async () => { throw new Error('no network in tests'); };
+  }
+  return storage;
+}
+let fakeQueued = 0, fakeSkill = 0;
+class FakeAgent {
+  constructor(o) { this.o = o; this.emit = o.emit; this.claude = !!o.askPermission; this.lastAnswer = ''; this.sent = []; this.waitingIds = []; this.disposed = false; this.interrupted = 0; this.modes = []; this.efforts = []; this.models = []; this.running = false; this.held = null; this.waiting = []; this.now = o.model ? 'claude-' + o.model + '-resolved' : knobs.startsOn || 'claude-opus-resolved'; created.push(this); }
+  mcpStatus() { return Promise.resolve(knobs.mcpStatus || []); }
+  send(t, a, b) {
+    const shown = this.claude ? b : a, images = (this.claude ? a : b) || [];   // the two agents take their arguments as the real ones do
+    this.sent.push(t); (this.images = this.images || []).push(images);
+    const n = images.length ? { images: images.length } : {};
+    if (shown) { this.shownAs = this.shownAs || []; this.shownAs.push(shown); t = Object.assign(new String(t), { shown }); }
+    if (this.running) { const qid = 'fq-' + (++fakeQueued); this.emit(Object.assign({ kind: 'user', text: t, queued: true, qid }, n)); this.waiting.push(t); this.waitingIds.push(qid); return; }   // only Claude is ever sent a message mid-turn
+    this.emit(Object.assign({ kind: 'user', text: t.shown ? t.shown.text : String(t), queued: false }, n, t.shown && t.shown.tag ? { tag: t.shown.tag } : {}));
+    this.begin(String(t));
+  }
+  begin(t) {
+    this.running = true;
+    this.emit({ kind: 'busy', busy: true });
+    this.emit({ kind: 'session', id: (this.o.resume || 'sess-' + created.indexOf(this)) });
+    this.emit({ kind: 'status', text: 'ready · fake' });
+    if (this.claude) this.emit({ kind: 'model', id: this.now });
+    // through a gateway, the relay reports each response's model: a turn here is three requests, two to one model and one to another
+    if (this.claude && this.o.gateway) for (const model of ['global.openai.gpt-6-luna', 'xai/grok-4.6', 'global.openai.gpt-6-luna']) { this.emit(Object.assign({ kind: 'relay', path: '/v1/messages', status: 200, model, group: 'router-auto', fallbacks: 0, callId: 'c', keySpend: 0.5 }, knobs.relayCost === null ? {} : { cost: knobs.relayCost })); this.emit({ kind: 'usage', model: 'router-auto', usage: { input: 1000, cache_write: 0, cache_read: 0, output: 100 } }); }
+    if (/^hold/.test(t)) { this.held = t; return; }
+    this.answer(t);
+  }
+  answer(t) {
+    // knobs.skills: Skill calls the next Claude turn makes, each { skill, isError, sub }: the call, then its result
+    if (this.claude && knobs.skills) { for (const k of knobs.skills) { const id = 'sk-' + (++fakeSkill); this.emit({ kind: 'tool_use', id, name: 'Skill', input: { skill: k.skill }, sub: !!k.sub }); this.emit({ kind: 'tool_result', id, text: k.isError ? 'Unknown skill' : 'Launching skill: ' + k.skill, truncated: false, isError: !!k.isError }); } knobs.skills = null; }
+    this.emit({ kind: 'delta', text: 'ans' });
+    this.lastAnswer = 'answer to ' + t; this.emit({ kind: 'text', text: this.lastAnswer });
+    if (this.claude) { this.emit({ kind: 'responded', at: Date.now() }); this.emit({ kind: 'context', percent: 2.4, used: 20361, max: 1000000, model: this.now }); }
+    if (this.claude && this.o.gateway) this.emit({ kind: 'result', ok: true, duration_ms: 1200, usage: { input: 10, cache_read: 0, output: 3 } });   // the turn's result, which carries what answered; only agents on a gateway send one here, so no other test's event sequence changes
+    this.held = null;
+    if (this.waiting.length) { this.emit({ kind: 'dequeued', qid: this.waitingIds.shift() }); this.begin(this.waiting.shift()); return; }
+    this.running = false;
+    this.emit({ kind: 'busy', busy: false });
+  }
+  finish() { if (this.held) this.answer(this.held); }
+  interrupt() { this.interrupted++; this.waiting = []; this.waitingIds = []; if (this.running) { this.running = false; this.held = null; this.emit({ kind: 'busy', busy: false }); } }
+  /** Claude: take a queued message back, as Claude Code would; `knobs.unqueue` says how a Claude Code that cannot be asked answers */
+  async unqueue(qid) {
+    if (knobs.unqueue === 'unsupported') return { ok: false, why: 'unsupported' };
+    const i = this.waitingIds.indexOf(qid); if (i < 0) return { ok: false, why: 'taken' };
+    this.waitingIds.splice(i, 1); this.waiting.splice(i, 1); return { ok: true };
+  }
+  setPermissionMode(m) { this.modes.push(m); }
+  setSandboxMode(m) { this.modes.push(m); }
+  setEffort(e) { this.efforts.push(e); }
+  setModel(m) {   // Claude says at once what it runs now, as the real agent asks after a change; knobs.slowModel holds that back, as a slow CLI would
+    this.models.push(m);
+    if (!this.claude) return;
+    this.now = 'claude-' + (m || 'opus') + '-resolved';
+    if (!knobs.slowModel) this.emit({ kind: 'context', percent: 2.4, used: 20361, max: 1000000, model: this.now });
+  }
+  dispose() { this.disposed = true; }
+  setSearch(s) { (this.searches = this.searches || []).push(s || null); this.o.search = s || undefined; }
+  setApiKey(k) { this.setBackend({ apiKey: k }); }
+  setBackend(b) { (this.apiKeys = this.apiKeys || []).push(b.apiKey || null); (this.backends = this.backends || []).push(b); this.o.apiKey = b.apiKey || undefined; this.o.bedrock = b.bedrock || undefined; }
+}
+
+// commandAnswers: what other extensions' commands answer, by id, from activation on (ui.commandAnswers, which a test may change)
+function install(state, { extensions, config, catalogs, meter, globals, voice, audio, remote, past, workspaceFolders, codeIndex, commandAnswers } = {}) {
+  // the agents' own records of past sessions: what they list, and every name written to them
+  const store = Object.assign({ sessions: [], failed: [], renamed: [], deleted: [], failDelete: null, lists: [], failRename: null, transcripts: {}, loads: [], claudeUsage: {} }, past);
+  store.sessions = store.sessions.map((x) => Object.assign({}, x));   // each install has records of its own
+  const fakeStore = Object.assign({}, realStore, {
+    titleOf: async (kind, id) => { const x = store.sessions.find((r) => r.kind === kind && r.id === id); return x && kind === 'claude' ? { title: x.title, named: !!x.named } : null; },
+    forkSession: async (kind, id, o) => { if (kind !== 'claude') throw new Error('Codex sessions cannot be forked here'); if (store.failFork) throw new Error(store.failFork); (store.forked = store.forked || []).push([kind, id, o]); const nid = id + '-fork'; store.sessions.unshift({ kind, id: nid, title: o.title, named: true, updatedAt: Date.now() }); return { id: nid, title: o.title }; },
+    deleteSession: async (kind, id, o) => { if (store.failDelete) throw new Error(store.failDelete); store.deleted.push([kind, id, o]); store.sessions = store.sessions.filter((x) => !(x.kind === kind && x.id === id)); },
+    listSessions: async (o) => { store.lists.push(o); return { sessions: store.sessions.map((x) => Object.assign({}, x)), failed: store.failed.slice() }; },
+    claudeSessionUsage: async (id) => { const u = store.claudeUsage[id]; if (u instanceof Error) throw u; return u ? JSON.parse(JSON.stringify(u)) : null; },
+    loadTranscript: async (kind, id, o) => { store.loads.push([kind, id, o]); const t = store.transcripts[id]; if (t instanceof Error) throw t; return t ? JSON.parse(JSON.stringify(t)) : { events: [], earlier: 0 }; },
+    renameSession: async (kind, id, title, o) => { const name = realStore.cleanTitle(title); if (!name) throw new Error('A session name cannot be empty.'); if (store.failRename) throw new Error(store.failRename); store.renamed.push([kind, id, name, o]); for (const x of store.sessions) if (x.kind === kind && x.id === id) { x.title = name; x.named = true; } return name; },
+  });
+  const cfgBox = Object.assign({}, config);
+  // codebase search: whether this machine's Python can run it (usable), search by meaning installed, the installs run
+  const ibox = Object.assign({ usable: false, installed: false, installs: 0, made: [], failInstall: null }, codeIndex);
+  class FakeCodeIndex {
+    constructor(o) { this.o = o; this.python = o.python || 'python3'; ibox.made.push(this); }
+    probe() { return Promise.resolve(!!ibox.usable); }
+    isInstalled() { return !!ibox.installed; }
+    mcpServer(roots) { const list = Array.isArray(roots) ? roots : [roots]; return { command: ibox.installed ? '/home/u/.local/share/perch/codeindex/venv/bin/python' : this.python, args: ['/ext/fennets.perch/codeindex/server.py', ...list], env: { CODEINDEX_MODELS: '/home/u/.local/share/perch/codeindex/models' } }; }
+    async status(roots) { const list = Array.isArray(roots) ? roots : [roots]; (ibox.statusAsked = ibox.statusAsked || []).push(list); if (ibox.failStatus) throw new Error(ibox.failStatus); return ibox.status || { meaning: !!ibox.installed, folders: list.map((r) => ({ name: require('path').basename(r), root: r, off: false, built: true, files: 10, sections: 40, vectors: ibox.installed ? 40 : 0, updated: 1, updating: false, embedding: false, ignore: [] })) }; }
+    async install(onStep) { ibox.installs++; onStep('Creating a private Python environment', 5); if (ibox.failInstall) throw new Error(ibox.failInstall); onStep('Ready', 100); ibox.installed = true; return { ready: true }; }
+  }                 // mutable, so a test can change a setting and fire the change event
+  const cats = Object.assign({}, CATALOGS, catalogs);     // pass { claude: null } to simulate an agent that cannot list models
+  const loads = { claude: 0, codex: 0 };
+  const installed = extensions || {
+    'anthropic.claude-code': { icon: 'resources/claude-logo.png', contributes: { viewsContainers: { activitybar: [{ id: 'c', icon: 'resources/claude-logo.svg' }] } } },
+    'openai.chatgpt': { icon: 'resources/blossom.dark.png', contributes: { viewsContainers: { activitybar: [{ id: 'x', icon: 'resources/blossom-white.svg' }] } } },
+  };
+  const registered = {}; const commands = {}; const picks = [];
+  // the speech-to-text engine on the workspace machine, and the recorder on the machine the user sits at
+  const vbox = Object.assign({ installed: true, text: 'hello world', installs: [], starts: 0, stops: 0, requests: [], failInstall: null, failTranscribe: null, failStart: null }, voice);
+  class FakeEngine {
+    constructor(o) { this.o = o; this.model = o.model; this.home = '/home/u/.local/share/perch/voice'; engines.push(this); }
+    isInstalled() { return vbox.installed; }
+    async install(onStep) { vbox.installs.push(this.o.model); onStep('Creating a private Python environment', 5); onStep('Installing the speech-to-text runtime', 15); if (vbox.failInstall) throw new Error(vbox.failInstall); onStep('Ready', 100); vbox.installed = true; return { ready: true, device: 'cuda' }; }
+    start() { vbox.starts++; return vbox.failStart ? Promise.reject(new Error(vbox.failStart)) : Promise.resolve({ device: 'cuda' }); }
+    async transcribe(a) { vbox.requests.push(a); if (vbox.failTranscribe) throw new Error(vbox.failTranscribe); return { text: typeof vbox.text === 'function' ? vbox.text(a) : vbox.text, language: 'en', seconds: 2, took_ms: 9 }; }
+    stop() { vbox.stops++; }
+  }
+  const abox = Object.assign({ missing: false, calls: [], available: { ok: true, api: 1, devices: ['Headset Microphone'], device: 'Headset Microphone', busy: false }, start: { ok: true, id: 'rec-1', device: 'Headset Microphone', sampleRate: 16000, maxSeconds: 180, picked: 'first-input' },
+    levels: [], level: { ok: true, level: 0.4, seconds: 1.2, ended: null, silent: false }, stop: { ok: true, pcm: Buffer.alloc(64000).toString('base64'), sampleRate: 16000, seconds: 2, silent: false, device: 'Headset Microphone', ended: null },
+    // a Perch Audio that can transcribe on the user's own machine (api 2)
+    engine: { ok: true, installed: true, gpu: true, home: '/home/me/.local/share/perch/voice', host: 'laptop' }, setup: { ok: true }, warm: { ok: true }, unload: { ok: true },
+    transcribe: { ok: true, text: 'local words', language: 'en', seconds: 2, silent: false, device: 'Headset Microphone', ended: null } }, audio);
+  const companion = async (id, ...args) => {
+    const op = id.slice('_perch.audio.'.length); abox.calls.push([op, ...args]);
+    if (abox.missing) throw new Error(`command '${id}' not found`);
+    if (op === 'level') return abox.levels.length ? abox.levels.shift() : abox.level;
+    if (op === 'cancel') return { ok: true };
+    const v = abox[op]; if (v instanceof Error) throw v; return v;
+  };
+  // the machine the meter looks at: which backend is configured, what credentials exist, what the usage endpoint says
+  const box = Object.assign({ bedrock: false, apiCreds: true, login: true, usage: { limits: LIMITS(), error: null }, cost: null, writes: [], fetches: 0, failWrite: null,
+    codex: { limits: CODEX_LIMITS(4, 1), error: null, plan: 'plus', at: Date.now() - 60000 }, codexReads: 0 }, meter);
+  const fakeMeter = {
+    claudeDir: box.claudeDir || '/nonexistent/perch-test/.claude', settingsPath: box.settingsPath || '/nonexistent/perch-test/.claude/settings.json',   // a test may point them at a throwaway folder
+    bedrockConfigured: () => box.bedrock, apiCredentialsPresent: () => box.apiCreds, settingsEnv: () => box.settingsEnv || {}, readCredentials: () => (box.login ? { accessToken: box.token || 't' } : null), envNote: () => '',
+    fetchUsage: async () => { box.fetches++; return box.usage; },
+    computeCostStats: () => { if (box.cost instanceof Error) throw box.cost; return box.cost; },
+    promptCacheMinutes: (backend) => (box.cacheMinutes || ((backend || (box.bedrock ? 'api' : 'subscription')) === 'subscription' ? 60 : 5)),
+    setBedrockSetting: (on, stash) => { if (box.failWrite) throw new Error(box.failWrite); box.writes.push(on); box.bedrock = on; stash.set('model', on ? undefined : 'stashed'); },
+  };
+  const ui = { traces: [], statusMessages: [], pendingInputs: [], bars: [], warnings: [], infos: [], errors: [], terminals: [], executed: [], contexts: [], answers: [], dialogs: [], picked: undefined, editor: undefined, progress: [], details: [], panels: [], serializers: {}, listeners: { config: [], extensions: [], editor: [], tabs: [], closeTerminal: [], folders: [] }, folderConfig: {}, visible: undefined, inputs: [], asked: [], lists: [], opened: [], waiting: [], closedTabs: [], columns: [], group: null, groups: null, version: undefined, editorSettings: {}, configUpdates: [], failConfigUpdate: null, addedGroups: [], untitled: [], shown: [], executedWith: [], commandAnswers: commandAnswers || null, forwarded: [], external: [], copied: [] };
+  // a list with a search box: the test chooses a row, or presses the button on one
+  const makeList = () => {
+    const on = { accept: [], button: [], hide: [] };
+    const qp = { title: '', placeholder: '', busy: false, items: [], selectedItems: [], shown: false, disposed: false,
+      onDidAccept: (f) => { on.accept.push(f); return { dispose() {} }; }, onDidTriggerItemButton: (f) => { on.button.push(f); return { dispose() {} }; }, onDidHide: (f) => { on.hide.push(f); return { dispose() {} }; },
+      show() { this.shown = true; }, hide() { if (!this.shown) return; this.shown = false; for (const f of on.hide) f(); }, dispose() { this.disposed = true; },
+      // test helpers
+      rows() { return this.items.map((i) => [i.label, i.description]); },
+      choose(find) { this.selectedItems = [this.items.find(find)].filter(Boolean); for (const f of on.accept) f(); },
+      press(find, n) { const item = this.items.find(find); return Promise.all(on.button.map((f) => f({ item, button: item.buttons[n || 0] }))); },
+    };
+    ui.lists.push(qp); return qp;
+  };
+  // an editor tab: a page of its own, which VS Code can hide, focus, close, and bring back after a reload
+  const makePanel = (viewType, title, show, options) => {
+    const got = []; let onMsg = () => {}; const gone = [], changed = [];
+    const col = show && typeof show === 'object' ? show.viewColumn : show;
+    const panel = {
+      viewType, title, iconPath: undefined, options, disposed: false, reveals: 0,
+      viewColumn: col === -2 ? (ui.panels.filter((x) => !x.disposed).length ? 2 : 2) : col, visible: true, active: !(show && show.preserveFocus),
+      webview: { options: {}, cspSource: 'x', html: '', asWebviewUri: (u) => ({ toString: () => 'vscode-resource://host' + u.path }), postMessage: (m) => { got.push(JSON.parse(JSON.stringify(m))); return Promise.resolve(true); }, onDidReceiveMessage: (f) => { onMsg = f; return { dispose() {} }; } },
+      onDidDispose: (f) => { gone.push(f); return { dispose() {} }; },
+      onDidChangeViewState: (f) => { changed.push(f); return { dispose() {} }; },
+      reveal(_c, preserveFocus) { this.reveals++; this.visible = true; if (!preserveFocus) focus(this); for (const f of changed) f({ webviewPanel: this }); },
+      dispose() { if (this.disposed) return; this.disposed = true; this.visible = false; this.active = false; for (const f of gone) f(); },
+      // test helpers
+      got, fire: (m) => onMsg(m),
+      events: (sid) => got.filter((m) => m.type === 'event' && (!sid || m.sid === sid)).map((m) => m.ev),
+      lastTabs: () => got.filter((m) => m.type === 'tabs').pop(),
+      lastMeter: () => (got.filter((m) => m.type === 'meter').pop() || {}).meter,
+      lastCodexMeter: () => (got.filter((m) => m.type === 'meter').pop() || {}).codex,
+      commands: (kind) => got.filter((m) => m.type === 'commands' && m.kind === kind).map((m) => m.list),
+      show(visible, active) { this.visible = visible; if (active) focus(this); else this.active = false; for (const f of changed) f({ webviewPanel: this }); },
+    };
+    if (panel.active) focus(panel);
+    ui.panels.push(panel);
+    return panel;
+  };
+  const focus = (p) => { for (const x of ui.panels) x.active = false; p.active = true; };
+  const say = (list) => (msg, ...rest) => { list.push(msg); if (rest[0] && typeof rest[0] === 'object' && rest[0].detail) ui.details.push(rest[0].detail); const a = ui.answers.shift(); return Promise.resolve(a); };
+  const vscodeStub = {
+    workspace: { openTextDocument: async (uri) => { if (uri === undefined) { const doc = { uri: { scheme: 'untitled', fsPath: 'Untitled-1' }, isUntitled: true, getText: () => '' }; ui.untitled.push(doc); return doc; } return { uri }; }, workspaceFolders: (workspaceFolders || [process.cwd()]).map((fsPath) => ({ uri: { fsPath } })), getConfiguration: (section, uri) => section === 'workbench.editor' ? { get: (k) => ui.editorSettings[k] } : ({ get: (k) => { const fc = uri && uri.fsPath && ui.folderConfig[uri.fsPath]; if (fc && k in fc) return fc[k]; const all = Object.assign({ 'newTabs': 'sidebar', 'claude.permissionMode': 'default', 'codex.sandboxMode': 'workspace-write', 'codex.approvalPolicy': 'never', 'ideContext': false, 'claude.gatewayEnv': '/nonexistent/perch-test/gateway-env' /* the developer's own gateway file must not reach the tests */ }, cfgBox); return k in all ? all[k] : ''; }, inspect: (k) => ({ globalValue: cfgBox[k], workspaceValue: (ui.workspaceConfig || {})[k], workspaceFolderValue: uri && uri.fsPath ? (ui.folderConfig[uri.fsPath] || {})[k] : undefined }), update: async (k, v, target) => { if (ui.failConfigUpdate) throw new Error(ui.failConfigUpdate); ui.configUpdates.push(uri && uri.fsPath ? [k, v, target, uri.fsPath] : [k, v, target]); if (target === 3 && uri && uri.fsPath) (ui.folderConfig[uri.fsPath] = ui.folderConfig[uri.fsPath] || {})[k] = v; else Object.assign(cfgBox, { [k]: v }); for (const f of ui.listeners.config) f({ affectsConfiguration: (sec) => ('perch.' + k).startsWith(sec) }); } }), onDidChangeConfiguration: (f) => { ui.listeners.config.push(f); return { dispose() {} }; }, onDidChangeWorkspaceFolders: (f) => { ui.listeners.folders.push(f); return { dispose() {} }; } },
+    window: {
+      createOutputChannel: (name) => ({ name, appendLine: (l) => ui.traces.push(l), dispose() {} }),
+      setStatusBarMessage: (text, ms) => { ui.statusMessages.push([text, ms]); return { dispose() {} }; },
+      registerWebviewViewProvider: (id, p) => { registered[id] = p; return { dispose() {} }; },
+      showInformationMessage: say(ui.infos), showWarningMessage: say(ui.warnings), showErrorMessage: say(ui.errors),
+      showQuickPick: async (items) => picks.length ? items.find(picks.shift()) : undefined,
+      createQuickPick: () => makeList(),
+      // every editor tab of Perch's: those with a page, and those VS Code has kept without one until they are shown
+      tabGroups: { get activeTabGroup() { return ui.group ? ui.group() : this.all[0]; }, get all() { return ui.groups || [...ui.addedGroups, { viewColumn: 2, tabs: [...ui.waiting, ...ui.panels.filter((p) => !p.disposed).map((p) => ({ label: p.title, input: { viewType: 'mainThreadWebview-' + p.viewType } })), { label: 'a.js', input: { uri: {} } }, { label: 'Other', input: { viewType: 'mainThreadWebview-other.view' } }] }]; },   // ui.addedGroups: groups a command has made, left of it
+        onDidChangeTabs: (f) => { ui.listeners.tabs.push(f); return { dispose() {} }; },
+        close: async (t) => { ui.closedTabs.push(t.label); const i = ui.waiting.indexOf(t); if (i >= 0) ui.waiting.splice(i, 1); return true; } },
+      showTextDocument: async (doc, o) => { ui.shown.push([doc, o]); ui.columns.push(o && o.viewColumn); ui.opened.push([doc.uri.fsPath, o && o.selection ? [o.selection.a, o.selection.c] : null]); },
+      showInputBox: (o, token) => new Promise((resolve) => { ui.asked.push(o); if (ui.inputs.length) { resolve(ui.inputs.shift()); return; } ui.pendingInputs.push(resolve); if (token) token.onCancellationRequested(() => { const i = ui.pendingInputs.indexOf(resolve); if (i >= 0) ui.pendingInputs.splice(i, 1); resolve(undefined); }); }),
+      createStatusBarItem: (id, align, prio) => { const it = { id, prio, text: '', tooltip: '', shown: false, disposed: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() { this.disposed = true; this.shown = false; } }; ui.bars.push(it); return it; },
+      withProgress: async (o, task) => { ui.progress.push(o.title); return task({ report: (r) => ui.progress.push(r.message) }); },
+      showOpenDialog: async (o) => { ui.dialogs.push(o); return ui.picked; },
+      createWebviewPanel: (viewType, title, show, options) => makePanel(viewType, title, show, options),
+      registerWebviewPanelSerializer: (viewType, z) => { ui.serializers[viewType] = z; return { dispose() {} }; },
+      get activeTextEditor() { return ui.editor; },
+      get visibleTextEditors() { return ui.visible !== undefined ? ui.visible : (ui.editor ? [ui.editor] : []); },
+      onDidChangeActiveTextEditor: (f) => { ui.listeners.editor.push(f); return { dispose() {} }; },
+      // a terminal: what it was opened with, the lines typed into it, how often it was shown; dispose() is its closing, by
+      // the user or as the program it runs ends
+      createTerminal: (o) => { const t = { o, sent: [], shows: 0, exitStatus: undefined, show() { this.shows++; }, sendText(x) { this.sent.push(x); }, dispose() { if (this.exitStatus) return; this.exitStatus = { code: undefined }; for (const f of ui.listeners.closeTerminal.slice()) f(this); } }; ui.terminals.push(t); return t; },
+      onDidCloseTerminal: (f) => { ui.listeners.closeTerminal.push(f); return { dispose() { const i = ui.listeners.closeTerminal.indexOf(f); if (i >= 0) ui.listeners.closeTerminal.splice(i, 1); } }; },
+    },
+    // setContext is bookkeeping for the menus (perch.gateway), kept apart from the commands a test watches for; jay is not
+    // installed unless a test's commandAnswers say it is, so asking it for its projects fails as a missing command does
+    commands: { registerCommand: (id, fn) => { commands[id] = fn; return { dispose() {} }; }, executeCommand: async (id, ...args) => { if (ui.commandAnswers && id in ui.commandAnswers) { ui.executedWith.push([id, ...args]); return ui.commandAnswers[id](...args); } if (ui.answers && id in ui.answers) return ui.answers[id](...args); if (id.startsWith('_perch.audio.')) return companion(id, ...args); if (id === 'setContext') { ui.contexts.push(args); return; } if (id === 'jay.projectKeys' || id === 'jay.siteUrl' || id === 'jay.openPage') throw new Error("command '" + id + "' not found"); ui.executed.push(id); ui.executedWith.push([id, ...args]); } },
+    env: { clipboard: { writeText: async (t) => { ui.copied.push(t); } }, remoteName: remote, asExternalUri: async (u) => { ui.forwarded.push(u.path); return u; }, openExternal: async (u) => { ui.external.push(u.path); return true; } },
+    ProgressLocation: { Notification: 15 },
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+    extensions: {
+      getExtension: (id) => { const e = installed[String(id).toLowerCase()]; const root = e && e.__root ? e.__root : '/ext/' + id; return e ? { extensionUri: { path: root, fsPath: root }, extensionPath: root, packageJSON: e } : undefined; },
+      onDidChange: (f) => { ui.listeners.extensions.push(f); return { dispose() {} }; },
+    },
+    StatusBarAlignment: { Left: 1, Right: 2 },
+    get version() { return ui.version || '1.129.1'; },
+    TabInputTerminal: class {},
+    ViewColumn: { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 },
+    ThemeColor: class { constructor(id) { this.id = id; } },
+    CancellationTokenSource: class { constructor() { const subs = []; this.token = { isCancellationRequested: false, onCancellationRequested: (f) => { subs.push(f); return { dispose() {} }; } }; this._subs = subs; } cancel() { if (this.token.isCancellationRequested) return; this.token.isCancellationRequested = true; for (const f of this._subs) f(); } dispose() {} },
+    ThemeIcon: class { constructor(id) { this.id = id; } },
+    Range: class { constructor(a, b, c, d) { Object.assign(this, { a, b, c, d }); } },
+    MarkdownString: class { constructor(v) { this.value = v || ''; } appendMarkdown(v) { this.value += v; return this; } appendCodeblock(v) { this.value += '\n```\n' + v + '\n```\n'; return this; } },
+    Uri: { file: (p) => ({ path: p, fsPath: p }), parse: (p) => ({ path: p, fsPath: p, toString: () => p }), joinPath: (base, ...parts) => ({ path: [base.path, ...parts].join('/'), fsPath: [base.path, ...parts].join('/') }) },
+  };
+  Module._load = function (req, parent, isMain) {
+    if (req === 'vscode') return vscodeStub;
+    if (req === './claudeAgent') return { ClaudeAgent: FakeAgent };
+    if (req === './codexAgent') return { CodexAgent: FakeAgent };
+    if (req === './meter') return Object.assign({}, realMeter, { createMeter: () => fakeMeter });   // real formatting and summary, fake machine
+    if (req === './voice') return { VoiceEngine: FakeEngine, DEFAULT_HOME: '/home/u/.local/share/perch/voice' };
+    if (req === './codeIndex') return { CodeIndex: FakeCodeIndex };
+    if (req === './sessionStore') return fakeStore;
+    if (req === './codexMeter') return { readCodexUsage: () => { box.codexReads++; if (box.codex instanceof Error) throw box.codex; return box.codex; } };
+    // the machine's Codex login: box.codexLoggedIn (true unless said otherwise); a wait for it logs in at once, or when
+    // box.codexLoginHold settles, and is counted. Its sign-in ending first (o.until: its terminal closed) ends it unlogged
+    if (req === './explorer') { const give = (k) => (o) => { (box.explorerLists = box.explorerLists || []).push([k, o]); return (box[k] || []).map((x) => Object.assign({}, x)); }; return { listSkills: give('skills'), listMcp: give('mcp'), listAgents: give('agents'), listCommands: give('commands'), skillHead: () => ({}) }; }
+    if (req === './codexAuth') return Object.assign({}, origLoad.call(this, req, parent, isMain), { codexHome: () => box.codexHome || '/home/me/.codex', loggedIn: () => box.codexLoggedIn !== false, authStamp: () => (box.codexLoggedIn === false ? null : box.codexStamp === undefined ? 'stamp-1' : box.codexStamp), waitForLogin: async (o) => {
+        box.codexWaits = (box.codexWaits || 0) + 1; box.codexWaitSince = o && o.since; box.codexWaitUntil = !!(o && o.until);
+        if (box.codexLoginHold) {
+          const ended = await Promise.race([Promise.resolve(box.codexLoginHold).then(() => false), ...(o && o.until ? [Promise.resolve(o.until).then(() => true)] : [])]);
+          if (ended) return false;
+        }
+        box.codexLoggedIn = true; box.codexStamp = 'stamp-new-' + box.codexWaits; return true;
+      },
+      // the browser sign-in: what program was run, and the page it printed; box.codexLoginFails makes it fail to start
+      startLogin: async (program) => { (box.codexLogins = box.codexLogins || []).push(program); if (box.codexLoginFails) throw new Error(box.codexLoginFails); return { url: 'https://auth.openai.com/oauth/authorize?client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback', child: { kill() { box.codexKilled = (box.codexKilled || 0) + 1; } } }; } });
+    if (req === './models') return { ...realModels, loadCodexModels: () => { loads.codex++; if (cats.codex instanceof Error) throw cats.codex; return cats.codex; }, loadClaudeModels: async (o) => { loads.claude++; (knobs.claudeLoads = knobs.claudeLoads || []).push(o); const c = typeof cats.claude === 'function' ? await cats.claude(o) : cats.claude; if (c instanceof Error) throw c; return c; } };
+    return origLoad.call(this, req, parent, isMain);
+  };
+  delete require.cache[require.resolve('../src/extension.js')];
+  delete require.cache[require.resolve('../src/meterHost.js')];
+  delete require.cache[require.resolve('../src/voiceHost.js')];
+  const ext = require('../src/extension.js');
+  const memento = makeMemento(state);
+  const globalState = makeMemento(globals);
+  const secrets = Object.assign(new Map(), { get: async function (k) { return this.has(k) ? Map.prototype.get.call(this, k) : undefined; }, store: async function (k, v) { Map.prototype.set.call(this, k, v); }, delete: async function (k) { Map.prototype.delete.call(this, k); } });
+  if (meter && meter.secrets) for (const [k, v] of Object.entries(meter.secrets)) Map.prototype.set.call(secrets, k, v);
+  const perch = ext.activate({ subscriptions: [], workspaceState: memento, globalState, secrets, extensionUri: { path: '/ext/fennets.perch' }, globalStorageUri: { fsPath: storageDir() } });
+  const changeConfig = (patch) => { Object.assign(cfgBox, patch); for (const f of ui.listeners.config) f({ affectsConfiguration: (sec) => Object.keys(patch).some((k) => ('perch.' + k).startsWith(sec)) }); };
+  const waitingTab = (label) => { const t = { label, input: { viewType: 'mainThreadWebview-perch.session' } }; ui.waiting.push(t); return t; };
+  const restorePanel = (sid, title) => { const p = makePanel('perch.session', title || 'restored', { viewColumn: 2, preserveFocus: true }, {}); ui.serializers['perch.session'].deserializeWebviewPanel(p, sid === undefined ? undefined : { sid }); return p; };
+  const changeExtensions = (patch) => { for (const [k, v] of Object.entries(patch)) { if (v) installed[k] = v; else delete installed[k]; } for (const f of ui.listeners.extensions) f(); };
+  const tabsChanged = (e) => { for (const f of ui.listeners.tabs) f(Object.assign({ opened: [], closed: [], changed: [] }, e)); };
+  return { perch, registered, commands, memento, globalState, secrets, picks, cats, loads, box, ui, ibox, changeConfig, changeExtensions, restorePanel, waitingTab, tabsChanged, vbox, abox, store, vscode: vscodeStub };
+}
+
+function fakeView() {
+  const got = []; let onMsg, onDispose, onVisible;
+  return { got, fire: (m) => onMsg(m), destroy: () => onDispose(), reveal: () => { if (onVisible) onVisible(); },
+    past: () => (got.filter((m) => m.type === 'past').pop() || null),
+    events: (sid) => got.filter((m) => m.type === 'event' && m.sid === sid).map((m) => m.ev),
+    lastTabs: () => got.filter((m) => m.type === 'tabs').pop(),
+    lastMeter: () => (got.filter((m) => m.type === 'meter').pop() || {}).meter,
+    lastCodexMeter: () => (got.filter((m) => m.type === 'meter').pop() || {}).codex,
+    lastCodex: () => (got.filter((m) => m.type === 'meter').pop() || {}).codex,
+    commands: (kind) => got.filter((m) => m.type === 'commands' && m.kind === kind).map((m) => m.list),
+    tab: (id) => (got.filter((m) => m.type === 'tabs').pop().tabs.find((x) => x.id === id)),
+    view: { webview: { options: {}, cspSource: 'x', html: '', asWebviewUri: (u) => ({ toString: () => 'vscode-resource://host' + u.path }), postMessage: (m) => got.push(JSON.parse(JSON.stringify(m))), onDidReceiveMessage: (f) => { onMsg = f; } }, onDidDispose: (f) => { onDispose = f; }, onDidChangeVisibility: (f) => { onVisible = f; }, visible: true, show() {} } };
+}
+
+module.exports = { install, fakeView, created, engines, FakeAgent, flush, CATALOGS, CODEX_LIMITS, knobs, PRICES };

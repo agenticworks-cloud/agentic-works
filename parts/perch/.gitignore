@@ -1,0 +1,10 @@
+node_modules/
+*.vsix
+audio/node_modules/
+__pycache__/
+*.pyc
+.env
+# copies made by 'make audio-engine' from src/voice.js and voice/
+audio/src/engine.js
+audio/voice/
+docs/notes/3[0-9][0-9]-*.md

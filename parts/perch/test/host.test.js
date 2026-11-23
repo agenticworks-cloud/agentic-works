@@ -1,0 +1,3832 @@
+'use strict';
+process.env.PERCH_RESTORE_GRACE_MS = '60';   // the wait for VS Code to bring back editor tabs, shortened
+process.env.PERCH_UNLOCK_DELAY_MS = '10';    // and the wait before a group that Perch tabs have left is unlocked
+// Codex on Bedrock takes the machine's AWS profile and region before Claude Code's settings (src/codexBedrock.js): the
+// developer's own are kept out, so what the tests expect does not depend on the machine they run on
+delete process.env.AWS_PROFILE; delete process.env.AWS_REGION;
+// Host behaviour: tabs, isolation between sessions, replay after the page is recreated,
+// permission prompts, and persistence across a window reload.
+const assert = require('assert');
+const { install, fakeView, created, engines, flush, CATALOGS, CODEX_LIMITS, knobs } = require('./stubs');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const vals = (list) => list.map((o) => o.value);
+// Claude's Log In, as typed into a terminal, for a window whose perch.claude.executable is /opt/claude (never run here)
+const CLAUDE_LOGIN = `/opt/claude --settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}' auth login`;
+const OFF_BEDROCK = '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}';
+/** `p`, or 'timed out' if it has not settled within `ms`: a wait that never ends must fail the test, not end it unseen */
+const within = (p, ms = 2000) => Promise.race([p, wait(ms).then(() => 'timed out')]);
+/** Run `f` as if on `platform`, for code that asks process.platform as it runs */
+const onPlatform = (platform, f) => { const was = Object.getOwnPropertyDescriptor(process, 'platform'); Object.defineProperty(process, 'platform', { value: platform }); try { return f(); } finally { Object.defineProperty(process, 'platform', was); } };
+const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.now() + 3660000).toISOString(), model: null }];
+
+(async () => {
+  const extraRoot = '/git/perch-extra-root';
+  const { perch, registered, commands, memento, picks, cats, loads } = install(undefined, { workspaceFolders: [process.cwd(), extraRoot, extraRoot] });
+  const p = registered['perch.main'];
+  assert(p, 'single view registered');
+
+  // first open in a fresh workspace: no tabs, no agents, nothing saved
+  const v1 = fakeView(); p.resolveWebviewView(v1.view); v1.fire({ type: 'ready' });
+  await flush();                                       // model catalogs load once the page is ready
+  assert.deepStrictEqual(loads, { claude: 1, codex: 1 }, 'each agent is asked for its models once');
+
+  // vendor icons come from the installed vendor extensions: the glyph is preferred, tinted as the vendor tints it
+  const html = v1.view.webview.html;
+  assert(html.includes('.k.glyph.claude { -webkit-mask: url("vscode-resource://host/ext/anthropic.claude-code/resources/claude-logo.svg")'), 'claude glyph as a mask');
+  assert(/\.k\.glyph\.claude \{[^}]*background-color: #D97757;/.test(html), 'claude glyph in its orange, not inverted on a tile');
+  assert(/\.k\.glyph\.codex \{[^}]*blossom-white\.svg[^}]*background-color: currentColor;/.test(html), 'chatgpt glyph follows the theme text colour');
+  assert(html.includes('<span class="k glyph claude"></span>') && !/<img/.test(html), 'glyphs replace the marketplace images');
+  assert(/img-src x data:;/.test(html), 'CSP allows images from the webview origin, and those the user pastes, which the page holds as data');
+  assert.deepStrictEqual(v1.view.webview.options.localResourceRoots.map((u) => u.path), ['/ext/fennets.perch', '/ext/anthropic.claude-code', '/ext/openai.chatgpt']);
+  let t = v1.lastTabs();
+  assert.deepStrictEqual(t.tabs, [], 'starts with no tabs');
+  assert.strictEqual(t.active, null, 'nothing active');
+  assert.strictEqual(memento._dump()['perch.sessions.v1'], undefined, 'nothing persisted until the user opens a tab');
+  commands['perch.stop'](); commands['perch.closeTab'](); await commands['perch.handoff']();   // all safe with no tabs
+  v1.fire({ type: 'send', sid: 'nope', text: 'x' });                                          // unknown tab is ignored
+
+  // the user opens one of each
+  v1.fire({ type: 'new', kind: 'claude' });
+  v1.fire({ type: 'new', kind: 'codex' });
+  v1.fire({ type: 'new', kind: 'gemini' });                                                   // unknown kind is ignored
+  t = v1.lastTabs();
+  assert.deepStrictEqual(t.tabs.map((x) => x.title), ['Claude 1', 'Codex 1'], 'tabs opened on request');
+  v1.fire({ type: 'activate', sid: t.tabs[0].id }); t = v1.lastTabs();
+  assert.strictEqual(t.active, t.tabs[0].id, 'first tab active');
+  assert.strictEqual(created.length, 0, 'agents start lazily, not on open');
+  const [c1, x1] = t.tabs.map((x) => x.id);
+  assert.deepStrictEqual(v1.events(c1).filter((e) => e.kind === 'status').map((e) => e.text), ['idle'], 'status is state only: no mode, effort, or model repeated in it');
+  assert.strictEqual(t.tabs[0].started, false);
+
+  // model and effort choices come from the agents, and the default options say what they resolve to
+  assert.deepStrictEqual(t.tabs[0].models.map((o) => [o.value, o.label]), [['', 'default · Opus 5.5'], ['opus', 'Opus 5.5'], ['fable', 'Fable 5.1'], ['haiku', 'Haiku 4.5'], ['claude-opus-4-6', 'Opus 4.6']]);
+  assert.deepStrictEqual(t.tabs[1].models.map((o) => [o.value, o.label]), [['', 'default · GPT-5.6-Sol'], ['gpt-6-sol', 'GPT-6-Sol'], ['gpt-6-luna', 'GPT-6-Luna'], ['gpt-5.5', 'GPT-5.5']]);
+  assert.deepStrictEqual(t.tabs[0].efforts.map((o) => [o.value, o.label])[0], ['', 'default']);
+  assert.deepStrictEqual(t.tabs[1].efforts.map((o) => [o.value, o.label])[0], ['', 'default · ultra'], 'codex default effort comes from the user config');
+  assert.strictEqual(t.tabs[1].approvals, 'never', 'codex approval policy is exposed for the tooltip');
+  assert.strictEqual(t.tabs[0].approvals, '');
+
+  // a message goes to its own tab only, and titles the tab
+  v1.fire({ type: 'send', sid: c1, text: 'explain the  flush   bug in detail please' });
+  assert.strictEqual(created.length, 1, 'one agent for one used tab');
+  assert(v1.events(c1).some((e) => e.kind === 'text'), 'answer on the claude tab');
+  assert(!v1.events(x1).some((e) => e.kind === 'text' || e.kind === 'user'), 'nothing leaked to the codex tab');
+  t = v1.lastTabs();
+  assert.strictEqual(t.tabs[0].title, 'explain the flush bug in det', 'tab titled from first message');
+  assert.strictEqual(t.tabs[0].busy, false, 'busy cleared');
+  assert.strictEqual(t.tabs[0].started, true);
+  assert.strictEqual(t.tabs[0].actualModel, 'claude-opus-resolved', 'the model the agent reports is kept for the tooltip');
+  assert.deepStrictEqual(v1.events(c1).filter((e) => e.kind === 'status').map((e) => e.text), ['idle', 'working', 'ready · fake', 'ready'], 'working while busy, ready after');
+  assert.strictEqual(created[0].o.model, undefined, 'no model sent when the tab is on default');
+
+  // multiple sessions of the same kind
+  v1.fire({ type: 'new', kind: 'claude' });
+  v1.fire({ type: 'new', kind: 'codex' });
+  t = v1.lastTabs();
+  assert.deepStrictEqual(t.tabs.map((x) => x.kind), ['claude', 'codex', 'claude', 'codex'], 'four tabs');
+  assert.strictEqual(t.tabs[2].title, 'Claude 2'); assert.strictEqual(t.tabs[3].title, 'Codex 2');
+  const [, , c2, x2] = t.tabs.map((x) => x.id);
+  assert.strictEqual(t.active, x2, 'new tab becomes active');
+  v1.fire({ type: 'send', sid: c2, text: 'second claude' });
+  v1.fire({ type: 'send', sid: x2, text: 'second codex' });
+  assert.strictEqual(created.length, 3, 'each used tab has its own agent');
+  assert.deepStrictEqual(created[1].sent, ['second claude']); assert.deepStrictEqual(created[0].sent.length, 1, 'first agent untouched');
+  assert.strictEqual(created[2].o.sandboxMode, 'workspace-write', 'codex tab got its sandbox');
+  assert.deepStrictEqual(created[2].o.additionalDirectories, [extraRoot], 'other folders in a multi-root workspace are added to Codex once');
+
+  // mode: claude switches live, codex applies before start and notes after
+  v1.fire({ type: 'setMode', sid: c1, value: 'plan' });
+  assert.deepStrictEqual(created[0].modes, ['plan']);
+  v1.fire({ type: 'setMode', sid: x1, value: 'read-only' });                 // x1 not started yet
+  v1.fire({ type: 'send', sid: x1, text: 'hi' });
+  assert.strictEqual(created[3].o.sandboxMode, 'read-only', 'mode chosen before start is used');
+  v1.fire({ type: 'setMode', sid: x1, value: 'bogus' });
+  assert.strictEqual(v1.lastTabs().tabs[1].mode, 'read-only', 'invalid mode rejected');
+
+  // effort: claude changes live, codex is fixed at thread start, junk is rejected
+  assert.deepStrictEqual(vals(v1.lastTabs().tabs[0].efforts), ['', 'low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepStrictEqual(vals(v1.lastTabs().tabs[1].efforts), ['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'], 'codex efforts come from its model, including ultra');
+  assert.strictEqual(created[0].o.effort, undefined, 'no effort sent when the tab is on default');
+  v1.fire({ type: 'setEffort', sid: c1, value: 'high' });
+  assert.deepStrictEqual(created[0].efforts, ['high'], 'running claude tab changes effort live');
+  v1.fire({ type: 'setEffort', sid: c1, value: '' });
+  assert.deepStrictEqual(created[0].efforts, ['high', ''], 'default is a live change too');
+  v1.fire({ type: 'setEffort', sid: c1, value: 'max' });
+  v1.fire({ type: 'setEffort', sid: c1, value: 'ludicrous' });
+  assert.strictEqual(v1.lastTabs().tabs[0].effort, 'max', 'invalid effort rejected');
+  v1.fire({ type: 'setEffort', sid: c1, value: 'ultra' });
+  assert.strictEqual(v1.lastTabs().tabs[0].effort, 'max', 'a codex-only level is rejected on a claude tab');
+  assert(!v1.events(c1).some((e) => e.kind === 'status' && /effort|mode/.test(e.text)), 'a successful change is silent: the selector already shows it');
+  v1.fire({ type: 'setEffort', sid: x1, value: 'low' });
+  assert.deepStrictEqual(created[3].efforts, ['low'], 'a started codex thread changes too, from its next turn');
+  assert(!v1.events(x1).some((e) => e.kind === 'note' && /applies to a new Codex tab/.test(e.text)), 'and nothing need be said');
+
+  // model on claude: live, and the effort list follows the model
+  v1.fire({ type: 'setModel', sid: c1, value: 'claude-opus-4-6' });
+  assert.deepStrictEqual(created[0].models, ['claude-opus-4-6'], 'running claude tab changes model live');
+  assert.deepStrictEqual(vals(v1.lastTabs().tabs[0].efforts), ['', 'low', 'medium', 'high', 'max'], 'this model has no xhigh');
+  assert.strictEqual(v1.lastTabs().tabs[0].effort, 'max', 'effort kept when the new model accepts it');
+  v1.fire({ type: 'setEffort', sid: c1, value: 'xhigh' });
+  assert.strictEqual(v1.lastTabs().tabs[0].effort, 'max', 'an effort the selected model lacks is rejected');
+  const nEff = created[0].efforts.length;
+  v1.fire({ type: 'setModel', sid: c1, value: 'haiku' });
+  assert.strictEqual(v1.lastTabs().tabs[0].effort, '', 'effort resets when the new model does not accept it');
+  assert.deepStrictEqual(vals(v1.lastTabs().tabs[0].efforts), [''], 'a model without effort control offers only default');
+  assert.deepStrictEqual(created[0].efforts.slice(nEff), [''], 'and the running session is told');
+  v1.fire({ type: 'setModel', sid: c1, value: 'gpt-6-sol' });
+  v1.fire({ type: 'setModel', sid: c1, value: 'made-up' });
+  assert.strictEqual(v1.lastTabs().tabs[0].model, 'haiku', 'a model the agent does not list is rejected');
+  v1.fire({ type: 'setModel', sid: c1, value: 'opus' }); v1.fire({ type: 'setEffort', sid: c1, value: 'max' });
+  assert.deepStrictEqual(created[0].models, ['claude-opus-4-6', 'haiku', 'opus']);
+
+  // model on codex: chosen before the first message, fixed after
+  v1.fire({ type: 'new', kind: 'codex' }); const x3 = v1.lastTabs().active;
+  v1.fire({ type: 'setEffort', sid: x3, value: 'ultra' });
+  v1.fire({ type: 'setModel', sid: x3, value: 'gpt-5.5' });
+  let tx = v1.lastTabs().tabs.find((x) => x.id === x3);
+  assert.strictEqual(tx.effort, '', 'ultra is dropped because GPT-5.5 does not accept it');
+  assert.deepStrictEqual(tx.efforts.map((o) => [o.value, o.label]), [['', 'default · medium'], ['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'xhigh']], 'efforts and their default follow the model');
+  v1.fire({ type: 'setEffort', sid: x3, value: 'xhigh' });
+  assert.deepStrictEqual(v1.events(x3).filter((e) => e.kind === 'status').map((e) => e.text), ['idle'], 'choosing before start changes nothing in the status');
+  v1.fire({ type: 'send', sid: x3, text: 'think hard' });
+  assert.strictEqual(created[created.length - 1].o.model, 'gpt-5.5', 'model chosen before start is used');
+  assert.strictEqual(created[created.length - 1].o.reasoningEffort, 'xhigh', 'effort chosen before start is used');
+  v1.fire({ type: 'setModel', sid: x3, value: 'gpt-6-sol' });
+  assert.deepStrictEqual(created[created.length - 1].models, ['gpt-6-sol'], 'a started codex thread takes a new model');
+  v1.fire({ type: 'setMode', sid: x3, value: 'read-only' }); v1.fire({ type: 'setMode', sid: x3, value: 'default' });
+  assert.deepStrictEqual(created[created.length - 1].modes, ['read-only'], 'and a new sandbox; a Claude mode is not one');
+  assert.strictEqual(v1.lastTabs().tabs.find((x) => x.id === x3).started, true, 'the page is told the thread has started');
+  v1.fire({ type: 'close', sid: x3 });
+
+  // refresh: the lists are re-read from the agents
+  cats.codex = { defaultModel: { label: 'GPT-7', efforts: ['low'], defaultEffort: 'low' }, models: [{ value: 'gpt-7', label: 'GPT-7', description: '', efforts: ['low'], defaultEffort: 'low' }] };
+  await commands['perch.refreshModels']();
+  assert.deepStrictEqual(loads, { claude: 2, codex: 2 });
+  assert.deepStrictEqual(v1.lastTabs().tabs[1].models.map((o) => o.label), ['default · GPT-7', 'GPT-7'], 'open tabs pick up the new list');
+  cats.codex = new Error('cache unreadable'); cats.claude = new Error('cli missing');
+  await commands['perch.refreshModels']();
+  assert.deepStrictEqual(v1.lastTabs().tabs[1].models.map((o) => o.label), ['default · GPT-7', 'GPT-7'], 'a failed refresh keeps the last good list');
+
+  // permission on a background tab raises attention; answering clears it
+  v1.fire({ type: 'activate', sid: x1 });
+  const s1 = perch.get(c1);
+  const ans = new Promise((res) => s1.pending.set('p1', res)); s1.post({ kind: 'permission', id: 'p1', tool: 'Write', input: {} });
+  assert.strictEqual(v1.lastTabs().tabs[0].attention, true, 'background prompt flags its tab');
+
+  // page destroyed (view moved) and recreated: everything comes back
+  v1.destroy();
+  s1.post({ kind: 'text', text: 'arrived while detached' });
+  const v2 = fakeView(); p.resolveWebviewView(v2.view); v2.fire({ type: 'ready' });
+  assert.strictEqual(v2.lastTabs().tabs.length, 4, 'tabs replayed');
+  assert.strictEqual(v2.lastTabs().active, x1, 'active tab kept');
+  const r = v2.events(c1);
+  assert.strictEqual(r[0].kind, 'clear');
+  assert(r.some((e) => e.kind === 'text' && /detached/.test(e.text)), 'detached event replayed');
+  assert(r.some((e) => e.kind === 'permission' && e.id === 'p1'), 'pending prompt replayed');
+  assert(!r.some((e) => e.kind === 'delta'), 'deltas not replayed');
+  assert.strictEqual(r.filter((e) => e.kind === 'status').pop().text, 'ready', 'status replayed');
+  v2.fire({ type: 'permission', sid: c1, id: 'p1', decision: 'allow' });
+  assert.deepStrictEqual(await ans, { decision: 'allow' });
+  assert.strictEqual(v2.lastTabs().tabs[0].attention, false, 'attention cleared');
+
+  // stop and handoff act on the active tab
+  commands['perch.stop'](); assert.strictEqual(created[3].interrupted, 1, 'stop hits the active tab agent');
+  picks.push((i) => i.sid === c2); await commands['perch.handoff']();
+  assert(v2.events(c2).some((e) => e.kind === 'fill' && e.text === 'answer to hi'), 'handoff fills the chosen tab');
+  assert.strictEqual(v2.lastTabs().active, c2, 'handoff activates the target');
+  picks.push((i) => i.kind === 'codex'); await commands['perch.handoff']();
+  assert.strictEqual(v2.lastTabs().tabs.length, 5, 'handoff can open a new tab');
+
+  // close: agent disposed, neighbour activated
+  v2.fire({ type: 'close', sid: c2 });
+  assert.strictEqual(created[1].disposed, true, 'closed tab disposes its agent');
+  assert(!v2.lastTabs().tabs.some((x) => x.id === c2));
+
+  // window reload: tabs restored, agents resume their own saved sessions
+  const saved = memento._dump();
+  const before = created.length;
+  const again = install(saved);
+  const q = again.registered['perch.main'];
+  const v3 = fakeView(); q.resolveWebviewView(v3.view); v3.fire({ type: 'ready' });
+  const rt = v3.lastTabs();
+  assert.strictEqual(rt.tabs.length, 4, 'tabs restored after reload');
+  assert.strictEqual(rt.tabs[0].title, 'explain the flush bug in det', 'titles restored');
+  assert.strictEqual(rt.tabs[0].mode, 'plan', 'modes restored');
+  assert.strictEqual(rt.tabs[0].effort, 'max', 'effort restored');
+  assert.strictEqual(rt.tabs[0].model, 'opus', 'model restored');
+  assert.strictEqual(rt.tabs[0].started, false, 'a restored tab has no agent until it is used');
+  assert(v3.events(rt.tabs[0].id).some((e) => e.kind === 'note' && /resumed claude session/.test(e.text)), 'resume note shown');
+  v3.fire({ type: 'send', sid: rt.tabs[0].id, text: 'continue' });
+  assert.strictEqual(created[before].o.resume, 'sess-0', 'agent resumed with its saved session id');
+  assert.strictEqual(created[before].o.effort, 'max', 'resumed agent starts at the saved effort');
+  assert.strictEqual(created[before].o.model, 'opus', 'and the saved model');
+  v3.fire({ type: 'new', kind: 'claude' });
+  assert.strictEqual(v3.lastTabs().tabs.slice(-1)[0].title, 'Claude 3', 'numbering continues after reload');
+
+  for (const x of v3.lastTabs().tabs) v3.fire({ type: 'close', sid: x.id });
+  assert.deepStrictEqual(v3.lastTabs().tabs, [], 'closing every tab returns to empty');
+  assert.strictEqual(v3.lastTabs().active, null);
+  v3.fire({ type: 'new', kind: 'codex' });
+  assert.strictEqual(v3.lastTabs().tabs[0].title, 'Codex 1', 'numbering starts over once nothing is open, without a reload');
+  v3.fire({ type: 'close', sid: v3.lastTabs().tabs[0].id });
+  const empty = install(again.memento._dump());
+  const v4 = fakeView(); empty.registered['perch.main'].resolveWebviewView(v4.view); v4.fire({ type: 'ready' });
+  assert.deepStrictEqual(v4.lastTabs().tabs, [], 'stays empty after reload; no tabs are re-created for you');
+  v4.fire({ type: 'new', kind: 'claude' });
+  assert.strictEqual(v4.lastTabs().tabs[0].title, 'Claude 1', 'numbering starts over after a reload too');
+
+  // fallbacks: no glyph -> marketplace image; nothing usable or not installed -> letter
+  const partial = install(undefined, { extensions: { 'anthropic.claude-code': { icon: 'resources/claude-logo.png' }, 'openai.chatgpt': {} } });
+  const v5 = fakeView(); partial.registered['perch.main'].resolveWebviewView(v5.view);
+  assert(v5.view.webview.html.includes('<img class="k img" data-kind="claude" alt="" src="vscode-resource://host/ext/anthropic.claude-code/resources/claude-logo.png">'), 'image when there is no glyph');
+  assert(v5.view.webview.html.includes('<span class="k codex">X</span>'), 'letter when the extension ships no icon');
+  assert(!/\.k\.glyph\.(claude|codex) \{/.test(v5.view.webview.html), 'no glyph rules without glyphs');
+  assert.deepStrictEqual(v5.view.webview.options.localResourceRoots.map((u) => u.path), ['/ext/fennets.perch', '/ext/anthropic.claude-code']);
+  const none = install(undefined, { extensions: {} });
+  const v6 = fakeView(); none.registered['perch.main'].resolveWebviewView(v6.view);
+  assert(!/<img/.test(v6.view.webview.html) && !/class="k glyph (claude|codex)/.test(v6.view.webview.html), 'no vendor extensions, letters only; the LLM gateway glyph is its own');
+
+  // settings give new tabs their defaults; an effort the model lacks is dropped; an unlisted model is kept and labelled as itself
+  const cfgd = install(undefined, { config: { 'claude.effort': 'high', 'claude.model': 'fable', 'codex.reasoningEffort': 'nonsense', 'codex.model': 'gpt-internal-9' } });
+  const v7 = fakeView(); cfgd.registered['perch.main'].resolveWebviewView(v7.view); v7.fire({ type: 'ready' }); await flush();
+  v7.fire({ type: 'new', kind: 'claude' }); v7.fire({ type: 'new', kind: 'codex' });
+  assert.deepStrictEqual(v7.lastTabs().tabs.map((x) => [x.model, x.effort]), [['fable', 'high'], ['gpt-internal-9', '']], 'defaults from settings');
+  assert.deepStrictEqual(v7.lastTabs().tabs[1].models.slice(-1)[0], { value: 'gpt-internal-9', label: 'gpt-internal-9', title: 'not in the agent\'s model list' });
+  v7.fire({ type: 'send', sid: v7.lastTabs().tabs[0].id, text: 'go' });
+  assert.deepStrictEqual([created[created.length - 1].o.model, created[created.length - 1].o.effort], ['fable', 'high'], 'claude starts with the configured model and effort');
+
+  // an agent that cannot list its models: the tab still works, with the static effort list and only the default model
+  const bare = install(undefined, { catalogs: { claude: new Error('no cli'), codex: null } });
+  const v8 = fakeView(); bare.registered['perch.main'].resolveWebviewView(v8.view); v8.fire({ type: 'ready' }); await flush();
+  v8.fire({ type: 'new', kind: 'claude' }); v8.fire({ type: 'new', kind: 'codex' });
+  assert.deepStrictEqual(v8.lastTabs().tabs.map((x) => x.models), [[{ value: '', label: 'default', title: 'The model the agent picks by default' }], [{ value: '', label: 'default', title: 'The model the agent picks by default' }]]);
+  assert.deepStrictEqual(vals(v8.lastTabs().tabs[0].efforts), ['', 'low', 'medium', 'high', 'xhigh', 'max']);
+  v8.fire({ type: 'setEffort', sid: v8.lastTabs().tabs[0].id, value: 'high' }); v8.fire({ type: 'send', sid: v8.lastTabs().tabs[0].id, text: 'go' });
+  assert.strictEqual(created[created.length - 1].o.effort, 'high', 'effort still works without a catalog');
+
+  // a catalog that arrives after a tab exists corrects that tab
+  const late = install(undefined, { config: { 'claude.model': 'haiku', 'claude.effort': 'max' } });
+  const v9 = fakeView(); late.registered['perch.main'].resolveWebviewView(v9.view); v9.fire({ type: 'ready' });
+  v9.fire({ type: 'new', kind: 'claude' });                                   // the claude catalog has not loaded yet
+  assert.strictEqual(v9.lastTabs().tabs[0].effort, 'max', 'accepted against the static list');
+  await flush();
+  assert.strictEqual(v9.lastTabs().tabs[0].effort, '', 'dropped once the catalog shows this model has no effort control');
+  assert.strictEqual(late.memento._dump()['perch.sessions.v1'].sessions[0].effort, '', 'and the correction is saved');
+
+  // ======================================================================== Claude usage and backend (merged from AI Meter)
+  {
+    const m = install(undefined, { config: { 'claude.executable': '/opt/claude' } });   // subscription, logged in, AI Meter not installed
+    await flush();
+    assert.deepStrictEqual(m.ui.bars, [], 'perch puts nothing in the status bar: the gauge is the footer of each tab');
+    assert.strictEqual(m.globalState._dump()['perch.meter.limits'].length, 2, 'the reading is cached for the next reload');
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    let st = v.lastMeter();
+    assert.deepStrictEqual([st.backend, st.backendLabel, st.mode, st.level, st.action, st.segments.length], ['subscription', 'sub', 'subscription', 'ok', 'refresh', 2], 'the page is given the gauge as soon as it is ready');
+    assert(/^1\.0h 91% 6\.\dd 95%$/.test(st.text), st.text);
+
+    // refresh from the page and from the command
+    const f0 = m.box.fetches;
+    m.box.usage = { limits: [{ kind: 'session', percent: 93, resetsAt: new Date(Date.now() + 3660000).toISOString(), model: null }], error: null };
+    v.fire({ type: 'meterRefresh' }); await flush();
+    assert.strictEqual(m.box.fetches, f0 + 1);
+    st = v.lastMeter(); assert.deepStrictEqual([st.text, st.level], ['1.0h 7%', 'error'], 'a limit running low turns red');
+    await m.commands['perch.meter.refresh'](); assert.strictEqual(m.box.fetches, f0 + 2);
+    m.box.usage = { limits: null, error: 'network' }; v.fire({ type: 'meterRefresh' }); await flush();
+    assert.deepStrictEqual([v.lastMeter().text, v.lastMeter().error], ['1.0h 7%', 'network'], 'a failed poll keeps the last good reading');
+
+    // switching backend: two claude tabs, one running and one not; a codex tab is unaffected
+    v.fire({ type: 'new', kind: 'claude' }); const run = v.lastTabs().active; v.fire({ type: 'send', sid: run, text: 'hi' });
+    v.fire({ type: 'new', kind: 'claude' }); const idle = v.lastTabs().active;
+    v.fire({ type: 'new', kind: 'codex' }); const cx = v.lastTabs().active; v.fire({ type: 'send', sid: cx, text: 'hi' });
+    assert.strictEqual(v.lastTabs().tabs.find((x) => x.id === run).backend, 'subscription', 'a running tab knows the backend it started on');
+    assert.strictEqual(v.lastTabs().tabs.find((x) => x.id === idle).backend, '', 'a tab that has not started has none yet');
+    const loads0 = m.loads.claude; m.box.cost = { session: { tokens: 1200, cost: 0.5 }, today: { tokens: 5.2e6, cost: 18.94 }, latestModel: 'us.anthropic.claude-opus-5', days: [{ label: 'Mon', tokens: 1, cost: 1 }], models: new Map() };
+    v.fire({ type: 'meterToggle' }); await flush(); await flush();
+    assert.deepStrictEqual(m.box.writes, [true], 'the settings file is written once');
+    assert.strictEqual(m.globalState._dump()['perch.meter.stash.model'], undefined, 'model pins go through the stash');
+    st = v.lastMeter();
+    assert.deepStrictEqual([st.backend, st.backendLabel, st.mode, st.text], ['api', 'API', 'cost', 'opus-5 5.2M $18.9'], 'auto mode follows the backend into cost mode');
+    assert(/from now on\. Open tabs continue on it from their next message; a tab in the middle of a turn, after that turn\./.test(m.ui.infos.pop()));
+    assert.strictEqual(m.loads.claude, loads0 + 1, 'the model list is re-read, because models differ by backend');
+    // the tab that had run is moved: its process ends, the session stays, and the next message resumes it on the new backend
+    const runAgent = created.filter((a) => a.claude).pop(), runSession = 'sess-' + created.indexOf(runAgent);
+    assert(v.events(run).some((e) => e.kind === 'note' && /^Claude backend is now API \/ Bedrock\. This tab continues on it from the next message; the prompt cache starts over\.$/.test(e.text)), 'an idle tab is moved at once, and told');
+    assert.deepStrictEqual([runAgent.disposed, v.lastTabs().tabs.find((x) => x.id === run).backend, v.lastTabs().tabs.find((x) => x.id === run).started], [true, '', false], 'its process is ended; the tab stays');
+    assert(!v.events(idle).some((e) => e.kind === 'note' && /backend/.test(e.text)), 'a tab that has not started is not');
+    assert(!v.events(cx).some((e) => e.kind === 'note' && /backend/.test(e.text)), 'nor is a codex tab');
+    v.fire({ type: 'send', sid: run, text: 'more' });
+    const resumed = created.filter((a) => a.claude).pop();
+    assert.deepStrictEqual([resumed !== runAgent, resumed.o.resume, v.lastTabs().tabs.find((x) => x.id === run).backend], [true, runSession, 'api'], 'the same session, resumed on the new backend');
+    v.fire({ type: 'send', sid: idle, text: 'go' });
+    assert.strictEqual(v.lastTabs().tabs.find((x) => x.id === idle).backend, 'api', 'the tab started after the switch is on the new backend');
+
+    // and back, on a machine with no subscription login: the login is offered; both tabs, now on API, are moved again
+    m.box.login = false; m.ui.answers.push('Log In');
+    await m.commands['perch.meter.toggleBackend'](); await flush(); await flush();
+    assert.deepStrictEqual(m.box.writes, [true, false]);
+    assert(/has no subscription login yet/.test(m.ui.infos.pop()));
+    assert.deepStrictEqual([m.ui.executed, m.ui.terminals.map((t) => [t.o.env, t.sent])], [[], [[{ CLAUDE_CODE_USE_BEDROCK: '0' }, [CLAUDE_LOGIN]]]], 'login runs the CLI\'s sign-in off Bedrock, not the Claude Code panel, whose open session never shows a login page');
+    assert.strictEqual(v.lastMeter().backend, 'subscription');
+    assert.strictEqual(v.events(idle).filter((e) => e.kind === 'note' && /backend is now subscription/.test(e.text)).length, 1);
+    assert.strictEqual(v.events(run).filter((e) => e.kind === 'note' && /backend is now/.test(e.text)).length, 2, 'moved each time the backend changes');
+    assert.deepStrictEqual([resumed.disposed, v.lastTabs().tabs.find((x) => x.id === run).started], [true, false]);
+
+    // no API credentials: a modal first, and cancelling writes nothing
+    m.box.apiCreds = false; m.box.login = true;
+    v.fire({ type: 'meterToggle' }); await flush();
+    assert(/No Bedrock or API credentials found/.test(m.ui.warnings.pop())); assert.deepStrictEqual(m.box.writes, [true, false], 'cancelled: nothing written');
+    m.ui.answers.push('Switch Anyway'); v.fire({ type: 'meterToggle' }); await flush(); await flush();
+    assert.deepStrictEqual(m.box.writes, [true, false, true]);
+    assert.strictEqual(v.lastMeter().backendWarn, true, 'the switch stays highlighted until credentials exist');
+
+    // a settings file that cannot be written: say so, change nothing
+    m.box.failWrite = 'EACCES'; m.box.apiCreds = true;
+    v.fire({ type: 'meterToggle' }); await flush();
+    assert(/could not update .*settings\.json\. EACCES/.test(m.ui.errors.pop())); assert.strictEqual(v.lastMeter().backend, 'api');
+    m.box.failWrite = null;
+
+    // settings: mode pinned, display, thresholds
+    m.changeConfig({ 'meter.mode': 'subscription', 'meter.display': 'used' }); await flush();
+    m.box.usage = { limits: LIM(30), error: null }; v.fire({ type: 'meterRefresh' }); await flush();
+    assert.deepStrictEqual([v.lastMeter().mode, v.lastMeter().text, v.lastMeter().backend], ['subscription', '1.0h 30%', 'api'], 'a pinned mode does not follow the backend');
+    m.changeConfig({ 'meter.warnBelow': 80 }); await flush();
+    assert.strictEqual(v.lastMeter().level, 'warn');
+
+    m.perch.dispose();
+  }
+  {
+    // the standalone AI Meter extension may be installed as well: perch's gauge is in its tabs, and the status bar is AI Meter's alone
+    const m = install(undefined, { extensions: { 'seanahn.ai-meter': { icon: 'x.png' } } }); await flush();
+    assert.deepStrictEqual(m.ui.bars, []);
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    assert.strictEqual(v.lastMeter().segments.length, 2);
+  }
+  {
+    // never logged in
+    const m = install(undefined, { meter: { usage: { limits: null, error: 'no-credentials' } }, extensions: {} }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual([v.lastMeter().text, v.lastMeter().action, v.lastMeter().level], ['—', 'login', 'none']);
+    v.fire({ type: 'meterLogin' }); await flush();
+    // with no setting and no Claude Code extension, the tabs run the SDK's own claude, and so does the login: run directly,
+    // since `claude` on PATH, if there is one, need not be it
+    const B = require('../src/binaries'), sdk = B.sdkClaude();
+    assert(sdk, 'this checkout has the SDK\'s own claude');
+    assert.deepStrictEqual(m.ui.terminals.map((t) => [t.o.name, t.o.env, t.sent]), [['Claude login', { CLAUDE_CODE_USE_BEDROCK: '0' }, [`${B.shellQuote(sdk)} --settings '${OFF_BEDROCK}' auth login`]]], 'the program the tabs run');
+    m.perch.dispose();
+  }
+  {
+    // Claude's Log In: the program the tabs run, quoted for the shell; one sign-in at a time; done when a login lands that was
+    // not there when it began, or when its terminal closes
+    const m = install(undefined, { config: { 'claude.executable': '/opt/claude code/claude' }, meter: { login: false, usage: { limits: null, error: 'no-credentials' } } }); await flush();
+    const mh = m.perch.meter; mh.loginPollMs = 5;
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const typed = [`'/opt/claude code/claude' --settings '${OFF_BEDROCK}' auth login`];
+    v.fire({ type: 'meterLogin' }); await flush();
+    const [t1] = m.ui.terminals;
+    assert.deepStrictEqual([m.ui.terminals.length, t1.o.name, t1.o.env, t1.o.shellPath, t1.sent, t1.shows], [1, 'Claude login', { CLAUDE_CODE_USE_BEDROCK: '0' }, undefined, typed, 1], 'perch.claude.executable, as the tabs run it, typed into the user\'s shell, a space and all');
+    // pressed again while it waits, from the footer or the command: the same terminal, brought back, and said so
+    v.fire({ type: 'meterLogin' }); await m.commands['perch.meter.login'](); await flush();
+    assert.deepStrictEqual([m.ui.terminals.length, t1.shows, m.ui.infos.filter((x) => x === 'Perch: a Claude login is already waiting for you, in the Claude login terminal.').length], [1, 3, 2], 'one sign-in at a time');
+    // closed with no login: over, and the next press opens another
+    const d1 = mh.signIn.done; t1.dispose();
+    assert.deepStrictEqual([await within(d1), mh.signIn], [false, null], 'closed with no login: over');
+    v.fire({ type: 'meterLogin' }); await flush();
+    assert.deepStrictEqual([m.ui.terminals.length, m.ui.terminals[1].sent], [2, typed], 'the next press: another terminal');
+    const d2 = mh.signIn.done; m.box.login = true;
+    assert.deepStrictEqual([await within(d2), mh.signIn], [true, null], 'a login lands: done');
+    // an old login there already, as one refused: its being there does not end the wait; a new one does
+    m.box.token = 'refused';
+    v.fire({ type: 'meterLogin' }); await flush();
+    const d3 = mh.signIn.done;
+    assert.strictEqual(await within(d3, 60), 'timed out', 'the old login does not end it');
+    m.box.token = 'new';
+    assert.strictEqual(await within(d3), true, 'a new one does');
+    // a login made as the terminal closes: the last look sees it
+    v.fire({ type: 'meterLogin' }); await flush();
+    const d4 = mh.signIn.done; m.box.token = 'as it closed'; m.ui.terminals[m.ui.terminals.length - 1].dispose();
+    assert.strictEqual(await within(d4), true, 'logged in as it closed');
+    // on Windows the terminal runs the program itself, with its arguments as they are: no shell reads them, PowerShell and cmd
+    // quoting as they do. Its terminal closes as the program ends, which ends the wait
+    const n = m.ui.terminals.length;
+    onPlatform('win32', () => v.fire({ type: 'meterLogin' }));
+    const tw = m.ui.terminals[n];
+    assert.deepStrictEqual([m.ui.terminals.length, tw.o.name, tw.o.env, tw.o.shellPath, tw.o.shellArgs, tw.sent], [n + 1, 'Claude login', { CLAUDE_CODE_USE_BEDROCK: '0' }, '/opt/claude code/claude', ['--settings', OFF_BEDROCK, 'auth', 'login'], []], 'Windows: the program run directly, nothing typed');
+    const dw = mh.signIn.done; tw.dispose();
+    assert.deepStrictEqual([await within(dw), mh.signIn], [false, null], 'the program ended with no login: over');
+    // which program: the one the tabs run, as resolveProgram names it
+    const B = require('../src/binaries'), prog = mh.claudeProgram;
+    const pick = (p) => { mh.claudeProgram = () => p; return mh.loginProgram(); };
+    assert.deepStrictEqual([pick({ path: '/opt/x', from: 'setting' }), pick({ path: '/ext/anthropic.claude-code/resources/native-binary/claude', from: 'extension' }), pick({ path: '', from: 'sdk' }), pick({ path: '', from: 'none' }), pick(null)],
+      ['/opt/x', '/ext/anthropic.claude-code/resources/native-binary/claude', B.sdkClaude(), B.onPath('claude'), B.onPath('claude')], 'the setting; the Claude Code extension\'s; the SDK\'s own; else one on PATH, whatever this machine has');
+    mh.claudeProgram = () => { throw new Error('gone'); };
+    assert.strictEqual(mh.loginProgram(), B.onPath('claude'), 'a lookup that fails is none');
+    mh.claudeProgram = prog;
+    // no program at all: the Claude Code panel is the last way in; with no Claude Code either, say what is missing
+    mh.loginProgram = () => '';
+    m.ui.executed.length = 0; const n2 = m.ui.terminals.length;
+    assert.deepStrictEqual([await mh.login(), m.ui.executed, m.ui.terminals.length, mh.signIn], [true, ['claude-vscode.editor.openLast'], n2, null], 'the panel, when nothing can be run');
+    m.changeExtensions({ 'anthropic.claude-code': null });
+    assert.deepStrictEqual([await mh.login(), m.ui.executed.length, m.ui.terminals.length, m.ui.errors.pop()], [false, 1, n2, 'Perch: found no claude program to log in with, here or on PATH. Install the Claude Code extension, or set perch.claude.executable to a claude program, then log in.']);
+    delete mh.loginProgram;
+    // a held message's Log In, then its note's, twice, while that waits: one sign-in, and said once when the login lands
+    m.box.login = false; m.ui.infos.length = 0; const n3 = m.ui.terminals.length;
+    v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active;
+    m.ui.answers.push('Log In'); v.fire({ type: 'send', sid: x, text: 'hello' }); await flush(); await flush();
+    assert.strictEqual(m.ui.terminals.length, n3 + 1, 'the notification\'s Log In: a sign-in');
+    v.fire({ type: 'noteAction', sid: x, action: 'claudeLogin' }); v.fire({ type: 'noteAction', sid: x, action: 'claudeLogin' }); await flush();
+    assert.deepStrictEqual([m.ui.terminals.length, m.ui.infos.filter((i) => /already waiting/.test(i)).length], [n3 + 1, 2], 'the note\'s, while it waits: that one, brought back');
+    m.box.login = true; await wait(30); await flush();
+    assert.deepStrictEqual(m.ui.infos.filter((i) => /Claude is logged in/.test(i)), ['Perch: Claude is logged in. Send your message again.'], 'said once');
+    m.perch.dispose();
+  }
+  {
+    // the cached reading is shown before the first poll returns
+    const cached = LIM(40);
+    const m = install(undefined, { globals: { 'perch.meter.limits': cached, 'perch.meter.limits.at': 123 }, meter: { usage: { limits: null, error: 'network' } } });
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' });
+    assert(/1\.0h 60%/.test(v.lastMeter().text), 'shown at once, from the cache');
+    await flush(); assert(/1\.0h 60%/.test(v.lastMeter().text), 'and kept when the poll fails');
+  }
+
+  {
+    // rate limited: keep the reading, stop asking for a while, and never fast-retry
+    const m = install(undefined, { meter: { usage: { limits: null, error: 'rate-limited', retryAfterMs: 0 } }, extensions: {} }); await flush();
+    const h = m.perch.meter;
+    assert.strictEqual(h.retryTimer, null, 'no 15-second retry against an endpoint that said to slow down');
+    assert(h.backoffUntil - Date.now() > 55000 && h.backoffMs === 60000, 'at least a minute of quiet');
+    assert.strictEqual(m.box.fetches, 1);
+    await h.poll(); await h.poll();
+    assert.strictEqual(m.box.fetches, 1, 'polls inside the quiet period make no request');
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'meterRefresh' }); await flush();
+    assert.strictEqual(m.box.fetches, 1, 'not even when clicked');
+    assert.deepStrictEqual([v.lastMeter().error, v.lastMeter().text], ['rate-limited', '—']);
+    h.backoffUntil = 0; m.box.usage = { limits: null, error: 'rate-limited', retryAfterMs: 300000 }; await h.poll();
+    assert.deepStrictEqual([m.box.fetches, h.backoffMs], [2, 300000], 'Retry-After is honoured when it asks for longer');
+    h.backoffUntil = 0; m.box.usage = { limits: null, error: 'rate-limited', retryAfterMs: 0 }; await h.poll();
+    assert.strictEqual(h.backoffMs, 600000, 'and the quiet period doubles on a repeat');
+    for (let i = 0; i < 5; i++) { h.backoffUntil = 0; await h.poll(); }
+    assert.strictEqual(h.backoffMs, 30 * 60000, 'up to half an hour');
+    h.backoffUntil = 0; m.box.usage = { limits: LIM(10), error: null }; await h.poll();
+    assert.deepStrictEqual([h.backoffMs, h.backoffUntil, v.lastMeter().text, v.lastMeter().stale], [0, 0, '1.0h 90%', undefined], 'a success clears it');
+    m.box.usage = { limits: null, error: 'rate-limited' }; await h.poll();
+    assert.deepStrictEqual([v.lastMeter().text, v.lastMeter().stale, h.retryTimer], ['1.0h 90%', true, null], 'a later rate limit keeps the reading and marks it stale');
+    m.perch.dispose();
+  }
+  {
+    // any other failure with nothing cached: the fast retry still applies
+    const m = install(undefined, { meter: { usage: { limits: null, error: 'network' } }, extensions: {} }); await flush();
+    assert.notStrictEqual(m.perch.meter.retryTimer, null);
+    m.box.usage = { limits: LIM(10), error: null }; await m.perch.meter.poll();
+    assert.strictEqual(m.perch.meter.retryTimer, null, 'and stops at the first success');
+    m.perch.dispose();
+  }
+
+  // ======================================================================== Codex plan usage, for the footer of a Codex tab
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    let cx = v.lastCodex();
+    assert.deepStrictEqual([cx.vendor, cx.plan, cx.asOf, cx.level, cx.action], ['Codex', 'plus', true, 'ok', 'refresh'], 'the page gets both readings when it is ready');
+    assert(/^2\.0h 96% 6\.\dd 99%$/.test(cx.text), cx.text);
+    assert.strictEqual(cx.lines[0], 'Codex usage, percent remaining');
+    assert.strictEqual(v.lastMeter().vendor, 'Claude');
+
+    // refreshing Codex usage reads a file; it never touches Claude's rate-limited endpoint
+    const f0 = m.box.fetches, r0 = m.box.codexReads;
+    m.box.codex = { limits: CODEX_LIMITS(80, 93), error: null, plan: 'pro', at: Date.now() };
+    v.fire({ type: 'meterRefresh', vendor: 'codex' }); await flush();
+    assert.deepStrictEqual([m.box.fetches, m.box.codexReads > r0], [f0, true]);
+    cx = v.lastCodex();
+    assert.deepStrictEqual([cx.segments.map((x) => x.level), cx.level, cx.plan], [['warn', 'error'], 'error', 'pro'], 'the same thresholds as Claude');
+    v.fire({ type: 'meterRefresh', vendor: 'claude' }); await flush(); assert.strictEqual(m.box.fetches, f0 + 1);
+    v.fire({ type: 'meterRefresh' }); await flush(); assert.strictEqual(m.box.fetches, f0 + 2, 'with no vendor named, Claude, as before');
+
+    // a Codex turn that finishes has just recorded fresh limits; a Claude turn has not
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    m.box.codex = { limits: CODEX_LIMITS(81, 93), error: null, plan: 'pro', at: Date.now() };
+    const r1 = m.box.codexReads; v.fire({ type: 'send', sid: c, text: 'hi claude' }); await wait(500);
+    const afterClaude = m.box.codexReads;
+    v.fire({ type: 'send', sid: x, text: 'hi codex' }); await wait(500);
+    assert(m.box.codexReads > afterClaude, 'read again after the Codex turn');
+    assert(/^2\.0h 19% /.test(v.lastCodex().text), 'and the page has the new figure');
+
+    // never used, and unreadable
+    m.box.codex = { limits: null, error: 'no-codex-data' }; v.fire({ type: 'meterRefresh', vendor: 'codex' }); await flush();
+    assert.deepStrictEqual([v.lastCodex().text, v.lastCodex().action, v.lastCodex().plan], ['—', 'refresh', '']); assert(/no Codex session on this machine/.test(v.lastCodex().lines[0]));
+    m.box.codex = new Error('EACCES'); v.fire({ type: 'meterRefresh', vendor: 'codex' }); await flush();
+    assert.strictEqual(v.lastCodex().error, 'codex-scan', 'a reader that throws is an error in the footer, not a crash');
+    assert.strictEqual(v.lastMeter().vendor, 'Claude', 'and Claude\'s reading is unaffected');
+    m.perch.dispose();
+  }
+
+  // ======================================================================== the composer's data
+  {
+    const m = install(); const pv = m.registered['perch.main'];
+    const v = fakeView(); pv.resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    assert.strictEqual(v.lastTabs().ui, undefined, 'there is no selector row to open or close any more');
+    assert.strictEqual(m.commands['perch.toggleSettings'], undefined);
+
+    // slash commands arrive with the model list, before any tab has started
+    assert.deepStrictEqual(v.commands('claude'), [[{ name: 'clear', description: 'Start over', hint: '' }, { name: 'compact', description: 'Summarise the conversation so far', hint: '[instructions]' }]], 'sorted, hints kept');
+    assert.deepStrictEqual(v.commands('codex'), [], 'codex has none');
+
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    assert.deepStrictEqual([v.tab(c).context, v.tab(c).cache, v.tab(c).queued], [null, { minutes: 60, since: 0 }, 0], 'before the first message: no context figure, and the cache lifetime a new session would get');
+    const t0 = Date.now(); v.fire({ type: 'send', sid: c, text: 'hello' });
+    assert.deepStrictEqual(v.tab(c).context, { percent: 2, used: 20361, max: 1000000 }, 'context usage, rounded');
+    created[created.length - 1].emit({ kind: 'context', percent: 2.4, used: 20361, max: 1000000, model: 'claude-fable-5-1' });
+    assert.strictEqual(v.tab(c).actualModel, 'claude-fable-5-1', 'the context report names the model really running');
+    assert(v.tab(c).cache.since >= t0 && v.tab(c).cache.minutes === 60, 'the cache is warm from the last answer');
+    const agent = created[created.length - 1];
+    agent.emit({ kind: 'commands', list: [{ name: 'compact', description: 'Summarise   the\nconversation so far', argumentHint: '[instructions]' }, { name: 'clear', description: 'Start over' }, { name: '__internal', description: 'x' }, { name: 'clear', description: 'dup' }] });
+    assert.strictEqual(v.commands('claude').length, 1, 'the same list from a running session is not sent again');
+    agent.emit({ kind: 'commands', list: [{ name: 'review', description: 'Review', argumentHint: '' }] });
+    assert.deepStrictEqual(v.commands('claude').pop(), [{ name: 'review', description: 'Review', hint: '' }], 'a changed list is');
+    agent.emit({ kind: 'context', percent: 140, used: 1, max: 1 }); assert.strictEqual(v.tab(c).context.percent, 100, 'clamped');
+
+    // on API or Bedrock the cache lasts five minutes; a running tab keeps the lifetime of the backend it started on
+    m.box.bedrock = true;
+    v.fire({ type: 'new', kind: 'claude' }); const c2 = v.lastTabs().active;
+    assert.deepStrictEqual([v.tab(c2).cache.minutes, v.tab(c).cache.minutes], [5, 60]);
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    assert.deepStrictEqual([v.tab(x).context, v.tab(x).cache], [null, null], 'codex reports neither');
+    m.box.bedrock = false;
+
+    // a page that reconnects gets the current command list again
+    const v2 = fakeView(); pv.resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v2.commands('claude').pop().map((k) => k.name), ['review']);
+
+    // + mentions files by workspace-relative path; a file outside the workspace keeps its full path
+    const path = require('path');
+    m.ui.picked = [{ fsPath: path.join(process.cwd(), 'src', 'a.js') }, { fsPath: '/elsewhere/b c.txt' }];
+    v2.fire({ type: 'attach', sid: c }); await flush();
+    assert.deepStrictEqual(v2.events(c).filter((e) => e.kind === 'insert').pop(), { kind: 'insert', text: '@' + path.join('src', 'a.js') + ' @/elsewhere/b c.txt ' });
+    assert.deepStrictEqual([m.ui.dialogs[0].canSelectMany, m.ui.dialogs[0].canSelectFolders], [true, false]);
+    m.ui.picked = undefined; const n = v2.events(c).length;
+    v2.fire({ type: 'attach', sid: c }); await flush(); assert.strictEqual(v2.events(c).length, n, 'cancelling the dialog inserts nothing');
+    v2.fire({ type: 'attach', sid: 'nope' }); await flush();
+
+    // ---- queueing. Claude queues a message sent mid-turn itself.
+    v2.fire({ type: 'send', sid: c, text: 'hold on' });
+    v2.fire({ type: 'send', sid: c, text: 'and then this' });
+    assert.deepStrictEqual(agent.sent.slice(-2), ['hold on', 'and then this'], 'passed straight to the agent');
+    assert.deepStrictEqual(v2.events(c).filter((e) => e.kind === 'user').slice(-2).map((e) => [e.text, e.queued]), [['hold on', false], ['and then this', true]]);
+    assert.strictEqual(v2.tab(c).busy, true);
+    agent.finish(); await flush();
+    assert.deepStrictEqual([v2.tab(c).busy, agent.lastAnswer], [false, 'answer to and then this'], 'the queued message ran as soon as the turn ended');
+
+    // Codex takes one turn at a time, so the queue is kept by perch
+    const before = v2.events(x).length;                                       // the replay already told the page this tab is idle
+    v2.fire({ type: 'send', sid: x, text: 'hold 1' }); const cx = created[created.length - 1];
+    v2.fire({ type: 'send', sid: x, text: 'second' }); v2.fire({ type: 'send', sid: x, text: 'hold 3' }); v2.fire({ type: 'send', sid: x, text: '   ' });
+    assert.deepStrictEqual(cx.sent, ['hold 1'], 'nothing reaches a busy codex agent');
+    assert.deepStrictEqual([v2.tab(x).queued, v2.tab(x).busy], [2, true], 'blank messages are not queued');
+    assert.deepStrictEqual(v2.events(x).filter((e) => e.kind === 'user').map((e) => [e.text, !!e.queued]), [['hold 1', false], ['second', true], ['hold 3', true]], 'queued messages are shown at once');
+    cx.finish(); await flush(); await flush();
+    assert.deepStrictEqual(cx.sent, ['hold 1', 'second', 'hold 3'], 'they run in order as each turn ends');
+    assert.deepStrictEqual([v2.tab(x).queued, v2.tab(x).busy], [0, true], 'and the tab stays busy between them');
+    assert.strictEqual(v2.events(x).filter((e) => e.kind === 'user').length, 3, 'a queued message is not shown a second time when it starts');
+    assert.strictEqual(v2.events(x).slice(before).filter((e) => e.kind === 'busy' && !e.busy).length, 0, 'no flicker to idle between queued turns');
+
+    // stop ends the turn and drops what is queued behind it
+    v2.fire({ type: 'send', sid: x, text: 'never runs' }); v2.fire({ type: 'send', sid: x, text: 'nor this' });
+    assert.strictEqual(v2.tab(x).queued, 2);
+    v2.fire({ type: 'stop', sid: x }); await flush(); await flush();
+    assert.deepStrictEqual([cx.interrupted, cx.sent.length, v2.tab(x).queued, v2.tab(x).busy], [1, 3, 0, false]);
+    assert(v2.events(x).some((e) => e.kind === 'note' && e.text === '2 queued messages dropped'));
+    v2.fire({ type: 'send', sid: x, text: 'fresh' }); await flush();
+    assert.deepStrictEqual([cx.sent.pop(), v2.tab(x).busy], ['fresh', false], 'the tab works normally afterwards');
+
+    // ---- IDE context: a tab can attach the active file and selection to each message
+    const sel = (a, ac, b, bc) => ({ isEmpty: a === b && ac === bc, start: { line: a, character: ac }, end: { line: b, character: bc }, active: { line: b, character: bc } });
+    const editor = (file, lang, text, s) => ({ selection: s, document: { uri: { scheme: 'file', fsPath: file }, languageId: lang, getText: () => text } });
+    assert.deepStrictEqual([v2.tab(x).ide, v2.tab(c).ide], [false, false], 'off in the tests\' configuration; on by default');
+    m.ui.editor = editor(path.join(process.cwd(), 'src', 'a.js'), 'javascript', 'const a = 1;\nconst b = 2;\n', sel(2, 0, 4, 0));
+    v2.fire({ type: 'send', sid: x, text: 'plain' }); await flush();
+    assert.strictEqual(cx.sent.pop(), 'plain', 'nothing is attached while it is off');
+    v2.fire({ type: 'setIde', sid: x, value: true }); assert.strictEqual(v2.tab(x).ide, true);
+    v2.fire({ type: 'setIde', sid: c, value: true }); assert.strictEqual(v2.tab(c).ide, true, 'on a Claude tab too');
+    v2.fire({ type: 'send', sid: x, text: 'why is b 2?' }); await flush();
+    const F = path.join('src', 'a.js');
+    assert.strictEqual(cx.sent.pop(), 'why is b 2?\n\n<ide_context>\nActive file: ' + F + ' (javascript)\nSelection: lines 3-4\n```javascript\nconst a = 1;\nconst b = 2;\n```\n</ide_context>', 'the agent gets the file, the lines, and the text');
+    assert.deepStrictEqual(v2.events(x).filter((e) => e.kind === 'user').pop(), { kind: 'user', text: 'why is b 2?', queued: false, tag: 'a.js:3-4' }, 'the transcript shows the message, and the file attached by name');
+    assert.strictEqual(v2.tab(x).title.includes('ide_context'), false);
+
+    m.ui.editor = editor(path.join(process.cwd(), 'src', 'a.js'), 'javascript', '', sel(7, 4, 7, 4));
+    v2.fire({ type: 'send', sid: x, text: 'here' }); await flush();
+    assert(/\nActive file: .*a\.js \(javascript\)\nCursor: line 8\n<\/ide_context>$/.test(cx.sent.pop()), 'with no selection: the file and the cursor');
+    assert.strictEqual(v2.events(x).filter((e) => e.kind === 'user').pop().tag, 'a.js');
+    m.ui.editor = editor('/elsewhere/x.py', 'python', 'a ``` b ```` c', sel(0, 0, 0, 14));
+    v2.fire({ type: 'send', sid: x, text: 'fences' }); await flush();
+    assert(/Active file: \/elsewhere\/x\.py \(python\)\nSelection: lines 1-1\n`````python\na ``` b ```` c\n`````\n/.test(cx.sent.pop()), 'a file outside the workspace keeps its path; the fence is longer than any inside the selection');
+    m.ui.editor = editor('/big.txt', 'plaintext', 'x'.repeat(20000), sel(0, 0, 0, 20000));
+    v2.fire({ type: 'send', sid: x, text: 'big' }); await flush();
+    const big = cx.sent.pop(); assert(/Selection: lines 1-1 \(first 12000 characters\)/.test(big) && big.length < 12300, 'a long selection is cut, and says so');
+    // a Perch tab in the editor area has the focus while the message is written, so there is no active editor: the file
+    // last focused is used, read from the editor still showing it; once it is off the screen, nothing is attached
+    m.ui.editor = editor(path.join(process.cwd(), 'src', 'b.js'), 'javascript', '', sel(1, 0, 1, 0)); for (const f of m.ui.listeners.editor) f(m.ui.editor);
+    const keep = m.ui.editor; m.ui.editor = undefined; for (const f of m.ui.listeners.editor) f(undefined); m.ui.visible = [keep];
+    v2.fire({ type: 'send', sid: x, text: 'focus' }); await flush();
+    assert(/\nActive file: src\/b\.js \(javascript\)\nCursor: line 2\n<\/ide_context>$/.test(cx.sent.pop()), 'the last file focused, while it is on screen');
+    m.ui.visible = []; v2.fire({ type: 'send', sid: x, text: 'gone' }); await flush();
+    assert.strictEqual(cx.sent.pop(), 'gone', 'a file no longer on screen is not attached');
+    m.ui.visible = undefined;
+    for (const ed of [undefined, { selection: sel(0, 0, 0, 0), document: { uri: { scheme: 'untitled', fsPath: 'Untitled-1' }, languageId: 'plaintext', getText: () => '' } }]) {
+      m.ui.editor = ed; v2.fire({ type: 'send', sid: x, text: 'nothing open' }); await flush();
+      assert.strictEqual(cx.sent.pop(), 'nothing open', 'no editor, or an unsaved one: the message goes as written');
+      assert.strictEqual(v2.events(x).filter((e) => e.kind === 'user').pop().tag, undefined);
+    }
+
+    // a chirp conversation in front (a webview tab, so there is no text editor) is the active file: chirp names its file
+    const CHIRP = '/home/u/.chirp/chats/PlatOps Team Chat 4b3a.teams';
+    const tabsChanged = async () => { for (const f of m.ui.listeners.tabs) f({ changed: [], opened: [], closed: [] }); await flush(); };
+    m.ui.answers = { 'chirp.activeConversationFile': () => CHIRP };
+    m.ui.group = () => ({ viewColumn: 1, activeTab: { label: 'PlatOps Team Chat', input: { viewType: 'mainThreadWebview-chirp.conversation' } }, tabs: [] });
+    await tabsChanged();
+    v2.fire({ type: 'send', sid: x, text: 'what are they saying?' }); await flush();
+    assert.strictEqual(cx.sent.pop(), 'what are they saying?\n\n<ide_context>\nActive file: ' + CHIRP + ' (Teams conversation)\n</ide_context>', 'a chirp tab in front is the active file');
+    assert.strictEqual(v2.events(x).filter((e) => e.kind === 'user').pop().tag, 'PlatOps Team Chat 4b3a.teams');
+    m.ui.group = () => ({ viewColumn: 2, activeTab: { label: 'Perch', input: { viewType: 'mainThreadWebview-perch.session' } }, tabs: [] });
+    await tabsChanged();
+    v2.fire({ type: 'send', sid: x, text: 'still?' }); await flush();
+    assert(/Active file: .*4b3a\.teams \(Teams conversation\)/.test(cx.sent.pop()), 'clicking into a Perch tab to write does not change what is in front');
+    m.ui.answers = { 'chirp.activeConversationFile': () => null };
+    await tabsChanged();
+    v2.fire({ type: 'send', sid: x, text: 'closed?' }); await flush();
+    assert.strictEqual(cx.sent.pop().includes('Teams conversation'), false, 'once chirp has no tab on screen, it is not the active file');
+    m.ui.answers = { 'chirp.activeConversationFile': () => CHIRP };
+    m.ui.group = () => ({ viewColumn: 1, activeTab: { label: 'PlatOps Team Chat', input: { viewType: 'mainThreadWebview-chirp.conversation' } }, tabs: [] });
+    await tabsChanged();
+    m.ui.editor = editor(path.join(process.cwd(), 'src', 'a.js'), 'javascript', '', sel(0, 0, 0, 0)); for (const f of m.ui.listeners.editor) f(m.ui.editor);
+    v2.fire({ type: 'send', sid: x, text: 'and now?' }); await flush();
+    assert(/\nActive file: src\/a\.js \(javascript\)/.test(cx.sent.pop()), 'a file focused after it takes over again');
+    m.ui.answers = { 'chirp.activeConversationFile': () => { throw new Error("command 'chirp.activeConversationFile' not found"); } };
+    m.ui.editor = undefined; m.ui.visible = [];
+    m.ui.group = () => ({ viewColumn: 1, activeTab: { label: 'PlatOps Team Chat', input: { viewType: 'mainThreadWebview-chirp.conversation' } }, tabs: [] });
+    await tabsChanged();
+    v2.fire({ type: 'send', sid: x, text: 'no chirp' }); await flush();
+    assert.strictEqual(cx.sent.pop(), 'no chirp', 'without chirp installed, context is unchanged');
+    m.ui.answers = undefined; m.ui.group = undefined; m.ui.visible = undefined;
+
+    // a jay ticket in front (a webview panel, like chirp's) is the active file, named by jay; the most recent of the two wins
+    {
+      const JAY = '/home/u/.jay/issues/PLAT-123.jira';
+      const jayTab = () => ({ viewColumn: 1, activeTab: { label: 'PLAT-123', input: { viewType: 'mainThreadWebview-jay.ticket' } }, tabs: [] });
+      const chirpTab = () => ({ viewColumn: 1, activeTab: { label: 'PlatOps Team Chat', input: { viewType: 'mainThreadWebview-chirp.conversation' } }, tabs: [] });
+      m.ui.answers = { 'jay.activeIssueFile': () => JAY, 'chirp.activeConversationFile': () => CHIRP };
+      m.ui.group = jayTab;
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'what is this ticket?' }); await flush();
+      assert.strictEqual(cx.sent.pop(), 'what is this ticket?\n\n<ide_context>\nActive file: ' + JAY + ' (Jira ticket)\n</ide_context>', 'a jay ticket in front is the active file');
+      assert.strictEqual(v2.events(x).filter((e) => e.kind === 'user').pop().tag, 'PLAT-123.jira');
+      m.ui.group = chirpTab;
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'chirp now' }); await flush();
+      assert(/Active file: .*4b3a\.teams \(Teams conversation\)/.test(cx.sent.pop()), 'chirp in front after jay wins');
+      m.ui.group = jayTab;
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'jay again' }); await flush();
+      assert(/Active file: .*PLAT-123\.jira \(Jira ticket\)/.test(cx.sent.pop()), 'jay in front after chirp wins');
+      m.ui.editor = editor(path.join(process.cwd(), 'src', 'a.js'), 'javascript', '', sel(0, 0, 0, 0)); for (const f of m.ui.listeners.editor) f(m.ui.editor);
+      v2.fire({ type: 'send', sid: x, text: 'file now' }); await flush();
+      assert(/\nActive file: src\/a\.js \(javascript\)/.test(cx.sent.pop()), 'a file focused after a jay ticket takes over');
+      m.ui.answers = { 'jay.activeIssueFile': () => { throw new Error("command 'jay.activeIssueFile' not found"); } };
+      m.ui.editor = undefined; m.ui.visible = [];
+      m.ui.group = jayTab;
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'no jay' }); await flush();
+      assert.strictEqual(cx.sent.pop(), 'no jay', 'without jay installed, context is unchanged');
+      // the Atlassian extension's issue page (webview type "react", titled with the key) is jay's ticket too: jay names its file, or null
+      m.ui.editor = editor(path.join(process.cwd(), 'src', 'b.js'), 'javascript', '', sel(0, 0, 0, 0)); for (const f of m.ui.listeners.editor) f(m.ui.editor);   // a file first: nothing webview is in front
+      m.ui.editor = undefined; m.ui.visible = [];
+      m.ui.answers = { 'jay.activeIssueFile': () => JAY };
+      m.ui.group = () => ({ viewColumn: 1, activeTab: { label: 'PLAT-123', input: { viewType: 'mainThreadWebview-react' } }, tabs: [] });
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'atlassian page' }); await flush();
+      assert(/Active file: .*PLAT-123\.jira \(Jira ticket\)/.test(cx.sent.pop()), 'an Atlassian issue page in front is jay\'s ticket file');
+      m.ui.answers = { 'jay.activeIssueFile': () => null };
+      m.ui.group = () => ({ viewColumn: 1, activeTab: { label: 'Some React Tool', input: { viewType: 'mainThreadWebview-react' } }, tabs: [] });
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'other react tab' }); await flush();
+      assert.strictEqual(cx.sent.pop(), 'other react tab', 'another react webview jay does not track leaves the context unchanged');
+      // a jay Confluence page in front is the active file too, named by jay
+      const PAGE = '/home/u/.jay/pages/DEMO/1001.confluence';
+      m.ui.answers = { 'jay.activePageFile': () => PAGE };
+      m.ui.group = () => ({ viewColumn: 1, activeTab: { label: 'Demo plan', input: { viewType: 'mainThreadWebview-jay.page' } }, tabs: [] });
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'what is this page?' }); await flush();
+      assert.strictEqual(cx.sent.pop(), 'what is this page?\n\n<ide_context>\nActive file: ' + PAGE + ' (Confluence page)\n</ide_context>', 'a jay Confluence page in front is the active file');
+      m.ui.answers = { 'jay.activePageFile': () => null };
+      await tabsChanged();
+      v2.fire({ type: 'send', sid: x, text: 'page closed' }); await flush();
+      assert.strictEqual(cx.sent.pop(), 'page closed', 'a page jay no longer shows leaves the context unchanged');
+      m.ui.answers = undefined; m.ui.group = undefined; m.ui.visible = undefined;
+    }
+
+    // the context is read when the message is written, not when a queued message finally starts
+    m.ui.editor = editor(path.join(process.cwd(), 'one.js'), 'javascript', 'ONE', sel(0, 0, 0, 3));
+    v2.fire({ type: 'send', sid: x, text: 'hold it' });
+    v2.fire({ type: 'send', sid: x, text: 'queued about one' });
+    m.ui.editor = editor(path.join(process.cwd(), 'two.js'), 'javascript', 'TWO', sel(0, 0, 0, 3));
+    { const { qid, ...u } = v2.events(x).filter((e) => e.kind === 'user').pop(); assert.deepStrictEqual([typeof qid, u], ['string', { kind: 'user', text: 'queued about one', queued: true, tag: 'one.js:1' }], 'a queued message has an id the page can name to take it back'); }
+    cx.finish(); await flush(); await flush();
+    assert(/queued about one\n\n<ide_context>\nActive file: one\.js/.test(cx.sent.pop()) , 'the queued message carries the file that was open when it was written');
+    assert.strictEqual(v2.events(x).filter((e) => e.kind === 'user' && e.text === 'queued about one').length, 1);
+
+    // the choice is saved with the tab
+    const saved2 = install(m.memento._dump()); const v3 = fakeView(); saved2.registered['perch.main'].resolveWebviewView(v3.view); v3.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v3.lastTabs().tabs.map((t) => t.ide), [true, false, true], 'IDE context survives a reload');
+    // a Claude tab attaches the same, and its transcript shows the message and the tag
+    m.ui.editor = editor(path.join(process.cwd(), 'src', 'a.js'), 'javascript', 'const a = 1;\n', sel(0, 0, 1, 0));
+    v2.fire({ type: 'send', sid: c, text: 'what is a?' }); await flush();
+    const cl = created.filter((a) => a.claude).pop();
+    assert(/^what is a\?\n\n<ide_context>\nActive file: src\/a\.js \(javascript\)\nSelection: lines 1-1\n/.test(cl.sent.pop()), 'Claude gets the file and the selection');
+    assert.deepStrictEqual(v2.events(c).filter((e) => e.kind === 'user').pop(), { kind: 'user', text: 'what is a?', queued: false, tag: 'a.js:1' });
+    // new tabs follow the setting
+    const on = install(undefined, { config: { ideContext: true } }); await flush();
+    const von = fakeView(); on.registered['perch.main'].resolveWebviewView(von.view); von.fire({ type: 'ready' }); await flush();
+    von.fire({ type: 'new', kind: 'claude' }); von.fire({ type: 'new', kind: 'codex' });
+    assert.deepStrictEqual(von.lastTabs().tabs.map((t) => t.ide), [true, true], 'on by default, for both');
+    on.perch.dispose();
+    m.ui.editor = undefined;
+
+    // closing a tab with a queue disposes it cleanly
+    v2.fire({ type: 'send', sid: x, text: 'hold' }); v2.fire({ type: 'send', sid: x, text: 'q' });
+    v2.fire({ type: 'close', sid: x }); cx.finish(); await flush();
+    assert.deepStrictEqual([cx.disposed, cx.sent.includes('q')], [true, false]);
+  }
+
+  // ======================================================================== sessions as editor tabs
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const gpt = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-ext-')); fs.mkdirSync(path.join(gpt, 'resources'));
+    for (const f of ['blossom-white.svg', 'blossom-black.svg']) fs.writeFileSync(path.join(gpt, 'resources', f), '<svg/>');
+    const extensions = {
+      'anthropic.claude-code': { icon: 'resources/claude-logo.png', contributes: { viewsContainers: { activitybar: [{ id: 'c', icon: 'resources/claude-logo.svg' }] } } },
+      'openai.chatgpt': { __root: gpt, icon: 'resources/blossom.dark.png', contributes: { viewsContainers: { activitybar: [{ id: 'x', icon: 'resources/blossom-white.svg' }] } } },
+    };
+    const m = install(undefined, { config: { newTabs: 'editor' }, extensions }); await flush();
+    const side = fakeView(); m.registered['perch.main'].resolveWebviewView(side.view); side.fire({ type: 'ready' }); await flush();
+    assert(m.ui.serializers['perch.session'], 'VS Code is told how to bring editor tabs back');
+    assert.strictEqual(m.ui.panels.length, 0, 'nothing opens by itself');
+
+    // a new tab is a native editor tab, beside the editor, with the vendor's icon
+    await m.commands['perch.newClaude']();
+    const p1 = m.ui.panels[0], c = m.perch.sessions[0].id;
+    assert.deepStrictEqual([p1.viewType, p1.title, p1.viewColumn, p1.active, p1.options.retainContextWhenHidden, p1.options.enableScripts], ['perch.session', 'Claude 1', 2, true, true, true]);
+    assert.strictEqual(p1.iconPath.path, '/ext/anthropic.claude-code/resources/claude-logo.svg', 'Claude\'s glyph carries its own colour');
+    assert.deepStrictEqual(p1.webview.options.localResourceRoots.map((u) => u.path), ['/ext/fennets.perch', '/ext/anthropic.claude-code', gpt]);
+    assert.deepStrictEqual(side.lastTabs().tabs, [], 'it is not a tab of the sidebar view');
+    assert.deepStrictEqual(m.memento._dump()['perch.sessions.v1'].sessions.map((x) => [x.location, x.paneled]), [['editor', true]]);
+
+    // its page shows that one session, with no tab bar of its own
+    assert.strictEqual(p1.got.length, 0, 'nothing is sent to a page that has not said it is ready');
+    p1.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual([p1.lastTabs().single, p1.lastTabs().active, p1.lastTabs().tabs.map((t) => t.id)], [true, c, [c]]);
+    assert.strictEqual(p1.lastMeter().vendor, 'Claude'); assert.strictEqual(p1.commands('claude').length, 1, 'meter and slash commands reach every page');
+    assert.deepStrictEqual(p1.events(c).map((e) => e.kind), ['clear', 'busy', 'status']);
+
+    // messages go to the page that shows the session, and nowhere else
+    const n0 = side.got.filter((x) => x.type === 'event').length;
+    p1.fire({ type: 'send', sid: c, text: 'hold the line please' });
+    assert(p1.events(c).some((e) => e.kind === 'user' && e.text === 'hold the line please'));
+    assert.strictEqual(side.got.filter((x) => x.type === 'event').length, n0, 'the sidebar page hears nothing of it');
+    assert.strictEqual(p1.title, 'hold the line please …', 'the native tab is titled from the first message, and shows that the agent is working');
+    const a1 = created[created.length - 1]; a1.finish(); await flush();
+    assert.strictEqual(p1.title, 'hold the line please');
+
+    // a second tab opens beside the first; ChatGPT's icon has a light and a dark version
+    await m.commands['perch.newCodex']();
+    const p2 = m.ui.panels[1], x = m.perch.sessions[1].id;
+    assert.deepStrictEqual([p2.title, p2.viewColumn], ['Codex 1', 2], 'in the column the Perch tabs already use');
+    assert.deepStrictEqual([p2.iconPath.light.path, p2.iconPath.dark.path], [gpt + '/resources/blossom-black.svg', gpt + '/resources/blossom-white.svg']);
+    p2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(p2.lastTabs().tabs.map((t) => t.id), [x]); assert.deepStrictEqual(p1.lastTabs().tabs.map((t) => t.id), [c], 'each page has its own session only');
+    p2.fire({ type: 'send', sid: x, text: 'hi codex' }); await flush();
+    assert(!p1.events().some((e) => e.text === 'hi codex'));
+
+    // the + in the editor title asks which kind
+    m.picks.push((i) => i.kind === 'codex'); await m.commands['perch.new']();
+    assert.deepStrictEqual([m.ui.panels.length, m.ui.panels[2].title], [3, 'Codex 2']);
+    await m.commands['perch.new'](); assert.strictEqual(m.ui.panels.length, 3, 'dismissing the question opens nothing');
+    const p3 = m.ui.panels[2], x2 = m.perch.sessions[2].id; p3.fire({ type: 'ready' });
+
+    // commands act on the editor tab that has the focus
+    p1.show(true, true);
+    p1.fire({ type: 'send', sid: c, text: 'hold again' });
+    m.commands['perch.stop'](); assert.strictEqual(a1.interrupted, 1, 'stop reaches the focused tab');
+    await flush();
+    p2.show(true, true); m.picks.push((i) => i.sid === c); await m.commands['perch.handoff']();
+    assert.deepStrictEqual(p1.events(c).filter((e) => e.kind === 'fill').pop(), { kind: 'fill', text: 'answer to hi codex' }, 'handoff from the focused tab into the chosen one');
+    assert.strictEqual(p1.reveals, 1, 'which is brought to the front');
+    p2.show(true, true); m.picks.push((i) => i.kind === 'claude'); await m.commands['perch.handoff']();
+    const p4 = m.ui.panels[3], c2 = m.perch.sessions[3].id;
+    assert.strictEqual(p4.events().length, 0); p4.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(p4.events(c2).filter((e) => e.kind === 'fill'), [{ kind: 'fill', text: 'answer to hi codex' }], 'a handoff into a new tab waits for its page');
+    p4.fire({ type: 'ready' }); await flush();
+    assert.strictEqual(p4.events(c2).filter((e) => e.kind === 'fill').length, 1, 'and is not repeated if the page reloads');
+
+    // a prompt in a tab that is not showing marks the native tab
+    p1.show(false, false);
+    const s1 = m.perch.get(c); const ans = new Promise((res) => s1.pending.set('p1', res)); s1.post({ kind: 'permission', id: 'p1', tool: 'Write', input: {} });
+    assert.strictEqual(p1.title, '● hold the line please', 'marked while hidden');
+    p1.show(true, true);
+    assert.strictEqual(p1.title, '● hold the line please', 'still marked while the prompt is unanswered');
+    p1.fire({ type: 'permission', sid: c, id: 'p1', decision: 'deny' }); assert.deepStrictEqual(await ans, { decision: 'deny' });
+    assert.strictEqual(p1.title, 'hold the line please');
+    const ans2 = new Promise((res) => s1.pending.set('p2', res)); s1.post({ kind: 'permission', id: 'p2', tool: 'Write', input: {} });
+    assert.strictEqual(p1.title, 'hold the line please', 'a prompt in a tab that is showing needs no mark');
+    p1.fire({ type: 'permission', sid: c, id: 'p2', decision: 'allow' }); await ans2;
+
+    // closing the editor tab closes the session
+    const ax2 = created.find((a) => a.o.emit && a.sent.includes('hi codex'));
+    p2.dispose(); await flush();
+    assert.deepStrictEqual([!!m.perch.get(x), ax2.disposed, m.memento._dump()['perch.sessions.v1'].sessions.map((t) => t.id).includes(x)], [false, true, false], 'the agent is stopped and the tab forgotten');
+    // and closing the session closes the editor tab
+    p3.show(true, true); m.commands['perch.closeTab']();
+    assert.deepStrictEqual([p3.disposed, !!m.perch.get(x2)], [true, false]);
+
+    // ---- moving between the editor area and the sidebar keeps the session, its agent, and its transcript
+    p1.show(true, true); m.commands['perch.moveToSidebar']();
+    assert.deepStrictEqual([p1.disposed, !!m.perch.get(c), a1.disposed], [true, true, false], 'the editor tab goes, the session stays');
+    assert.deepStrictEqual([side.lastTabs().tabs.map((t) => t.id), side.lastTabs().active], [[c], c]);
+    assert(side.events(c).some((e) => e.kind === 'user' && e.text === 'hold the line please'), 'the transcript is replayed in the sidebar');
+    side.fire({ type: 'send', sid: c, text: 'still here' }); assert.strictEqual(a1.sent.pop(), 'still here', 'the same agent');
+    m.perch.activeId = c; p4.show(true, false); m.commands['perch.moveToEditor']();
+    const p5 = m.ui.panels[m.ui.panels.length - 1];
+    assert.deepStrictEqual([side.lastTabs().tabs, p5.title, m.perch.get(c).location], [[], 'hold the line please', 'editor']);
+    p5.fire({ type: 'ready' }); await flush();
+    assert(p5.events(c).some((e) => e.kind === 'user' && e.text === 'still here'));
+    m.commands['perch.moveAllToSidebar'](); assert.deepStrictEqual([side.lastTabs().tabs.length, m.ui.panels.filter((p) => !p.disposed).length, m.perch.sessions.length], [2, 0, 2]);
+    m.commands['perch.moveAllToEditor'](); assert.deepStrictEqual([side.lastTabs().tabs.length, m.ui.panels.filter((p) => !p.disposed).length], [0, 2]);
+    for (const p of m.ui.panels.filter((q) => !q.disposed)) p.fire({ type: 'ready' });
+
+    // the setting decides where new tabs go; the sidebar's own buttons follow it
+    side.fire({ type: 'new', kind: 'claude' }); assert.strictEqual(m.ui.panels.filter((p) => !p.disposed).length, 3, 'with newTabs editor, the sidebar\'s button opens an editor tab');
+    m.changeConfig({ newTabs: 'sidebar' }); side.fire({ type: 'new', kind: 'codex' });
+    assert.deepStrictEqual([m.ui.panels.filter((p) => !p.disposed).length, side.lastTabs().tabs.map((t) => t.kind)], [3, ['codex']]);
+
+    // ---- window reload: VS Code brings the editor tabs back, and each page says which session it showed
+    const saved = m.memento._dump(); const ids = saved['perch.sessions.v1'].sessions.filter((t) => t.location === 'editor').map((t) => t.id);
+    m.perch.dispose();
+    assert(m.perch.sessions.length > 0 && m.memento._dump()['perch.sessions.v1'].sessions.length === 4, 'shutting down does not close the sessions');
+    const r = install(saved, { config: { newTabs: 'editor' }, extensions });
+    assert.strictEqual(r.ui.panels.length, 0, 'tabs that VS Code will restore are not opened a second time');
+    const q1 = r.restorePanel(ids[0]);
+    assert.deepStrictEqual([q1.disposed, q1.title, !!q1.iconPath], [false, 'hold the line please', true], 'a restored tab gets its title and icon back');
+    q1.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual([q1.lastTabs().tabs[0].id, q1.lastTabs().single], [ids[0], true]);
+    assert(q1.events(ids[0]).some((e) => e.kind === 'note' && /resumed claude session/.test(e.text)));
+    assert.deepStrictEqual([r.restorePanel(ids[0]).disposed, r.restorePanel('gone').disposed, r.restorePanel(undefined).disposed, r.restorePanel(saved['perch.sessions.v1'].sessions.find((t) => t.location === 'sidebar').id).disposed], [true, true, true, true], 'a second tab for the same session, a tab for a session that no longer exists, a tab with no memory, and a tab for a session that lives in the sidebar are all closed');
+    assert.strictEqual(r.perch.sessions.length, 4, 'closing those stray tabs closes no session');
+    const before = r.ui.panels.filter((p) => !p.disposed).length;
+    await wait(120);
+    const late = r.ui.panels.filter((p) => !p.disposed);
+    assert.deepStrictEqual([late.length - before, late.slice(before).map((p) => p.active)], [2, [false, false]], 'tabs VS Code did not bring back are opened after a short wait, without taking the focus');
+    r.perch.dispose();
+
+    // ---- tabs saved before editor tabs existed follow the setting
+    const legacy = { 'perch.sessions.v1': { active: 'L1', counters: { claude: 1, codex: 1 }, sessions: [{ id: 'L1', kind: 'claude', title: 'hello', titled: true, mode: 'default', effort: '', model: '', resume: 'aa0af10b' }, { id: 'L2', kind: 'codex', title: 'hello', titled: true, mode: 'workspace-write', effort: '', model: '', ide: false, resume: '01a0ee91' }] } };
+    const g = install(legacy, { config: { newTabs: 'editor' }, extensions });
+    assert.deepStrictEqual(g.ui.panels.map((p) => [p.title, p.active]), [['hello', false], ['hello', false]], 'with newTabs editor they become editor tabs at once');
+    g.ui.panels[1].fire({ type: 'ready' }); await flush();
+    g.ui.panels[1].fire({ type: 'send', sid: 'L2', text: 'continue' }); await flush();
+    assert.strictEqual(created[created.length - 1].o.resume, '01a0ee91', 'still the same conversation');
+    await wait(120); assert.strictEqual(g.ui.panels.length, 2, 'and are not opened twice');
+    g.perch.dispose();
+    const k = install(legacy); const sk = fakeView(); k.registered['perch.main'].resolveWebviewView(sk.view); sk.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual([k.ui.panels.length, sk.lastTabs().tabs.map((t) => t.id), sk.lastTabs().active], [0, ['L1', 'L2'], 'L1'], 'with newTabs sidebar they stay where they were');
+    k.perch.dispose();
+    fs.rmSync(gpt, { recursive: true, force: true });
+  }
+
+  // ======================================================================== dictation
+  {
+    const voiceOf = (v, sid) => v.events(sid).filter((e) => e.kind === 'voice');
+    const last = (list) => list[list.length - 1];
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+
+    // speak, stop, and the words arrive in the message box
+    v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    assert.deepStrictEqual(voiceOf(v, c).map((e) => e.phase), ['starting', 'recording']);
+    assert.deepStrictEqual([last(voiceOf(v, c)).device, last(voiceOf(v, c)).maxSeconds], ['Headset Microphone', 180]);
+    assert.deepStrictEqual(m.abox.calls.map((k) => k[0]), ['available', 'start'], 'the recorder on the user\'s machine is asked, and started');
+    assert.deepStrictEqual([m.vbox.starts, m.ui.warnings.length, m.ui.infos.length], [1, 0, 0], 'the model loads while the user is speaking; nothing is asked when it is already set up');
+    await wait(300);
+    const ticks = voiceOf(v, c).filter((e) => e.phase === 'recording' && e.seconds === 1.2);
+    assert(ticks.length >= 1 && ticks[0].level === 0.4 && ticks[0].silent === false, 'the level reaches the page while recording');
+    assert.strictEqual(voiceOf(v, x).length, 0, 'only on the tab that is dictating');
+    v.fire({ type: 'voiceStop', sid: c }); await flush(); await flush();
+    assert.deepStrictEqual(voiceOf(v, c).slice(-2).map((e) => e.phase), ['transcribing', 'idle']);
+    assert.deepStrictEqual(last(m.abox.calls), ['stop', 'rec-1']);
+    assert.deepStrictEqual([m.vbox.requests.length, m.vbox.requests[0].sampleRate, m.vbox.requests[0].pcm.length, m.vbox.requests[0].language, m.vbox.requests[0].prompt], [1, 16000, m.abox.stop.pcm.length, null, null]);
+    assert.deepStrictEqual(last(v.events(c).filter((e) => e.kind === 'insert')), { kind: 'insert', text: 'hello world ' }, 'at the cursor, with a space after, ready for more');
+    const n = m.abox.calls.length; await wait(200); assert.strictEqual(m.abox.calls.length, n, 'nothing is asked of the recorder once it has stopped');
+
+    // settings reach the engine
+    m.changeConfig({ 'voice.language': 'ko', 'voice.vocabulary': 'Perch, Whisper' });
+    m.vbox.text = '  안녕하세요  '; v.fire({ type: 'voiceStart', sid: x }); await flush(); await flush(); v.fire({ type: 'voiceStop', sid: x }); await flush(); await flush();
+    assert.deepStrictEqual([last(m.vbox.requests).language, last(m.vbox.requests).prompt, last(v.events(x).filter((e) => e.kind === 'insert')).text], ['ko', 'Perch, Whisper', '안녕하세요 ']);
+    const e0 = engines.length; m.changeConfig({ 'voice.model': 'small', 'voice.device': 'cpu', 'voice.idleMinutes': 0 });
+    v.fire({ type: 'voiceStart', sid: x }); await flush(); await flush(); v.fire({ type: 'voiceStop', sid: x }); await flush(); await flush();
+    assert.deepStrictEqual([engines.length, last(engines).o.model, last(engines).o.device, last(engines).o.idleMs, m.vbox.stops], [e0 + 1, 'small', 'cpu', 0, 1], 'a change of model replaces the engine, and the old one is stopped');
+    m.vbox.text = 'hello world';
+
+    // pressing the microphone again finishes; escape discards
+    v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    assert.deepStrictEqual([last(voiceOf(v, c)).phase, last(m.abox.calls)[0]], ['idle', 'stop'], 'the button that starts it also finishes it');
+    const r0 = m.vbox.requests.length;
+    v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush(); v.fire({ type: 'voiceCancel' }); await flush();
+    assert.deepStrictEqual([last(voiceOf(v, c)).phase, last(m.abox.calls), m.vbox.requests.length], ['idle', ['cancel', 'rec-1'], r0], 'discarded: the recorder lets go, and nothing is transcribed');
+    v.fire({ type: 'voiceCancel' }); v.fire({ type: 'voiceStop', sid: c }); await flush(); assert.strictEqual(m.vbox.requests.length, r0, 'with nothing recording, these do nothing');
+
+    // one dictation at a time; a tab that closes takes its dictation with it
+    v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    v.fire({ type: 'voiceStart', sid: x }); await flush();
+    assert.strictEqual(last(v.events(x).filter((e) => e.kind === 'error')).text, 'Voice input: another tab is dictating.');
+    v.fire({ type: 'voiceStop', sid: x }); await flush(); assert.strictEqual(last(voiceOf(v, c)).phase, 'recording', 'another tab cannot finish it');
+    // a page rebuilt mid-dictation is told at once
+    const v2 = fakeView(); m.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(voiceOf(v2, c).slice(0, 1).map((e) => [e.phase, e.device]), [['recording', 'Headset Microphone']]);
+    v2.fire({ type: 'close', sid: c }); await flush();
+    assert.deepStrictEqual([last(m.abox.calls), m.vbox.requests.length], [['cancel', 'rec-1'], r0]);
+    v2.fire({ type: 'voiceStart', sid: x }); await flush(); await flush(); assert.strictEqual(last(voiceOf(v2, x)).phase, 'recording', 'and the microphone is free for another tab');
+
+    // the recording ends by itself at the limit, and is transcribed
+    m.abox.levels.push({ ok: true, level: 0.2, seconds: 180, ended: 'max', silent: false }); m.abox.stop = Object.assign({}, m.abox.stop, { ended: 'max' });
+    await wait(300); await flush();
+    assert.strictEqual(last(voiceOf(v2, x)).phase, 'idle'); assert.strictEqual(last(v2.events(x).filter((e) => e.kind === 'insert')).text, 'hello world ');
+    assert.strictEqual(last(v2.events(x).filter((e) => e.kind === 'note')).text, 'Dictation stopped at the 180 second limit. Set perchAudio.maxSeconds to change it.');
+    m.abox.stop = Object.assign({}, m.abox.stop, { ended: null });
+
+    // nothing heard, nothing said, too short
+    const errs = () => v2.events(x).filter((e) => e.kind === 'error').map((e) => e.text);
+    const once = async (patch, vpatch) => { const keep = m.abox.stop, keepText = m.vbox.text, keepFail = m.vbox.failTranscribe; m.abox.stop = Object.assign({}, keep, patch); Object.assign(m.vbox, vpatch); const i0 = v2.events(x).filter((e) => e.kind === 'insert').length; v2.fire({ type: 'voiceStart', sid: x }); await flush(); await flush(); v2.fire({ type: 'voiceStop', sid: x }); await flush(); await flush(); m.abox.stop = keep; m.vbox.text = keepText; m.vbox.failTranscribe = keepFail; return v2.events(x).filter((e) => e.kind === 'insert').length - i0; };
+    assert.strictEqual(await once({ silent: true }), 0);
+    assert.strictEqual(last(errs()), 'Voice input: nothing was heard from "Headset Microphone". It may be muted, or the wrong input. Choose another with Perch Audio: Choose Microphone.');
+    const r1 = m.vbox.requests.length; assert.strictEqual(await once({ seconds: 0.1 }), 0); assert.strictEqual(m.vbox.requests.length, r1, 'a slip of the finger is not sent to the model');
+    assert.strictEqual(await once({}, { text: '   ' }), 0); assert.strictEqual(last(v2.events(x).filter((e) => e.kind === 'note')).text, 'Voice input heard no words.');
+    assert.strictEqual(await once({}, { failTranscribe: 'CUDA out of memory' }), 0); assert.strictEqual(last(errs()), 'Voice input: CUDA out of memory');
+    assert.strictEqual(await once({ ok: false, error: 'No such recording.', code: 'unknown' }), 0); assert.strictEqual(last(errs()), 'Voice input: No such recording.');
+    assert.strictEqual(last(voiceOf(v2, x)).phase, 'idle', 'every failure leaves the microphone ready to try again');
+    assert.strictEqual(await once({}), 1);
+
+    // the recorder is lost mid-recording
+    v2.fire({ type: 'voiceStart', sid: x }); await flush(); await flush();
+    m.abox.levels.push({ ok: false, error: 'No such recording.', code: 'unknown' }); await wait(300);
+    assert.deepStrictEqual([last(voiceOf(v2, x)).phase, last(errs())], ['idle', 'Voice input: the recording was lost: No such recording.']);
+
+    // words for a page that is not there wait for it
+    m.perch.deliver(x, 'first'); assert.strictEqual(last(v2.events(x).filter((e) => e.kind === 'insert')).text, 'first');
+    v2.destroy(); m.perch.deliver(x, 'while away'); m.perch.deliver(x, 'and more');
+    const v3 = fakeView(); m.registered['perch.main'].resolveWebviewView(v3.view); v3.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v3.events(x).filter((e) => e.kind === 'fill').map((e) => e.text), ['while away and more']);
+    m.perch.dispose();
+  }
+  {
+    // perch.insertText: another extension puts a prompt in the active tab's box; nothing is sent
+    const m = install(); await flush();
+    assert.strictEqual(m.commands['perch.insertText']('x'), false, 'no tab: nothing to insert into');
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    assert.strictEqual(m.commands['perch.insertText']('x'), false, 'still no tab');
+    const n = created.length; v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active; await flush();
+    assert.strictEqual(m.commands['perch.insertText'](''), false, 'empty text is refused');
+    assert.strictEqual(m.commands['perch.insertText']('Fix the failing check'), true);
+    assert.strictEqual(v.events(x).filter((e) => e.kind === 'append').pop().text, 'Fix the failing check', 'the page gets an append: at the end of the box, replacing nothing, left for the user to send');
+    assert(!v.events(x).some((e) => e.kind === 'insert'), 'not an insert at the caret');
+    assert(created.slice(n).every((a) => !a.sent.length), 'nothing reaches an agent');
+    v.destroy();   // the page is gone: the text waits as the tab's prefill, spaced after what is already there
+    assert.strictEqual(m.commands['perch.insertText']('one'), true); assert.strictEqual(m.commands['perch.insertText']('two'), true);
+    const v2 = fakeView(); m.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v2.events(x).filter((e) => e.kind === 'fill').map((e) => e.text), ['one two']);
+    m.perch.dispose();
+  }
+  {
+    // perch.notePrMerged: kestrel merged a PR; the Claude Code session that made it is told, from records in a throwaway
+    // Claude folder. Open in a tab: a note, and a sentence that goes with the next message. Not open: one headless run.
+    const fs = require('fs'), os = require('os'), path = require('path'), { EventEmitter } = require('events');
+    const claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-pr-')), work = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-pr-work-'));
+    const PR = (n) => `https://github.com/seanahn/kestrel/pull/${n}`;
+    const made = (id, n, cwd = work) => { const d = path.join(claudeDir, 'projects', '-w'); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, id + '.jsonl'), [
+      { type: 'assistant', timestamp: '2026-11-19T10:00:00Z', cwd, message: { content: [{ type: 'tool_use', id: 'tu-' + n, name: 'Bash', input: { command: 'gh pr create --fill' } }] } },
+      { type: 'user', timestamp: '2026-11-19T10:00:05Z', cwd, message: { content: [{ type: 'tool_result', tool_use_id: 'tu-' + n, content: PR(n) + '\n' }] } }].map((e) => JSON.stringify(e)).join('\n') + '\n'); };
+    made('sess-tab', 11); made('sess-old-period', 14); made('sess-bg', 21); made('sess-bg2', 22); made('sess-fail', 23); made('sess-slow', 24); made('sess-gone', 25, path.join(work, 'deleted'));
+    // the second PR made in the open tab's session, appended to its record
+    fs.appendFileSync(path.join(claudeDir, 'projects', '-w', 'sess-tab.jsonl'), JSON.stringify({ type: 'user', timestamp: '2026-11-19T11:00:05Z', cwd: work, message: { content: [{ type: 'tool_result', tool_use_id: 'tu-11', content: PR(12) }] } }) + '\n');
+    const hhmm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+    const saved = { active: 'tab-other', counters: { claude: 2, codex: 1 }, sessions: [
+      { id: 'tab-pr', kind: 'claude', title: 'PR work', titled: true, resume: 'sess-tab', location: 'sidebar' },
+      { id: 'tab-other', kind: 'claude', title: 'Other', titled: true, location: 'sidebar' },
+      // a tab that has moved on to Codex: its Claude stretch was session sess-old-period
+      { id: 'tab-switched', kind: 'codex', title: 'Moved on', titled: true, resume: 'thread-1', location: 'sidebar', periods: [{ kind: 'claude', resume: 'sess-old-period', said: true }, { kind: 'codex', resume: 'thread-1', said: true }] },
+    ] };
+    const m = install({ 'perch.sessions.v1': saved }, { meter: { claudeDir }, config: { 'claude.executable': '/opt/claude' }, past: { sessions: [{ kind: 'claude', id: 'sess-bg', title: 'Ship the panel' }] } }); await flush();
+    const spawns = [];
+    m.perch.spawnClaude = (exe, args, o) => { const c = new EventEmitter(); c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kills = []; c.kill = (sig) => { c.kills.push(sig); setImmediate(() => c.emit('close', null, sig)); }; spawns.push({ exe, args, o, c }); return c; };
+    const v = fakeView(); let shows = 0; v.view.show = () => { shows++; }; m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    assert.strictEqual(v.lastTabs().active, 'tab-other');
+    const n0 = created.length, notes = () => v.events('tab-pr').filter((e) => e.kind === 'note').map((e) => e.text);
+
+    // not a PR's URL, or a PR no session mentions: nothing
+    for (const bad of [undefined, 'https://github.com/seanahn/kestrel/pull/11/files', 'https://example.com/pull/11']) assert.deepStrictEqual(await m.commands['perch.notePrMerged'](bad), { result: 'none' });
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(99)), { result: 'none' });
+
+    // open in a tab, idle: the note is posted and kept; the tab is not activated or shown; no agent starts, nothing is sent
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(11)), { result: 'tab', sessionId: 'sess-tab' });
+    assert.strictEqual(notes().pop(), `seanahn/kestrel#11 was merged (${hhmm()})`);
+    assert.strictEqual(m.perch.get('tab-pr').history.filter((h) => h.kind === 'note').pop().text, `seanahn/kestrel#11 was merged (${hhmm()})`, 'in the history, so a rebuilt page shows it');
+    assert.deepStrictEqual([v.lastTabs().active, shows, created.length, spawns.length], ['tab-other', 0, n0, 0], 'not activated, not shown, nothing started or run');
+    // a second one joins the first, and both survive a window reload
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(12)), { result: 'tab', sessionId: 'sess-tab' });
+    const want = [`For the record: PR seanahn/kestrel#11 (${PR(11)}) was merged at ${hhmm()}.`, `For the record: PR seanahn/kestrel#12 (${PR(12)}) was merged at ${hhmm()}.`];
+    assert.deepStrictEqual(m.memento._dump()['perch.sessions.v1'].sessions.find((s) => s.id === 'tab-pr').records, want);
+    {
+      const r = install(m.memento._dump(), { meter: { claudeDir } }); await flush();
+      assert.deepStrictEqual(r.perch.get('tab-pr').records, want, 'kept across a reload'); r.perch.dispose();
+    }
+
+    // the user's next message in that tab carries them, ahead of it; the transcript shows the message as typed
+    v.fire({ type: 'send', sid: 'tab-pr', text: 'hold on, what next?' });
+    const a = created[created.length - 1];
+    assert.strictEqual(a.sent[0], want.join(' ') + '\n\nhold on, what next?');
+    assert.strictEqual(v.events('tab-pr').filter((e) => e.kind === 'user').pop().text, 'hold on, what next?');
+    // the same merge told again (another window saw it too): claimed already, so it stands aside
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(11)), { result: 'duplicate', sessionId: 'sess-tab' });
+    assert.ok(fs.readdirSync(path.join(claudeDir, 'perch-noted-merges')).length >= 2, 'one claim per merge, next to the projects folder');
+    fs.rmSync(path.join(claudeDir, 'perch-noted-merges'), { recursive: true, force: true });   // forget the claims, to note #11 again below
+    // busy: a merge noted now waits for the message after, and is not sent mid-turn; a message queued meanwhile does not carry the ones on their way
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(11)), { result: 'tab', sessionId: 'sess-tab' });
+    assert.deepStrictEqual([a.sent.length, a.interrupted, v.lastTabs().active, shows], [1, 0, 'tab-other', 0], 'nothing sent, nothing interrupted, the tab left alone');
+    a.emit({ kind: 'result', ok: true }); a.finish();   // the turn ends: what it carried is let go, the newer one stays
+    assert.deepStrictEqual(m.perch.get('tab-pr').records, [want[0]]);
+    v.fire({ type: 'send', sid: 'tab-pr', text: 'and now?' });
+    assert.strictEqual(a.sent[1], want[0] + '\n\nand now?');
+    a.emit({ kind: 'result', ok: true });
+    assert.deepStrictEqual(m.memento._dump()['perch.sessions.v1'].sessions.find((s) => s.id === 'tab-pr').records, [], 'cleared once sent');
+    v.fire({ type: 'send', sid: 'tab-pr', text: 'plain' }); assert.strictEqual(a.sent[2], 'plain', 'and not sent again');
+
+    // a tab that has since moved to Codex still holds that Claude session among its periods: it is the one noted
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(14)), { result: 'tab', sessionId: 'sess-old-period' });
+    assert.strictEqual(v.events('tab-switched').filter((e) => e.kind === 'note').pop().text, `seanahn/kestrel#14 was merged (${hhmm()})`);
+
+    // not open: Claude Code runs once, headless, in the session's folder, with the window's environment
+    const delays = [], realSetTimeout = global.setTimeout;
+    global.setTimeout = (f, ms, ...r) => { delays.push(ms); return realSetTimeout(f, ms, ...r); };
+    const p1 = m.commands['perch.notePrMerged'](PR(21));
+    const p1again = m.commands['perch.notePrMerged'](PR(21));   // the same URL again while it runs: the same run
+    const p2 = m.commands['perch.notePrMerged'](PR(22));        // another: waits its turn
+    for (let i = 0; i < 400 && !spawns.length; i++) await wait(5);
+    global.setTimeout = realSetTimeout;
+    assert.strictEqual(spawns.length, 1, 'one run at a time');
+    const s1 = spawns[0];
+    assert.strictEqual(s1.exe, '/opt/claude', 'the program the Claude tabs run');
+    assert.deepStrictEqual(s1.args, ['-p', '--resume', 'sess-bg', '--model', 'haiku', '--max-turns', '1', '--tools', '', '--strict-mcp-config', '--settings', '{"disableAllHooks":true}', `For the record: PR seanahn/kestrel#21 (${PR(21)}) was merged at ${hhmm()} (via kestrel). Don't do anything about it now; reply only 'Noted.'`]);
+    assert.strictEqual(s1.o.cwd, work);
+    assert.strictEqual(s1.o.env.PATH, process.env.PATH, "a plain tab's environment");
+    assert(delays.includes(120000), 'stopped after 120 s');
+    s1.c.stdout.emit('data', 'Noted.\n'); s1.c.emit('close', 0, null);
+    assert.deepStrictEqual(await p1, { result: 'background', sessionId: 'sess-bg' });
+    assert.strictEqual(await p1again, await p1);
+    assert.deepStrictEqual(m.ui.statusMessages.pop(), ['Noted the merge of seanahn/kestrel#21 in "Ship the panel"', 4000]);
+    for (let i = 0; i < 400 && spawns.length < 2; i++) await wait(5);
+    assert.strictEqual(spawns.length, 2, 'then the next');
+    spawns[1].c.emit('close', 0, null);
+    assert.deepStrictEqual(await p2, { result: 'background', sessionId: 'sess-bg2' });
+    assert.deepStrictEqual(m.ui.statusMessages.pop(), ['Noted the merge of seanahn/kestrel#22 in "sess-bg2"', 4000], 'untitled: its id, cut to 8');
+
+    // failures are written to the output channel, with stderr's last lines; nothing is shown, nothing retried
+    const shown = () => m.ui.errors.length + m.ui.warnings.length + m.ui.infos.length + m.ui.statusMessages.length, shown0 = shown();
+    const pf = m.commands['perch.notePrMerged'](PR(23));
+    for (let i = 0; i < 400 && spawns.length < 3; i++) await wait(5);
+    spawns[2].c.stderr.emit('data', 'line 1\nError: No conversation found with session ID: sess-fail\n'); spawns[2].c.emit('close', 1, null);
+    assert.deepStrictEqual(await pf, { result: 'failed', sessionId: 'sess-fail' });
+    const tr = m.ui.traces.filter((l) => /notePrMerged seanahn\/kestrel#23/.test(l)).pop();
+    assert(/could not note it in session sess-fai: claude exited with code 1\nline 1\nError: No conversation found/.test(tr), tr);
+    // too long: stopped, and said so
+    process.env.PERCH_NOTE_TIMEOUT_MS = '30';
+    const ps = m.commands['perch.notePrMerged'](PR(24));
+    for (let i = 0; i < 400 && spawns.length < 4; i++) await wait(5);
+    assert.deepStrictEqual(await within(ps), { result: 'failed', sessionId: 'sess-slow' });
+    delete process.env.PERCH_NOTE_TIMEOUT_MS;
+    assert.deepStrictEqual(spawns[3].c.kills, ['SIGKILL']);
+    assert(m.ui.traces.some((l) => /kestrel#24: could not note it in session sess-slo: no answer in 30 ms; stopped/.test(l)));
+    // its folder gone: not run at all
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(25)), { result: 'failed', sessionId: 'sess-gone' });
+    assert.strictEqual(spawns.length, 4);
+    assert(m.ui.traces.some((l) => /kestrel#25: .*the session's folder .*deleted is gone/.test(l)));
+    assert.strictEqual(shown(), shown0, 'no message shown for any failure');
+    // a spawn that throws is a failure too, and a second ask afterwards is a new run, not a retry
+    m.perch.spawnClaude = () => { throw new Error('EACCES'); };
+    assert.deepStrictEqual(await m.commands['perch.notePrMerged'](PR(23)), { result: 'failed', sessionId: 'sess-fail' });
+    assert(m.ui.traces.some((l) => /claude could not start: EACCES/.test(l)));
+    m.perch.dispose();
+
+    // a machine that pins a gateway for every Claude Code: the run is taken off it, as a plain tab's process is, hooks still off
+    fs.rmSync(path.join(claudeDir, 'perch-noted-merges'), { recursive: true, force: true });   // a fresh machine: no claims yet
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'https://gw.example' }, apiKeyHelper: '/bin/gw-key' }));
+    const g = install(undefined, { meter: { claudeDir, settingsPath }, config: { 'claude.executable': '/opt/claude' } }); await flush();
+    const got = []; g.perch.spawnClaude = (exe, args, o) => { const c = new EventEmitter(); c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kill = () => {}; got.push(args); setImmediate(() => c.emit('close', 0, null)); return c; };
+    assert.deepStrictEqual(await g.commands['perch.notePrMerged'](PR(21)), { result: 'background', sessionId: 'sess-bg' });
+    const i = got[0].indexOf('--settings');
+    assert(i > 0 && got[0][got[0].length - 1].startsWith('For the record:'), 'the prompt stays last');
+    assert.deepStrictEqual(JSON.parse(got[0][i + 1]), Object.assign({ disableAllHooks: true }, require('../src/gateway').offGatewaySettings(false)), 'one --settings: no hooks, and off the gateway');
+    assert.strictEqual(got[0].filter((x) => x === '--settings').length, 1);
+    g.perch.dispose();
+  }
+  {
+    // perch.findPrSession and perch.openPrSession: kestrel asks which session made a PR, and opens it when its line is
+    // clicked. Records in a throwaway Claude folder; the window's folder is process.cwd(), the sessions ran elsewhere.
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-open-pr-')), work = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-open-pr-work-'));
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-open-pr-other-')), loose = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-open-pr-loose-'));
+    const projects = path.join(claudeDir, 'projects'), PR = (n) => `https://github.com/seanahn/kestrel/pull/${n}`;
+    const made = (id, n, cwd = work, dir = '-w') => { const d = path.join(projects, dir); fs.mkdirSync(d, { recursive: true }); const f = path.join(d, id + '.jsonl'); fs.writeFileSync(f, [
+      { type: 'assistant', timestamp: '2026-11-19T10:00:00Z', cwd, message: { content: [{ type: 'tool_use', id: 'tu-' + n, name: 'Bash', input: { command: 'gh pr create --fill' } }] } },
+      { type: 'user', timestamp: '2026-11-19T10:00:05Z', cwd, message: { content: [{ type: 'tool_result', tool_use_id: 'tu-' + n, content: PR(n) + '\n' }] } }].map((e) => JSON.stringify(e)).join('\n') + '\n'); return f; };
+    const openFile = made('sess-open', 31); made('sess-closed', 32); made('sess-searched', 33); made('sess-gone', 35, path.join(work, 'deleted'));
+    made('sess-origin', 0, other, '-other');   // mentions no PR of these: found only by its id, from the PR's own record
+    fs.renameSync(made('sess-loose', 0, other, '-tmp'), path.join(loose, 'sess-loose.jsonl'));   // a record outside the projects folder, named for its session
+    const saved = { active: 'tab-other', counters: { claude: 2, codex: 0 }, sessions: [
+      { id: 'tab-pr', kind: 'claude', title: 'PR work', titled: true, resume: 'sess-open', location: 'sidebar' },
+      { id: 'tab-other', kind: 'claude', title: 'Other', titled: true, location: 'sidebar' },
+    ] };
+    const m = install({ 'perch.sessions.v1': saved }, { meter: { claudeDir }, past: { sessions: [{ kind: 'claude', id: 'sess-closed', title: 'Ship the panel' }] } }); await flush();
+    const v = fakeView(); const shows = []; v.view.show = (p) => { shows.push(p); }; m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const tabs = () => m.perch.sessions.length;
+
+    // ---- findPrSession: the shape; a URL that is no PR's, or that no session made, is null
+    assert.deepStrictEqual(await m.commands['perch.findPrSession'](PR(31)), { session: 'sess-open', cwd: work, transcript: openFile, host: os.hostname(), created: true });
+    for (const bad of [undefined, 7, PR(31) + '/files']) assert.strictEqual(await m.commands['perch.findPrSession'](bad), null, String(bad));
+    // kept per URL: asked again, nothing is searched; the copy handed out is the caller's to change
+    const real = m.perch.prSearch.bind(m.perch); let searches = [];
+    m.perch.prSearch = (url) => { searches.push(url); return real(url); };
+    const first = await m.commands['perch.findPrSession'](PR(31)); first.session = 'changed';
+    assert.strictEqual((await m.commands['perch.findPrSession'](PR(31))).session, 'sess-open');
+    assert.deepStrictEqual(searches, [], 'answered from what was found before');
+    // none found: kept for 10 minutes, then looked for again
+    let now = Date.now(); m.perch.clock = () => now;
+    assert.strictEqual(await m.commands['perch.findPrSession'](PR(98)), null);
+    now += 9 * 60000; assert.strictEqual(await m.commands['perch.findPrSession'](PR(98)), null);
+    assert.deepStrictEqual(searches, [PR(98)], 'not looked for again within 10 minutes');
+    now += 60000; assert.strictEqual(await m.commands['perch.findPrSession'](PR(98)), null);
+    assert.deepStrictEqual(searches, [PR(98), PR(98)], 'looked for again after 10');
+    // a session found stays found, however long after
+    now += 24 * 3600000; await m.commands['perch.findPrSession'](PR(31)); assert.strictEqual(searches.length, 2);
+    // one search at a time, the others queued; the same URL asked while it is looked for waits for that search
+    {
+      const held = []; let running = 0, most = 0; searches = [];
+      m.perch.prSearch = (url) => { searches.push(url); running++; most = Math.max(most, running); return new Promise((resolve) => held.push(() => { running--; resolve(url === PR(42) ? { id: 'sess-q', cwd: work, file: '/x/sess-q.jsonl', created: false } : null); })); };
+      const asks = [PR(41), PR(42), PR(41), PR(43)].map((u) => m.commands['perch.findPrSession'](u));
+      for (let i = 0; i < 6; i++) { await flush(); if (held.length) held.shift()(); }
+      for (let i = 0; i < 6; i++) { await flush(); if (held.length) held.shift()(); }
+      const got = await Promise.all(asks);
+      assert.deepStrictEqual([most, searches], [1, [PR(41), PR(42), PR(43)]], 'one at a time, each URL once');
+      assert.deepStrictEqual(got.map((r) => r && r.session), [null, 'sess-q', null, null]);
+      assert.deepStrictEqual(got[1], { session: 'sess-q', cwd: work, transcript: '/x/sess-q.jsonl', host: os.hostname(), created: false });
+      // a search that fails is null, written to the output channel, never thrown
+      m.perch.prSearch = async () => { throw new Error('EMFILE'); };
+      assert.strictEqual(await m.commands['perch.findPrSession'](PR(44)), null);
+      assert(m.ui.traces.some((l) => /findPrSession seanahn\/kestrel#44: the search failed: EMFILE/.test(l)));
+      m.perch.prSearch = real;
+    }
+
+    // ---- openPrSession: open in a tab: that tab is shown and focused, and no tab is made
+    const n0 = tabs(), a0 = created.length;
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(31) }), 'tab');
+    assert.deepStrictEqual([v.lastTabs().active, shows.pop(), tabs(), created.length], ['tab-pr', false, n0, a0], 'shown with the focus; nothing made or started');
+
+    // not open: a new Claude tab resumes it, in the folder it ran in, focused; nothing is sent
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(32) }), 'resumed');
+    const s1 = m.perch.sessions[m.perch.sessions.length - 1];
+    assert.deepStrictEqual([s1.kind, s1.agentSessionId, s1.title, s1.dir, s1.workdir(), v.lastTabs().active, shows.pop(), tabs()], ['claude', 'sess-closed', 'Ship the panel', work, work, s1.id, false, n0 + 1]);
+    assert.strictEqual(created.length, a0, 'no agent started, nothing sent');
+    assert.deepStrictEqual(m.store.loads.filter((l) => l[1] === 'sess-closed').pop()[2].dir, work, 'its transcript is read from the folder it ran in');
+    assert.strictEqual(m.memento._dump()['perch.sessions.v1'].sessions.find((x) => x.id === s1.id).dir, work, 'saved with the tab');
+    v.fire({ type: 'send', sid: s1.id, text: 'where were we?' });
+    assert.deepStrictEqual([created[created.length - 1].o.cwd, created[created.length - 1].o.resume], [work, 'sess-closed'], "its process runs in the session's folder, on that session");
+    { const r = install(m.memento._dump(), { meter: { claudeDir } }); await flush(); assert.strictEqual(r.perch.get(s1.id).workdir(), work, 'and still after a reload'); r.perch.dispose(); }
+    // clicked again: now it is that tab
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(32) }), 'tab'); assert.strictEqual(tabs(), n0 + 1);
+
+    // spec.session, from the PR's own record, comes before the search: PR 31's search finds sess-open, the spec names another
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(31), session: 'sess-origin' }), 'resumed');
+    const s2 = m.perch.sessions[m.perch.sessions.length - 1];
+    assert.deepStrictEqual([s2.agentSessionId, s2.dir], ['sess-origin', other], 'the folder its record names');
+    // its cwd and transcript, when given: the file need not be under the projects folder
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(31), session: 'sess-loose', transcript: path.join(loose, 'sess-loose.jsonl'), cwd: work }), 'resumed');
+    assert.deepStrictEqual([m.perch.sessions[m.perch.sessions.length - 1].agentSessionId, m.perch.sessions[m.perch.sessions.length - 1].dir], ['sess-loose', work], "spec.cwd before the record's");
+    // a session not on this machine: the search decides
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(33), session: 'sess-elsewhere', transcript: '/nowhere/sess-elsewhere.jsonl', cwd: '/nowhere' }), 'resumed');
+    assert.deepStrictEqual([m.perch.sessions[m.perch.sessions.length - 1].agentSessionId, m.perch.sessions[m.perch.sessions.length - 1].dir], ['sess-searched', work]);
+    // the session's folder is the window's: the tab follows the window
+    made('sess-here', 36, process.cwd());
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(36) }), 'resumed');
+    assert.strictEqual(m.perch.sessions[m.perch.sessions.length - 1].dir, null);
+
+    // with fill (a reason link in kestrel): the prompt goes at the end of that chat's box, unsent
+    {
+      const a1 = created.length;
+      assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(31), fill: 'check the blocking review comments' }), 'tab');
+      assert.strictEqual(v.events('tab-pr').filter((e) => e.kind === 'append').pop().text, 'check the blocking review comments');
+      made('sess-fill', 38);
+      assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(38), fill: 'fix the conflicts' }), 'resumed');
+      const sf = m.perch.sessions[m.perch.sessions.length - 1];
+      assert.strictEqual(sf.agentSessionId, 'sess-fill');
+      assert.ok((sf.prefill || '').includes('fix the conflicts') || v.events(sf.id).some((e) => (e.kind === 'append' || e.kind === 'fill') && e.text.includes('fix the conflicts')), 'waits in the new tab\'s box');
+      assert.strictEqual(created.length, a1, 'nothing sent, no agent started');
+      // a fill that is not text is ignored
+      assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(31), fill: 42 }), 'tab');
+    }
+
+    // nothing on this machine: 'none', and nothing done
+    const n1 = tabs(), act = v.lastTabs().active, sh = shows.length;
+    // found, and kept, before its record went: not on this machine now
+    made('sess-vanished', 37); assert.strictEqual((await m.commands['perch.findPrSession'](PR(37))).session, 'sess-vanished'); fs.unlinkSync(path.join(projects, '-w', 'sess-vanished.jsonl'));
+    for (const spec of [{ url: PR(37) }, { url: PR(99) }, { url: PR(99), session: 'sess-nowhere' }, { url: 'https://example.com/x' }, undefined, 'x'])
+      assert.strictEqual(await m.commands['perch.openPrSession'](spec), 'none', JSON.stringify(spec));
+    assert.deepStrictEqual([tabs(), v.lastTabs().active, shows.length], [n1, act, sh]);
+
+    // the folder it ran in is gone: the window's folder, and the tab says so
+    assert.strictEqual(await m.commands['perch.openPrSession']({ url: PR(35) }), 'resumed');
+    const s3 = m.perch.sessions[m.perch.sessions.length - 1];
+    assert.deepStrictEqual([s3.agentSessionId, s3.dir, s3.workdir()], ['sess-gone', null, process.cwd()]);
+    assert.strictEqual(v.events(s3.id).filter((e) => e.kind === 'note')[0].text, `this chat ran in ${path.join(work, 'deleted')}, which isn't on this machine now`);
+    v.fire({ type: 'send', sid: s3.id, text: 'hi' }); assert.strictEqual(created[created.length - 1].o.cwd, process.cwd());
+    m.perch.dispose();
+
+    // an editor tab open on the session: its panel is revealed with the focus
+    const e = install({ 'perch.sessions.v1': { active: null, counters: { claude: 1, codex: 0 }, sessions: [{ id: 'tab-ed', kind: 'claude', title: 'In the editor', titled: true, resume: 'sess-open', location: 'editor', paneled: true }] } }, { meter: { claudeDir } }); await flush();
+    const ev = fakeView(); e.registered['perch.main'].resolveWebviewView(ev.view); ev.fire({ type: 'ready' }); await flush();
+    const p0 = e.ui.panels.length;
+    assert.strictEqual(await e.commands['perch.openPrSession']({ url: PR(31) }), 'tab');
+    const panel = e.ui.panels.filter((p) => !p.disposed).pop();
+    assert(panel && panel.active && (e.ui.panels.length > p0 || panel.reveals > 0), 'its panel is in front, with the focus');
+    assert.strictEqual(e.perch.sessions.length, 1);
+    e.perch.dispose();
+  }
+  {
+    // no microphone where the user sits, and no companion at all
+    const NOMIC = 'No microphone is connected to this computer: nothing is plugged into its audio input. Plug in a microphone or a headset, or dictate from a computer that has one, connected to this workspace over Remote-SSH with Perch Audio installed there.';
+    const m = install(undefined, { audio: { available: { ok: false, code: 'no-microphone', error: NOMIC, api: 1 } } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    assert.deepStrictEqual(v.events(c).filter((e) => e.kind === 'voice').map((e) => e.phase), ['starting', 'idle']);
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'error').pop().text, 'Voice input: ' + NOMIC, 'the reason is passed on as the recorder gave it');
+    assert.deepStrictEqual([m.abox.calls.map((k) => k[0]), m.vbox.starts, m.vbox.installs], [['available'], 0, []], 'and nothing is started or installed');
+    m.abox.available = { ok: true, api: 3, devices: ['Mic'], device: 'Mic' }; v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'error').pop().text, 'Voice input: Perch Audio is a newer version than Perch. Update Perch.');
+    m.abox.available = { ok: true, api: 1, devices: ['Mic'], device: 'Mic' }; m.abox.start = { ok: false, code: 'capture-failed', error: 'Could not open the microphone: Failed to open device.' };
+    v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'error').pop().text, 'Voice input: Could not open the microphone: Failed to open device.');
+    m.abox.missing = true; v.fire({ type: 'voiceStart', sid: c }); await flush(); await flush();
+    const e = v.events(c).filter((x) => x.kind === 'error').pop().text;
+    assert(/^Voice input: Perch Audio is not installed on this computer\. It records from your microphone, so it has to be installed where you are sitting, even when the workspace is remote\./.test(e), e);
+    assert(/make install-audio/.test(e) && /seanahn\.perch-audio/.test(e), 'and says how to get it');
+    assert.strictEqual(v.events(c).filter((x) => x.kind === 'voice').pop().phase, 'idle');
+    m.perch.dispose();
+  }
+  {
+    // first use: the one-time setup is asked for, says where it installs, and can be declined
+    const m = install(undefined, { voice: { installed: false } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'voiceStart', sid: x }); await flush(); await flush();
+    assert.strictEqual(m.ui.infos.pop(), 'Set up voice input on this machine?');
+    assert(/private Python environment and fetches a model sized for the machine \(large-v3-turbo with a GPU, small without\), up to 4 GB in all, under .*perch.voice\. Nothing is installed system-wide, and nothing you say leaves this machine\./.test(m.ui.details.pop()));
+    assert.deepStrictEqual([m.vbox.installs, m.abox.calls.map((k) => k[0]), v.events(x).filter((e) => e.kind === 'voice').pop().phase, v.events(x).filter((e) => e.kind === 'error').length], [[], ['available'], 'idle', 0], 'declined: nothing is installed, nothing is recorded, and it is not an error');
+    m.ui.answers.push('Set Up'); v.fire({ type: 'voiceStart', sid: x }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([m.vbox.installs, m.ui.progress], [['auto'], ['Perch voice input', 'Creating a private Python environment', 'Installing the speech-to-text runtime', 'Ready']]);
+    assert.strictEqual(v.events(x).filter((e) => e.kind === 'voice').pop().phase, 'recording', 'and dictation begins once it is ready');
+    v.fire({ type: 'voiceCancel' }); await flush();
+    const asked = m.ui.infos.length; v.fire({ type: 'voiceStart', sid: x }); await flush(); await flush(); assert.strictEqual(m.ui.infos.length, asked, 'it is asked once'); v.fire({ type: 'voiceCancel' }); await flush();
+    await m.commands['perch.voice.setup'](); assert.strictEqual(m.ui.infos.pop(), 'Perch: voice input is already set up here.');
+    m.commands['perch.voice.unload'](); assert.strictEqual(m.vbox.stops, 1, 'the model can be unloaded by hand, to free its memory');
+    m.perch.dispose();
+
+    const f = install(undefined, { voice: { installed: false, failInstall: 'No matching distribution found for faster-whisper' } }); await flush();
+    const fv = fakeView(); f.registered['perch.main'].resolveWebviewView(fv.view); fv.fire({ type: 'ready' }); await flush();
+    fv.fire({ type: 'new', kind: 'claude' }); const c = fv.lastTabs().active;
+    f.ui.answers.push('Set Up'); fv.fire({ type: 'voiceStart', sid: c }); await flush(); await flush(); await flush();
+    assert.strictEqual(f.ui.errors.pop(), 'Perch: voice input could not be set up. No matching distribution found for faster-whisper');
+    assert.deepStrictEqual([fv.events(c).filter((e) => e.kind === 'voice').pop().phase, f.abox.calls.map((k) => k[0])], ['idle', ['available']]);
+    f.perch.dispose();
+
+    // over Remote-SSH the question names the machine it will install on
+    const r = install(undefined, { voice: { installed: false }, remote: 'ssh-remote' }); await flush();
+    const rv = fakeView(); r.registered['perch.main'].resolveWebviewView(rv.view); rv.fire({ type: 'ready' }); await flush();
+    rv.fire({ type: 'new', kind: 'claude' }); rv.fire({ type: 'voiceStart', sid: rv.lastTabs().active }); await flush(); await flush();
+    assert.strictEqual(r.ui.infos.pop(), `Set up voice input on ${require('os').hostname()}, the remote machine?`);
+    assert(/nothing you say leaves your machines\./.test(r.ui.details.pop()), 'audio crosses from the laptop to the workspace machine, and no further');
+    r.perch.dispose();
+
+    // ---- the laptop has a GPU: the words are worked out there, in Perch Audio, and only the text crosses
+    const A2 = { ok: true, api: 2, devices: ['Headset Microphone'], device: 'Headset Microphone', busy: false };
+    const OPTS = { model: 'auto', device: 'auto', python: undefined, idleMs: 0 };
+    const last = (a) => a[a.length - 1];
+    const L = install(undefined, { voice: { installed: false }, audio: { available: A2 }, remote: 'ssh-remote' }); await flush();
+    const lv = fakeView(); L.registered['perch.main'].resolveWebviewView(lv.view); lv.fire({ type: 'ready' }); await flush();
+    lv.fire({ type: 'new', kind: 'claude' }); const lx = lv.lastTabs().active;
+    L.changeConfig({ 'voice.language': 'ko', 'voice.vocabulary': 'Perch', 'voice.idleMinutes': 0 });
+    const ops = () => L.abox.calls.map((k) => k[0]).filter((k) => k !== 'level');
+    const dictate = async () => { lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush(); lv.fire({ type: 'voiceStop', sid: lx }); await flush(); await flush(); };
+    lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush();
+    assert.deepStrictEqual(ops(), ['available', 'engine', 'start', 'warm'], 'Perch Audio is asked what it can do, then to record, and to load its model meanwhile');
+    assert.deepStrictEqual([L.abox.calls[1][1], L.abox.calls[3][1]], [OPTS, OPTS], 'with the engine settings from here');
+    assert.deepStrictEqual([L.ui.infos.length, L.vbox.installs, L.vbox.starts], [0, [], 0], 'nothing is asked, and the engine here is left alone');
+    lv.fire({ type: 'voiceStop', sid: lx }); await flush(); await flush();
+    assert.deepStrictEqual(last(L.abox.calls), ['transcribe', 'rec-1', { engine: OPTS, language: 'ko', prompt: 'Perch' }], 'the recording is stopped and transcribed there, with the words settings');
+    assert.deepStrictEqual([last(lv.events(lx).filter((e) => e.kind === 'insert')).text, L.vbox.requests.length, lv.events(lx).filter((e) => e.kind === 'voice' && e.phase === 'transcribing').pop().where], ['local words ', 0, 'local']);
+
+    // not yet set up there: the question names the laptop, and the set-up runs there
+    L.abox.engine = Object.assign({}, L.abox.engine, { installed: false });
+    lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush();
+    assert.strictEqual(L.ui.infos.pop(), 'Set up voice input on this computer, laptop?');
+    assert(/on the computer you sit at, not on the remote/.test(L.ui.details.pop()));
+    assert.deepStrictEqual([last(L.abox.calls)[0], last(lv.events(lx).filter((e) => e.kind === 'voice')).phase], ['engine', 'idle'], 'declined: nothing more is asked of it');
+    L.ui.answers.push('Set Up'); lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([ops().slice(-3), last(L.abox.calls.filter((k) => k[0] === 'setup'))[1], L.vbox.installs, L.ui.progress.length], [['setup', 'start', 'warm'], OPTS, [], 0], 'set up there, with the progress shown there');
+    lv.fire({ type: 'voiceCancel' }); await flush();
+    L.abox.setup = { ok: false, error: 'no Python', code: 'setup-failed' }; L.ui.answers.push('Set Up'); lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([L.ui.errors.pop(), last(lv.events(lx).filter((e) => e.kind === 'voice')).phase], ['Perch: voice input could not be set up on this computer. no Python', 'idle']);
+    L.abox.setup = { ok: true }; L.abox.engine = Object.assign({}, L.abox.engine, { installed: true });
+    // the setup command and unloading follow the same choice
+    await L.commands['perch.voice.setup'](); assert.strictEqual(L.ui.infos.pop(), 'Perch: voice input is already set up here.');
+    await L.commands['perch.voice.unload'](); assert.deepStrictEqual([last(L.abox.calls)[0], L.vbox.stops], ['unload', 0]);
+
+    // no GPU on the laptop: the audio comes here, as before
+    L.abox.engine = Object.assign({}, L.abox.engine, { gpu: false }); L.vbox.installed = true; L.abox.calls.length = 0;
+    await dictate();
+    assert.deepStrictEqual([ops(), L.vbox.requests.length, last(lv.events(lx).filter((e) => e.kind === 'insert')).text], [['available', 'engine', 'start', 'stop'], 1, 'hello world ']);
+    // asked for outright, the laptop is used without a GPU; asked for the remote, the laptop is not consulted
+    L.changeConfig({ 'voice.runOn': 'local' }); L.abox.calls.length = 0; await dictate();
+    assert.deepStrictEqual([ops(), L.vbox.requests.length], [['available', 'engine', 'start', 'warm', 'transcribe'], 1]);
+    L.changeConfig({ 'voice.runOn': 'remote' }); L.abox.engine = Object.assign({}, L.abox.engine, { gpu: true }); L.abox.calls.length = 0; await dictate();
+    assert.deepStrictEqual([ops(), L.vbox.requests.length], [['available', 'start', 'stop'], 2]);
+    // an older Perch Audio records but cannot transcribe: local is refused outright, auto goes back to here
+    L.changeConfig({ 'voice.runOn': 'local' }); L.abox.available = Object.assign({}, A2, { api: 1 }); L.abox.calls.length = 0;
+    lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush();
+    assert.deepStrictEqual([last(lv.events(lx).filter((e) => e.kind === 'error')).text, ops()], ['Voice input: Perch Audio on this computer is too old to transcribe there. Update it, or set perch.voice.runOn to remote.', ['available']]);
+    L.changeConfig({ 'voice.runOn': 'auto' }); L.abox.calls.length = 0; await dictate();
+    assert.deepStrictEqual([ops(), L.vbox.requests.length], [['available', 'start', 'stop'], 3]);
+    // and one newer than this perch
+    L.abox.available = Object.assign({}, A2, { api: 3 }); lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush();
+    assert.strictEqual(last(lv.events(lx).filter((e) => e.kind === 'error')).text, 'Voice input: Perch Audio is a newer version than Perch. Update Perch.');
+    L.perch.dispose();
+  }
+
+  // ---- a backend switch during a turn: the tab moves once the turn is over, and nothing is cut off
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active;
+    v.fire({ type: 'send', sid: x, text: 'hold this thought' }); await flush();
+    const holding = created.filter((a) => a.claude).pop();
+    assert.strictEqual(v.lastTabs().tabs.find((t) => t.id === x).busy, true);
+    v.fire({ type: 'meterToggle' }); await flush(); await flush();
+    assert(v.events(x).some((e) => e.kind === 'note' && /^Claude backend is now API \/ Bedrock\. This tab moves to it after the current turn; the conversation continues, the prompt cache starts over\.$/.test(e.text)));
+    assert.deepStrictEqual([holding.disposed, holding.interrupted, v.lastTabs().tabs.find((t) => t.id === x).busy], [false, 0, true], 'the turn runs on');
+    holding.finish(); await flush(); await flush();
+    assert.deepStrictEqual([holding.disposed, v.lastTabs().tabs.find((t) => t.id === x).started, v.lastTabs().tabs.find((t) => t.id === x).busy], [true, false, false], 'moved once the turn is over');
+    assert(v.events(x).some((e) => e.kind === 'note' && /^Moved to the new Claude backend; the conversation continues from the next message\.$/.test(e.text)));
+    v.fire({ type: 'send', sid: x, text: 'on we go' }); await flush();
+    const again = created.filter((a) => a.claude).pop();
+    assert.deepStrictEqual([again !== holding, again.o.resume, v.lastTabs().tabs.find((t) => t.id === x).backend], [true, 'sess-' + created.indexOf(holding), 'api']);
+    m.perch.dispose();
+  }
+
+  // ---- Claude with nothing to authenticate with: the first message is held back, the way in offered, the text put back
+  {
+    const m = install(undefined, { meter: { login: false }, remote: 'ssh-remote', config: { 'claude.executable': '/opt/claude' } }); await flush();
+    m.perch.meter.loginPollMs = 5;
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active; const made = created.length;
+    v.fire({ type: 'send', sid: x, text: 'hello' }); await flush(); await flush();
+    assert.strictEqual(created.length, made, 'no process is started: it would only be refused');
+    assert(/^Claude is not logged in on .+\. Log in, then send the message again\.$/.test(v.events(x).filter((e) => e.kind === 'note').pop().text));
+    assert.strictEqual(v.events(x).filter((e) => e.kind === 'insert').pop().text, 'hello', 'the message goes back into the box');
+    assert(/^Claude is not logged in on .+\. Perch runs Claude Code with its login, kept in \/nonexistent\/perch-test\/\.claude\. Log In opens Claude Code's sign-in; or use API \/ Bedrock credentials instead\.$/.test(m.ui.warnings.pop()));
+    assert.deepStrictEqual(m.ui.executed, [], 'declined: nothing opens');
+    // Log In: Claude Code's own sign-in, watched until the login lands
+    m.ui.answers.push('Log In'); v.fire({ type: 'send', sid: x, text: 'hello' }); await flush(); await flush();
+    assert.deepStrictEqual([m.ui.executed, m.ui.terminals.map((t) => t.sent), m.ui.infos.filter((i) => /logged in/.test(i))], [[], [[CLAUDE_LOGIN]], []], 'the sign-in, in a terminal; nothing said yet');
+    m.box.login = true; await wait(30); await flush();
+    assert.strictEqual(m.ui.infos.pop(), 'Perch: Claude is logged in. Send your message again.', 'said when the login lands');
+    v.fire({ type: 'send', sid: x, text: 'hello' }); await flush();
+    assert.strictEqual(created.length, made + 1, 'logged in: the message goes to a Claude of its own');
+    // the other way: switch to API / Bedrock, which has credentials here
+    m.box.login = false; m.box.apiCreds = true; m.ui.answers.push('Use API / Bedrock');
+    v.fire({ type: 'new', kind: 'claude' }); const y = v.lastTabs().active;
+    v.fire({ type: 'send', sid: y, text: 'hi' }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([m.box.writes, v.lastMeter().backend], [[true], 'api'], 'switched');
+    v.fire({ type: 'send', sid: y, text: 'hi' }); await flush();
+    assert.strictEqual(created.length, made + 2, 'and on API / Bedrock the message goes through');
+    // API / Bedrock with nothing to authenticate with: the settings file, or back to the subscription
+    m.box.apiCreds = false; v.fire({ type: 'new', kind: 'claude' }); const z = v.lastTabs().active;
+    v.fire({ type: 'send', sid: z, text: 'hey' }); await flush(); await flush();
+    assert(/^Claude is set to API \/ Bedrock on .+, and no credentials for it were found there\. Set them up, or use your subscription, then send the message again\.$/.test(v.events(z).filter((e) => e.kind === 'note').pop().text));
+    assert(/no ~\/\.aws credentials or profile, no AWS_\* variables, no ANTHROPIC_API_KEY\. Put AWS credentials on .+, and the region and model in the env block of \/nonexistent\/perch-test\/\.claude\/settings\.json \(AWS_REGION, ANTHROPIC_MODEL\), or use your subscription\.$/.test(m.ui.warnings.pop()));
+    m.ui.answers.push('Open settings.json'); v.fire({ type: 'send', sid: z, text: 'hey' }); await flush(); await flush(); await flush();
+    assert(/^Perch: could not create \/nonexistent\/perch-test\/\.claude\/settings\.json\. /.test(m.ui.errors.pop()), 'a file is made to fill in; here the place for it cannot exist');
+    m.ui.answers.push('Use Subscription'); m.ui.answers.push('Log In'); v.fire({ type: 'send', sid: z, text: 'hey' }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([m.box.writes, v.lastMeter().backend, /has no subscription login yet/.test(m.ui.infos.pop())], [[true, false], 'subscription', true], 'back to the subscription, whose login is offered by the switch');
+    assert.deepStrictEqual([m.ui.terminals.length, !!m.perch.meter.signIn], [2, true], 'the switch\'s Log In: a sign-in, waiting');
+    // the same choices stay as buttons under each note, for when the notification has gone. A button may be an old note's: each acts only on what still applies
+    const acts = (sid) => v.events(sid).filter((e) => e.kind === 'note' && e.actions).map((e) => e.actions.map((a) => a.id));
+    assert.deepStrictEqual(acts(z)[0], ['claudeSettings', 'claudeSubscription'], 'under the note for API / Bedrock without credentials');
+    v.fire({ type: 'send', sid: z, text: 'hey' }); await flush(); await flush();
+    assert.deepStrictEqual(acts(z).pop(), ['claudeLogin', 'claudeApi'], 'and under the note for a subscription with no login');
+    m.ui.warnings.length = 0; m.ui.infos.length = 0; m.ui.executed.length = 0; const w0 = m.box.writes.length;
+    v.fire({ type: 'noteAction', sid: z, action: 'claudeSubscription' }); await flush();
+    assert.strictEqual(m.box.writes.length, w0, 'Use Subscription from an old note, the window being on the subscription already: nothing');
+    // Log In from the note, while the switch's sign-in waits: that one, brought back, with no notification first; and said when it lands
+    const t0 = m.ui.terminals.length, signIn = m.ui.terminals[t0 - 1];
+    v.fire({ type: 'noteAction', sid: z, action: 'claudeLogin' }); await flush();
+    assert.deepStrictEqual([m.ui.terminals.length, signIn.sent, signIn.shows, m.ui.infos.pop(), m.ui.warnings.length], [t0, [CLAUDE_LOGIN], 2, 'Perch: a Claude login is already waiting for you, in the Claude login terminal.', 0], 'Log In from the note: the sign-in waiting already');
+    m.box.login = true; await wait(30); await flush();
+    assert.deepStrictEqual([m.ui.infos.pop(), m.ui.warnings.length, m.perch.meter.signIn], ['Perch: Claude is logged in. Send your message again.', 0, null], 'and said when the login lands');
+    v.fire({ type: 'noteAction', sid: z, action: 'claudeLogin' }); await flush(); await flush();
+    assert.deepStrictEqual([m.ui.terminals.length, m.ui.infos.pop()], [t0, 'Perch: Claude is logged in. Send your message again.'], 'pressed again once logged in: it says so and opens nothing');
+    m.box.apiCreds = true;   // with credentials there: the switch asks nothing
+    v.fire({ type: 'noteAction', sid: z, action: 'claudeApi' }); await flush(); await flush();
+    assert.deepStrictEqual([m.box.writes.length, v.lastMeter().backend], [w0 + 1, 'api'], 'Use API / Bedrock from the note');
+    v.fire({ type: 'noteAction', sid: z, action: 'claudeApi' }); v.fire({ type: 'noteAction', sid: z, action: 'claudeLogin' }); await flush(); await flush();
+    assert.deepStrictEqual([m.box.writes.length, m.ui.terminals.length], [w0 + 1, t0], 'again, and Log In while on API / Bedrock: nothing');
+    v.fire({ type: 'noteAction', sid: z, action: 'claudeSettings' }); await flush(); await flush();
+    assert(/^Perch: could not create \/nonexistent\/perch-test\/\.claude\/settings\.json\. /.test(m.ui.errors.pop()), 'Open settings.json from the note');
+    m.perch.dispose();
+  }
+
+  // ---- the sidebar lists this folder's past sessions, both agents', when it holds no tab of its own: the list the Sessions
+  // command shows, as rows to click. Sent when the sidebar is ready, when it comes into view, and when asked again
+  {
+    const NOW = Date.now(), MIN = 60000;
+    const past = { sessions: [
+      { kind: 'claude', id: 'c-old', title: 'gate run', named: true, updatedAt: NOW - 2 * MIN, file: '/home/me/.claude/projects/-w/c-old.jsonl' },
+      { kind: 'codex', id: 'x-old', title: 'hello', named: false, updatedAt: NOW - 26 * MIN },
+    ] };
+    const SKILL = { name: 'c3-acls', source: 'folder', description: 'ACLs on C3.', file: '/w/.claude/skills/c3-acls/SKILL.md' };
+    const MCP = { name: 'jira', source: 'folder', description: '/bin/jira-mcp', file: '/w/.mcp.json', line: 8 }, AGENT = { name: 'reviewer', source: 'folder', description: 'Reviews.', file: '/w/.claude/agents/reviewer.md' }, CMD = { name: '/ship', source: 'folder', description: 'Ship it.', file: '/w/.claude/commands/ship.md' };
+    const m = install(undefined, { past }); await flush(); Object.assign(m.box, { skills: [SKILL], mcp: [MCP], agents: [AGENT], commands: [CMD] });
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush(); await flush();
+    assert.deepStrictEqual(v.past(), { type: 'past', tab: 'sessions', skills: [SKILL], mcp: [MCP], agents: [AGENT], commands: [CMD], sessions: [
+      { key: 'claude:c-old', kind: 'claude', title: 'gate run', when: '2m', open: false, file: '/home/me/.claude/projects/-w/c-old.jsonl' },
+      { key: 'codex:x-old', kind: 'codex', title: 'hello', when: '26m', open: false, file: '' }], failed: [] }, 'newest first, by name, agent and age, with the file each is kept in; and the skills Claude Code loads here');
+    assert.deepStrictEqual(m.box.explorerLists.splice(0).map((x) => x[0] + ' ' + x[1].dir), ['skills ' + process.cwd(), 'mcp ' + process.cwd(), 'agents ' + process.cwd(), 'commands ' + process.cwd()], 'each of the workspace folder');
+    // the explorer's tab, chosen in the page, is kept for the next time
+    v.fire({ type: 'explorerTab', tab: 'mcp' }); v.fire({ type: 'pastRefresh' }); await flush(); await flush();
+    assert.strictEqual(v.past().tab, 'mcp');
+    v.fire({ type: 'explorerTab', tab: 'nonsense' }); v.fire({ type: 'pastRefresh' }); await flush(); await flush();
+    assert.strictEqual(v.past().tab, 'mcp', 'a tab that is not one is ignored');
+    v.fire({ type: 'explorerTab', tab: 'sessions' });
+    assert.deepStrictEqual(m.store.lists.pop(), { dir: process.cwd(), limit: 200 }, 'the sessions of the workspace folder');
+    // a row clicked: the session opens in a tab, as from the Sessions command, and the list says it is open
+    const made = created.length;
+    v.fire({ type: 'openPast', key: 'claude:c-old' }); await flush(); await flush();
+    const opened = m.perch.sessions.find((s) => s.kind === 'claude');
+    assert(opened && opened.title === 'gate run', 'a tab for it, under its name');
+    assert.strictEqual(v.past().sessions[0].open, true, 'the list, sent again, marks it open');
+    v.fire({ type: 'openPast', key: 'claude:nope' }); await flush();
+    assert.strictEqual(m.perch.sessions.length, 1, 'a row no longer listed opens nothing');
+    // a Claude row forked: a copy of the session, under its name and (fork), opened in a tab of its own with the settings of
+    // the tab open on the original; the original keeps its tab. A Codex row cannot be, and says why
+    opened.model = 'opus'; opened.effort = 'high'; opened.mode = 'acceptEdits';
+    v.fire({ type: 'forkPast', key: 'claude:c-old' }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual(m.store.forked.pop(), ['claude', 'c-old', { dir: process.cwd(), title: 'gate run (fork)' }]);
+    const fork = m.perch.sessions.find((s) => s !== opened && s.kind === 'claude');
+    assert.deepStrictEqual(fork && [fork.title, fork.agentSessionId, fork.model, fork.effort, fork.mode, m.perch.sessions.length], ['gate run (fork)', 'c-old-fork', 'opus', 'high', 'acceptEdits', 2], 'a tab on the copy, set as the original\'s');
+    assert.strictEqual(v.past().sessions[0].key, 'claude:c-old-fork', 'the list, sent again, has the copy');
+    v.fire({ type: 'forkPast', key: 'codex:x-old' }); await flush(); await flush();
+    assert(/Codex sessions cannot be forked here/.test(m.ui.errors.pop()), 'a Codex row says why');
+    assert.strictEqual(m.perch.sessions.length, 2);
+    // a row renamed: asked for the name, written to the agent's record, and the list sent again with it
+    m.ui.inputs.push('  greeting  ');
+    v.fire({ type: 'renamePast', key: 'codex:x-old' }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([m.ui.asked.pop().value, m.store.renamed.pop()], ['hello', ['codex', 'x-old', 'greeting', { dir: process.cwd() }]], 'the box opens on the present name; the record takes the new one');
+    assert.strictEqual(v.past().sessions.find((x) => x.key === 'codex:x-old').title, 'greeting', 'the list, sent again, has the new name');
+    // with a Claude tab running, each of its MCP servers says how it is, as Claude Code reports; a Codex entry of the same name is not Claude's
+    Object.assign(m.box, { mcp: [MCP, { name: 'jira', source: 'codex', description: 'x', file: '/c/config.toml', line: 3 }, { name: 'quiet', source: 'yours', description: 'q', file: '/u', line: 0 }] });
+    knobs.mcpStatus = [{ name: 'jira', status: 'connected' }, { name: 'ms365', status: 'needs-auth' }];
+    v.fire({ type: 'send', sid: opened.id, text: 'hi' }); await flush();
+    v.fire({ type: 'pastRefresh' }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual(v.past().mcp.map((x) => [x.name, x.source, x.status]), [['jira', 'folder', 'connected'], ['jira', 'codex', undefined], ['quiet', 'yours', undefined]], 'its word, beside each of its servers');
+    knobs.mcpStatus = null;
+    // in view again, or asked: the list is read again
+    const n = m.store.lists.length;
+    v.reveal(); await flush(); await flush();
+    v.fire({ type: 'pastRefresh' }); await flush(); await flush();
+    assert.strictEqual(m.store.lists.length, n + 2);
+    assert.strictEqual(created.length, made + 1, 'listing starts no agent: the one is the tab the MCP check sent a message to');
+    m.perch.dispose();
+  }
+
+  // ---- background tasks: the tab carries what runs on between turns, for the page to show; a new process starts with none
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; const s = m.perch.get(c);
+    v.fire({ type: 'send', sid: c, text: 'start the run' }); await flush();
+    assert.deepStrictEqual(v.tab(c).background, [], 'none to begin with');
+    const run = { id: 't1', type: 'local_bash', description: 'Run the gate live and upload', since: 1000 };
+    s.post({ kind: 'background', tasks: [run] });
+    assert.deepStrictEqual(v.tab(c).background, [run], 'the task, on the tab');
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'background').length, 0, 'a state of the tab, not a line of the transcript');
+    s.restart();
+    assert.deepStrictEqual(v.tab(c).background, [], 'the process that ran it is gone');
+    m.perch.dispose();
+  }
+
+  // ---- Claude Code refuses the login it holds, in a running session (seen 2026-11-17: "this login reached its time limit
+  // and cannot be renewed", on the subscription). The login file is there, so nothing held the message: the tab said Claude
+  // Code's words, which name a command, and no way in. Now a note offers Log In, which signs in though a login file is there,
+  // the message goes back to the box, and the next message starts a fresh process
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; const s = m.perch.get(c);
+    v.fire({ type: 'send', sid: c, text: 'do the thing' }); await flush();
+    const ag = created[created.length - 1], agents = created.length;
+    s.post({ kind: 'loginFailed', text: 'Failed to authenticate: this login reached its time limit and cannot be renewed. Run `claude auth login` to sign in again.' });
+    const note = v.events(c).filter((e) => e.kind === 'note').pop();
+    assert.deepStrictEqual([note.nid, note.actions.map((a) => a.id), /^Claude's login on .+ no longer works: this login reached its time limit and cannot be renewed\. Log in again, then send the message again\. The message is back in the box\.$/.test(note.text)],
+      ['claudeLogin', ['claudeRelogin', 'claudeApi'], true], 'a note with the way in, in place of a command to run');
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'insert').pop().text, 'do the thing', 'the message, back in the box');
+    const t0 = m.ui.terminals.length;
+    v.fire({ type: 'noteAction', sid: c, action: 'claudeRelogin' }); await flush(); await flush();
+    assert.strictEqual(m.ui.terminals.length, t0 + 1, 'Log In signs in, though a login file is there');
+    ag.finish(); await flush();
+    v.fire({ type: 'send', sid: c, text: 'do the thing' }); await flush();
+    assert.strictEqual(created.length, agents + 1, 'the next message starts a fresh process, with the new login');
+    // on the gateway or API / Bedrock the login is not the subscription's: Claude Code's words stand, with no note
+    s.gateway = true; const n = v.events(c).filter((e) => e.kind === 'note').length;
+    s.post({ kind: 'loginFailed', text: 'Failed to authenticate.' });
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'note').length, n);
+    m.perch.dispose();
+  }
+
+  // ---- a tab the user has not named takes the title of its agent's record, so the tab and its row in the sessions list say the same name
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'review https://github.com/acme/toolbox/pull/277' }); await flush(); await flush();
+    const sid = 'sess-' + (created.length - 1);
+    assert.strictEqual(v.tab(c).title, 'review https://github.com/ac', 'at first, the start of the first message; the agent has no record of the session to ask');
+    // Claude Code titles the session itself; the tab follows when a turn ends
+    const rec = { kind: 'claude', id: sid, title: 'toolbox PR #277', named: false, updatedAt: Date.now() }; m.store.sessions.push(rec);
+    v.fire({ type: 'send', sid: c, text: 'more' }); await flush(); await flush();
+    assert.strictEqual(v.tab(c).title, 'toolbox PR #277', 'the record\'s title, which is what the sessions list shows');
+    assert.strictEqual(m.memento._dump()['perch.sessions.v1'].sessions.find((x) => x.id === c).title, 'toolbox PR #277', 'kept with the tab');
+    // and when the list opens, for a title that moved since the last turn
+    rec.title = 'PR #277 follow-up';
+    const qp = await m.perch.pickSession(); await flush();
+    assert.deepStrictEqual([v.tab(c).title, qp.items.find((i) => i.past && i.past.id === sid).label], ['PR #277 follow-up', 'PR #277 follow-up'], 'the open tab and its row agree');
+    qp.hide();
+    // a name the user gave is theirs: the agent's title does not replace it
+    await m.perch.setTitle(m.perch.get(c), 'Mine'); await flush();
+    rec.title = 'Something Claude Code thought of later';
+    v.fire({ type: 'send', sid: c, text: 'again' }); await flush(); await flush();
+    assert.strictEqual(v.tab(c).title, 'Mine');
+    // deleting a session that is open in a tab, from the list: the dialog says the tab will be closed, the tab is closed, then the record goes
+    const qp2 = await m.perch.pickSession(); await flush();
+    m.ui.answers.push('Delete'); m.ui.details.length = 0; const before = v.lastTabs().tabs.length;
+    await qp2.press((i) => i.past && i.past.id === sid, 1); await flush();
+    assert.deepStrictEqual([/^Claude Code's record of this session is removed from this machine and cannot be brought back\. Its tab is open and will be closed\.$/.test(m.ui.details.pop()), v.lastTabs().tabs.length, m.store.deleted.map((d) => d.slice(0, 2)), m.store.deleted[0][2].codex],
+      [true, before - 1, [['claude', sid]], undefined]);
+    m.perch.dispose();
+  }
+
+  // ---- Perch: Open, the way back in: the tab last used, or the sessions list with a new tab at the top
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    assert.strictEqual(v.lastTabs().tabs.length, 0);
+    const list = await m.commands['perch.open']();
+    assert.deepStrictEqual([list.shown, list.rows().slice(0, 2).map((r) => r[0])], [true, ['$(add) New Claude tab', '$(add) New Codex tab']], 'nothing open: the sessions list, which starts a tab too');
+    list.choose((i) => i.fresh === 'codex'); await flush();
+    assert.deepStrictEqual([v.lastTabs().tabs.length, v.lastTabs().tabs[0].kind], [1, 'codex']);
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    const back = m.commands['perch.open']();
+    assert.deepStrictEqual([back && back.id, v.lastTabs().active, m.ui.lists.length], [c, c, 1], 'a tab open: it comes to the front, and no list opens');
+    m.perch.dispose();
+  }
+
+  // ---- the backend chosen for a tab sticks: the next new Claude tab starts there
+  {
+    const m = install(undefined, {}); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const a = v.lastTabs().active;
+    assert.strictEqual(v.tab(a).gateway, false, 'at first, the window\'s backend');
+    v.fire({ type: 'setBackend', sid: a, value: 'gateway' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const b = v.lastTabs().active;
+    assert.deepStrictEqual([v.tab(b).gateway, m.globalState._dump()['perch.claude.newTabsOnGateway']], [true, true], 'the gateway chosen once, a new tab starts on it');
+    v.fire({ type: 'new', kind: 'codex' }); assert.strictEqual(v.lastTabs().tabs.find((t) => t.id === v.lastTabs().active).gateway, false, 'Codex tabs are untouched');
+    v.fire({ type: 'setBackend', sid: b, value: 'subscription' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    assert.deepStrictEqual([v.tab(b).gateway, v.tab(c).gateway, m.globalState._dump()['perch.claude.newTabsOnGateway']], [false, false, false], 'the subscription chosen, new tabs are off the gateway again');
+    m.perch.dispose();
+    // and it holds in a new window
+    const r = install(undefined, { globals: { 'perch.claude.newTabsOnGateway': true } }); await flush();
+    const rv = fakeView(); r.registered['perch.main'].resolveWebviewView(rv.view); rv.fire({ type: 'ready' }); await flush();
+    rv.fire({ type: 'new', kind: 'claude' }); assert.strictEqual(rv.tab(rv.lastTabs().active).gateway, true);
+    r.perch.dispose();
+  }
+
+  // ---- perch.claude.defaultBackend: where new Claude tabs start while nothing is remembered
+  {
+    const m = install(undefined, { config: { 'claude.defaultBackend': 'gateway' } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const a = v.lastTabs().active;
+    assert.strictEqual(v.tab(a).gateway, true, 'gateway default with nothing remembered');
+    v.fire({ type: 'setBackend', sid: a, value: 'subscription' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const b = v.lastTabs().active;
+    assert.strictEqual(v.tab(b).gateway, false, 'the remembered choice wins over the setting');
+    m.perch.dispose();
+    const r = install(undefined, { config: { 'claude.defaultBackend': 'remembered' } }); await flush();
+    const rv = fakeView(); r.registered['perch.main'].resolveWebviewView(rv.view); rv.fire({ type: 'ready' }); await flush();
+    rv.fire({ type: 'new', kind: 'claude' });
+    assert.strictEqual(rv.tab(rv.lastTabs().active).gateway, false, 'remembered with nothing remembered: the window\'s backend');
+    r.perch.dispose();
+  }
+
+  // ---- perch.firstStart.openClaudeTab: one Claude tab on the right, once; false is written first, at the scope that held true
+  {
+    const KEY = 'firstStart.openClaudeTab', settle = async () => { await wait(150); await flush(); };
+    // what the window held when the tab was opened: the setting's writes so far, and the column asked for
+    const watchOpen = (m) => { const seen = []; const open = m.vscode.window.createWebviewPanel; m.vscode.window.createWebviewPanel = (...a) => { seen.push({ updates: m.ui.configUpdates.length, column: a[2] && a[2].viewColumn }); return open(...a); }; return seen; };
+    const fresh = (o) => install(undefined, o);
+
+    // opens one tab and writes false: set for the user, nothing open, the left group stays
+    {
+      const m = fresh({ config: { [KEY]: true } }); const seen = watchOpen(m);
+      m.ui.groups = [{ viewColumn: 1, tabs: [] }, { viewColumn: 2, tabs: [] }];
+      assert.strictEqual(m.perch.sessions.length, 0, 'nothing opens before the wait for restored tabs is over');
+      await settle();
+      assert.deepStrictEqual(m.perch.sessions.map((s) => [s.kind, s.location]), [['claude', 'editor']], 'one Claude tab, in an editor');
+      assert.deepStrictEqual(m.ui.configUpdates, [[KEY, false, m.vscode.ConfigurationTarget.Global]], 'false, at the user\'s scope');
+      assert.deepStrictEqual(seen, [{ updates: 1, column: m.vscode.ViewColumn.Beside }], 'written before the tab opens, and the tab opens beside');
+      assert.strictEqual(m.ui.configUpdates.some((u) => u[1] === undefined), false, 'the key is never removed');
+      assert.deepStrictEqual([m.ui.untitled.length, m.ui.errors.length], [0, 0], 'two groups: no untitled editor, no error');
+      m.perch.dispose();
+    }
+
+    // the window has a single group once the tab is open: a new empty group on the left, with VS Code's watermark; only
+    // if none is kept, an empty untitled editor moved to the left. The Perch tab has the focus last, and the untitled
+    // editor never stays in its group
+    const watchSteps = (m) => {
+      const steps = [], at = { untitled: null }, run = m.vscode.commands.executeCommand, show = m.vscode.window.showTextDocument, open = m.vscode.window.createWebviewPanel;
+      m.vscode.commands.executeCommand = (id, ...a) => { if (id.includes('Group') && id !== 'workbench.action.lockEditorGroup') steps.push(id); if (id === 'workbench.action.moveEditorToLeftGroup' && at.untitled === 'perch') at.untitled = 'left'; return run(id, ...a); };
+      m.vscode.window.showTextDocument = (doc, o) => { steps.push(doc.isUntitled ? 'show untitled' : 'show file'); if (doc.isUntitled) at.untitled = o && o.viewColumn === m.vscode.ViewColumn.Active ? 'perch' : String(o && o.viewColumn); return show(doc, o); };
+      m.vscode.window.createWebviewPanel = (...a) => { const p = open(...a); const reveal = p.reveal; p.reveal = function (...r) { steps.push('reveal perch'); return reveal.apply(this, r); }; return p; };
+      return { steps, at };
+    };
+    {
+      const m = install(undefined, { config: { [KEY]: true }, commandAnswers: { 'workbench.action.newGroupLeft': () => { m.ui.addedGroups.push({ viewColumn: 1, tabs: [] }); } } });
+      const { steps } = watchSteps(m); await settle();
+      assert.strictEqual(m.perch.sessions.length, 1);
+      assert.deepStrictEqual(steps, ['workbench.action.newGroupLeft', 'reveal perch'], 'an empty group on the left, then the Perch tab focused');
+      assert.strictEqual(m.ui.untitled.length, 0, 'the kept group needs no untitled editor');
+      assert.strictEqual(m.ui.panels.find((p) => !p.disposed).active, true);
+      m.perch.dispose();
+    }
+    {
+      const m = fresh({ config: { [KEY]: true } }); const { steps, at } = watchSteps(m); await settle(); await wait(1300);   // newGroupLeft adds nothing here: the wait for a second group runs out
+      assert.strictEqual(m.perch.sessions.length, 1);
+      assert.strictEqual(m.ui.untitled.length, 1, 'one untitled editor');
+      assert.deepStrictEqual(m.ui.shown.map(([d, o]) => [d.isUntitled, o.preview]), [[true, false]], 'not a preview');
+      assert.deepStrictEqual(steps.slice(steps.indexOf('show untitled')), ['show untitled', 'workbench.action.moveEditorToLeftGroup', 'reveal perch'], 'moved left, then the Perch tab focused last');
+      assert.strictEqual(steps[0], 'workbench.action.newGroupLeft', 'the empty group was tried first');
+      assert.strictEqual(at.untitled, 'left', 'the untitled editor does not stay in the Perch tab\'s group');
+      assert.strictEqual(m.ui.panels.find((p) => !p.disposed).active, true);
+      m.perch.dispose();
+    }
+    // the tab never shows among the groups within the wait: said in Perch's output, and the groups are left alone
+    {
+      const m = fresh({ config: { [KEY]: true } }); m.ui.groups = [{ viewColumn: 1, tabs: [] }]; const { steps } = watchSteps(m);
+      await settle(); await wait(1300);
+      assert.strictEqual(m.perch.sessions.length, 1);
+      assert.deepStrictEqual([steps, m.ui.untitled.length], [[], 0], 'no group made, no untitled editor');
+      assert(m.ui.traces.some((l) => /did not show among the editor groups/.test(l)), 'traced');
+      m.perch.dispose();
+    }
+
+    // a restored tab means no new tab, and false is still written; a tab in the sidebar counts too
+    for (const location of ['editor', 'sidebar']) {
+      const saved = { 'perch.sessions.v1': { active: location === 'sidebar' ? 'back' : null, counters: { claude: 1, codex: 0 }, sessions: [{ id: 'back', kind: 'claude', title: 'Came back', titled: true, resume: 'sess-back', location, paneled: location === 'editor' }] } };
+      const m = install(saved, { config: { [KEY]: true } }); await settle();
+      assert.deepStrictEqual(m.perch.sessions.map((s) => s.id), ['back'], `a restored ${location} tab: no new tab`);
+      assert.deepStrictEqual(m.ui.configUpdates, [[KEY, false, m.vscode.ConfigurationTarget.Global]], `a restored ${location} tab: false still written`);
+      m.perch.dispose();
+    }
+
+    // a refused write opens nothing, and says nothing but to Perch's output
+    {
+      const m = fresh({ config: { [KEY]: true } }); m.ui.failConfigUpdate = 'Unable to write to User Settings: a policy sets it'; await settle();
+      assert.deepStrictEqual([m.perch.sessions.length, m.ui.panels.length, m.ui.errors.length, m.ui.warnings.length], [0, 0, 0, 0], 'no tab, no message');
+      assert(m.ui.traces.some((l) => l.includes('perch.firstStart.openClaudeTab could not be set back to false') && l.includes('a policy sets it')), 'said in Perch\'s output');
+      m.perch.dispose();
+    }
+
+    // the workspace scope is written back at the workspace scope, a folder's at the folder's
+    {
+      const m = fresh(); m.ui.workspaceConfig = { [KEY]: true }; await settle();
+      assert.deepStrictEqual(m.ui.configUpdates, [[KEY, false, m.vscode.ConfigurationTarget.Workspace]]);
+      assert.strictEqual(m.perch.sessions.length, 1);
+      m.perch.dispose();
+      const f = fresh(); f.ui.folderConfig[process.cwd()] = { [KEY]: true }; await settle();
+      assert.deepStrictEqual(f.ui.configUpdates, [[KEY, false, f.vscode.ConfigurationTarget.WorkspaceFolder, process.cwd()]]);
+      assert.strictEqual(f.perch.sessions.length, 1);
+      f.perch.dispose();
+      // the user's true under a workspace's false is the workspace's false: nothing happens
+      const w = fresh({ config: { [KEY]: true } }); w.ui.workspaceConfig = { [KEY]: false }; await settle();
+      assert.deepStrictEqual([w.ui.configUpdates.length, w.perch.sessions.length], [0, 0]);
+      w.perch.dispose();
+    }
+
+    // false or absent does nothing: no write, no tab
+    for (const config of [{ [KEY]: false }, {}]) {
+      const m = fresh({ config }); await settle();
+      assert.deepStrictEqual([m.ui.configUpdates.length, m.perch.sessions.length], [0, 0], JSON.stringify(config));
+      m.perch.dispose();
+    }
+  }
+
+  // ---- the model pill on the gateway: the gateway's names, from the file; a model of Claude's catalog is let go when a tab moves there
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gw-')); const file = path.join(dir, 'env');
+    fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://gw.example/llm-api\nexport ANTHROPIC_AUTH_TOKEN=t\nexport ANTHROPIC_MODEL=router-auto-bargain[1m]\nexport ANTHROPIC_DEFAULT_OPUS_MODEL=router-auto-quality[1m]\nexport ANTHROPIC_DEFAULT_SONNET_MODEL=router-auto-unlimited[1m]\n');
+    const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: false });   // a gateway that will not list its models: the file's names
+    const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active;
+    v.fire({ type: 'setModel', sid: x, value: 'fable' }); await flush();
+    assert.strictEqual(v.tab(x).model, 'fable');
+    v.fire({ type: 'setBackend', sid: x, value: 'gateway' }); await flush();
+    const t = v.tab(x);
+    assert.deepStrictEqual([t.gateway, t.model, t.effort], [true, '', ''], 'Fable means nothing to the gateway: back to the file\'s default');
+    assert.deepStrictEqual(t.models.map((o) => [o.value, o.label]), [['', 'default · router-auto-bargain[1m]'], ['opus', 'router-auto-quality[1m]'], ['sonnet', 'router-auto-unlimited[1m]']], 'the menu is the file\'s names, carried by the aliases Claude Code maps to them');
+    assert.strictEqual(t.models[0].title, 'ANTHROPIC_MODEL in the gateway file');
+    v.fire({ type: 'setModel', sid: x, value: 'opus' }); await flush();
+    assert.deepStrictEqual([v.tab(x).model, v.tab(x).efforts.map((e) => e.value)], ['opus', ['', 'low', 'medium', 'high']]);
+    v.fire({ type: 'setBackend', sid: x, value: 'subscription' }); await flush();
+    assert.deepStrictEqual([v.tab(x).gateway, v.tab(x).model], [false, 'opus'], 'off the gateway an alias still means something, so it stays');
+    m.perch.dispose(); fs.rmSync(dir, { recursive: true, force: true }); globalThis.fetch = realFetch;
+  }
+
+  // ---- a gateway that lists its models: one entry per model, grouped, the effort sent as part of the model's name
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gw-')); const file = path.join(dir, 'env');
+    fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://gw.example/llm-api\nexport ANTHROPIC_AUTH_TOKEN=t\nexport ANTHROPIC_MODEL=nexus-auto-bargain[1m]\n');
+    const ids = ['opus', 'opus-high', 'opus-max', 'fable', 'fable-high', 'gpt-sol', 'gpt-sol-low', 'nexus-auto', 'anthropic/opus', 'anthropic/opus-high'];
+    const asked = []; const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => { asked.push(url); return { ok: true, json: async () => ({ data: ids.map((id) => ({ id })) }) }; };
+    const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active;
+    v.fire({ type: 'setBackend', sid: x, value: 'gateway' }); await flush(); await flush();
+    assert.strictEqual(asked[0], 'https://gw.example/llm-api/v1/models', 'the gateway is asked for its models');
+    const t = v.tab(x);
+    assert.deepStrictEqual(t.models.map((o) => [o.value, o.label, o.group || '']), [['', 'default · nexus-auto-bargain[1m]', ''], ['anthropic/opus[1m]', 'opus', 'Claude'], ['anthropic/fable[1m]', 'fable', 'Claude'], ['anthropic/gpt-sol[1m]', 'gpt-sol', 'OpenAI'], ['anthropic/nexus-auto[1m]', 'nexus-auto', 'Routers']], 'one entry per model, by family');
+    v.fire({ type: 'setModel', sid: x, value: 'anthropic/opus[1m]' }); await flush();
+    assert.deepStrictEqual(v.tab(x).efforts.map((e) => e.value), ['', 'high', 'max'], 'only the levels the gateway names');
+    v.fire({ type: 'setEffort', sid: x, value: 'high' }); await flush();
+    v.fire({ type: 'send', sid: x, text: 'go' }); await flush();
+    const o = created[created.length - 1].o;
+    assert.deepStrictEqual([o.model, o.effort], ['anthropic/opus-high[1m]', undefined], 'the effort is in the name, not an effort setting on top');
+    m.perch.dispose(); fs.rmSync(dir, { recursive: true, force: true }); globalThis.fetch = realFetch;
+  }
+
+  // ---- the Codex backend: the ChatGPT login, or an OpenAI API key kept in secret storage, for every Codex tab from its next turn
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual([v.lastCodexMeter().backend, v.lastCodexMeter().backendLabel], ['chatgpt', 'ChatGPT']);
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'send', sid: x, text: 'hi' }); await flush();
+    const a = created[created.length - 1];
+    assert.deepStrictEqual([a.o.apiKey, v.lastTabs().tabs[0].backend], [undefined, 'chatgpt'], 'on the login: no key is given');
+    // the switch asks for a key the first time, keeps it in secret storage, and moves the open tab
+    v.fire({ type: 'meterToggle', vendor: 'codex' }); await flush(); await flush();
+    assert.deepStrictEqual([m.ui.asked.pop().prompt, v.lastCodexMeter().backend], ['OpenAI API key for Codex', 'chatgpt'], 'no key given: nothing changes');
+    m.ui.inputs.push('sk-test-0123456789abcdefghijklmnop'); v.fire({ type: 'meterToggle', vendor: 'codex' }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([v.lastCodexMeter().backend, v.lastCodexMeter().backendLabel, v.lastCodexMeter().plan, v.lastCodexMeter().segments, m.globalState._dump()['perch.codex.backend'], await m.secrets.get('perch.codex.apiKey')],
+      ['api', 'API', '', [], 'api', 'sk-test-0123456789abcdefghijklmnop'], 'on the key: no plan, no limits shown; the key is in secret storage, not in state');
+    assert(!JSON.stringify(m.globalState._dump()).includes('sk-test'), 'and nowhere else');
+    assert.deepStrictEqual([a.apiKeys, v.lastTabs().tabs[0].backend], [['sk-test-0123456789abcdefghijklmnop'], 'api'], 'the open tab takes the key for its next turn');
+    assert(/Codex backend is now your OpenAI API key, from the next message/.test(v.events(x).filter((e) => e.kind === 'note').pop().text));
+    v.fire({ type: 'new', kind: 'codex' }); const y = v.lastTabs().active; v.fire({ type: 'send', sid: y, text: 'hi' }); await flush();
+    assert.strictEqual(created[created.length - 1].o.apiKey, 'sk-test-0123456789abcdefghijklmnop', 'a new tab starts with it');
+    // and back, with the key kept for next time
+    v.fire({ type: 'meterToggle', vendor: 'codex' }); await flush(); await flush();
+    assert.deepStrictEqual([v.lastCodexMeter().backend, a.apiKeys.pop(), await m.secrets.get('perch.codex.apiKey')], ['chatgpt', null, 'sk-test-0123456789abcdefghijklmnop']);
+    v.fire({ type: 'meterToggle', vendor: 'codex' }); await flush(); await flush();
+    assert.deepStrictEqual([v.lastCodexMeter().backend, m.ui.asked.length], ['api', 1], 'the second switch to the key asks nothing');
+    // forgetting the key puts Codex back on the login
+    await m.commands['perch.codex.clearApiKey'](); await flush();
+    assert.deepStrictEqual([v.lastCodexMeter().backend, await m.secrets.get('perch.codex.apiKey'), m.ui.infos.pop()], ['chatgpt', undefined, 'Perch: the Codex API key is gone; Codex uses your ChatGPT login.']);
+    // with no login on the machine, the key is a way in: the first message is not held back
+    m.box.codexLoggedIn = false; m.ui.inputs.push('sk-other-0123456789abcdefghijklmnop'); await m.commands['perch.codex.setApiKey'](); await flush();
+    assert.strictEqual(m.ui.infos.pop(), 'Perch: Codex will use your API key from the next message.');
+    v.fire({ type: 'new', kind: 'codex' }); const z = v.lastTabs().active; const made = created.length; v.fire({ type: 'send', sid: z, text: 'go' }); await flush();
+    assert.deepStrictEqual([created.length, created[created.length - 1].o.apiKey, m.ui.warnings.length], [made + 1, 'sk-other-0123456789abcdefghijklmnop', 0]);
+    m.box.codexLoggedIn = true;
+    // Bedrock, from the footer's menu: every Codex tab gets Codex's own Bedrock provider as --config overrides, the region and profile from
+    // perch's settings or Claude Code's, and its model in Bedrock's form; no key, no login needed
+    m.box.settingsEnv = { AWS_REGION: 'us-west-2', AWS_PROFILE: 'dev' }; m.box.apiCreds = true;
+    v.fire({ type: 'codexBackend', value: 'bedrock' }); await flush(); await flush();
+    const bm = v.lastCodexMeter();
+    assert.deepStrictEqual([bm.backend, bm.backendLabel, bm.plan, bm.segments, bm.bedrock, m.globalState._dump()['perch.codex.backend']],
+      ['bedrock', 'Bedrock', '', [], { endpoint: 'runtime', provider: 'amazon-bedrock-runtime', region: 'us-west-2', profile: 'dev' }, 'bedrock'], 'the runtime endpoint, in the region and with the profile Claude Code is set up with');
+    assert(/Codex runs on Amazon Bedrock \(the runtime endpoint, us-west-2, profile dev\)/.test(bm.backendTitle));
+    const bz = created[created.length - 1];
+    assert.deepStrictEqual([bz.backends.pop(), v.lastTabs().tabs[2].backend], [{ apiKey: null, bedrock: { endpoint: 'runtime', provider: 'amazon-bedrock-runtime', region: 'us-west-2', profile: 'dev', defaultModel: 'gpt-5.6-sol' } }, 'bedrock'], 'the open tab moves on its next turn, with the catalog\'s default for when it has no model of its own');
+    assert(/Codex backend is now Amazon Bedrock \(the runtime endpoint, us-west-2\), from the next message/.test(v.events(z).filter((e) => e.kind === 'note').pop().text));
+    m.box.codexLoggedIn = false;   // no ChatGPT login: no matter on Bedrock
+    v.fire({ type: 'new', kind: 'codex' }); const w = v.lastTabs().active; const madeW = created.length; v.fire({ type: 'send', sid: w, text: 'go' }); await flush();
+    assert.deepStrictEqual([created.length, created[created.length - 1].o.apiKey, created[created.length - 1].o.bedrock.provider, m.ui.warnings.length], [madeW + 1, undefined, 'amazon-bedrock-runtime', 0], 'a new tab starts on Bedrock without being held for a login');
+    // with nothing to sign with, the first message is held, and the note's button goes back to ChatGPT
+    m.box.apiCreds = false; v.fire({ type: 'new', kind: 'codex' }); const q = v.lastTabs().active; const madeQ = created.length; v.fire({ type: 'send', sid: q, text: 'go' }); await flush();
+    const hold = v.events(q).filter((e) => e.kind === 'note').pop();
+    assert.deepStrictEqual([created.length, /^Codex is set to Amazon Bedrock on .+ \(us-west-2, profile dev\), and no AWS credentials were found there/.test(hold.text), hold.actions], [madeQ, true, [{ id: 'codexChatgpt', label: 'Use ChatGPT' }]]);
+    v.fire({ type: 'noteAction', sid: q, action: 'codexChatgpt' }); await flush(); await flush();
+    assert.strictEqual(v.lastCodexMeter().backend, 'chatgpt');
+    v.fire({ type: 'noteAction', sid: q, action: 'codexChatgpt' }); await flush();
+    assert.strictEqual(v.lastCodexMeter().backend, 'chatgpt', 'pressed again: nothing');
+    m.box.codexLoggedIn = true; m.box.apiCreds = true;
+    // the key prompt left waiting (the user picked the key, then changed their mind to Bedrock from the menu): taken down, and its answer not acted on
+    v.fire({ type: 'codexBackend', value: 'chatgpt' }); await flush(); await flush();
+    await m.commands['perch.codex.clearApiKey'](); await flush();
+    const asked0 = m.ui.asked.length;
+    v.fire({ type: 'codexBackend', value: 'api' }); await flush();   // no key stored: the prompt opens and waits (no input queued)
+    assert.deepStrictEqual([m.ui.asked.length, m.ui.pendingInputs.length], [asked0 + 1, 1], 'the prompt is up');
+    v.fire({ type: 'codexBackend', value: 'bedrock' }); await flush(); await flush();
+    assert.deepStrictEqual([m.ui.pendingInputs.length, v.lastCodexMeter().backend], [0, 'bedrock'], 'Bedrock chosen while it waited: the prompt is taken down, Codex is on Bedrock');
+    assert.strictEqual(await m.secrets.get('perch.codex.apiKey'), undefined, 'and no key was kept');
+    m.perch.dispose();
+    // the key comes back from secret storage in a new window
+    const r = install(undefined, { meter: { secrets: { 'perch.codex.apiKey': 'sk-kept-0123456789abcdefghijklmnop' } } }); await flush();
+    const rv = fakeView(); r.registered['perch.main'].resolveWebviewView(rv.view); rv.fire({ type: 'ready' }); await flush();
+    r.globalState.update('perch.codex.backend', 'api'); r.perch.meter.refreshCodex(); await flush();
+    assert.strictEqual(rv.lastCodexMeter().backend, 'api');
+    r.perch.dispose();
+  }
+
+  // ---- a Codex turn's sub-agents and its questions asked without waiting, as the agent reads them from the thread's file
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'send', sid: x, text: 'hold the turn' }); await flush();
+    const a = created[created.length - 1];
+    assert.deepStrictEqual([v.tab(x).busy, v.tab(x).subagents], [true, null], 'no sub-agents yet: nothing about them');
+    for (const [name, state] of [['desk_audio', 'started'], ['desk_speech', 'started'], ['desk_audio', 'reported'], ['desk_speech', 'finished'], ['desk_speech', 'answered'], ['desk_speech', 'reported'], ['desk_audio', 'active'], ['', 'waiting'], ['desk_old', 'active']]) a.emit({ kind: 'subagent', name, state });
+    assert.deepStrictEqual(v.tab(x).subagents, { working: 2, finished: 1, interrupted: 0, list: [{ name: 'desk_audio', state: 'working', reports: 1 }, { name: 'desk_speech', state: 'finished', reports: 2 }, { name: 'desk_old', state: 'working', reports: 0 }] },
+      'two at work and one done; a report delivered after its sender finished does not set it working again; one heard of only now is at work');
+    assert.deepStrictEqual(v.events(x).filter((e) => e.kind === 'subagent').map((e) => e.name + ' ' + e.state), ['desk_audio started', 'desk_speech started', 'desk_audio reported', 'desk_speech finished', 'desk_speech reported', ' waiting'],
+      'the page is told each start, report, and end, and that the root waits; not its final answer, nor the root speaking to it');
+    // what each one's own thread file says: its model and what its turns cost, for the foot's table, its end line, and the turn's result
+    a.emit({ kind: 'subagent', name: 'desk_audio', state: 'usage', model: 'gpt-6.1-sol', effort: 'ultra', turns: 3, tokens: { input: 1000, cached: 900, output: 50 }, nickname: 'Popper' });
+    a.emit({ kind: 'subagent', name: 'desk_new', state: 'usage', model: 'gpt-5.6-sol', effort: 'low', turns: 2, tokens: { input: 10, cached: 0, output: 1 }, models: [{ model: 'gpt-6.1-sol', turns: 1 }, { model: 'gpt-5.6-sol', turns: 1 }] });
+    assert.deepStrictEqual(v.tab(x).subagents.list.map((s) => [s.name, s.state, s.model || '', s.turns || 0, (s.tokens || {}).input || 0, s.nickname || '', s.models ? s.models.length : 0]),
+      [['desk_audio', 'working', 'gpt-6.1-sol', 3, 1000, 'Popper', 0], ['desk_speech', 'finished', '', 0, 0, '', 0], ['desk_old', 'working', '', 0, 0, '', 0], ['desk_new', 'working', 'gpt-5.6-sol', 2, 10, '', 2]],
+      'each by name with what is known of it; one heard of only by its usage is at work; its usage is no line of the transcript');
+    assert(!v.events(x).some((e) => e.kind === 'subagent' && e.state === 'usage'));
+    a.emit({ kind: 'subagent', name: 'desk_audio', state: 'finished' });
+    assert.deepStrictEqual(v.events(x).filter((e) => e.kind === 'subagent' && e.state === 'finished').pop(),
+      { kind: 'subagent', name: 'desk_audio', state: 'finished', info: { model: 'gpt-6.1-sol', effort: 'ultra', turns: 3, tokens: { input: 1000, cached: 900, output: 50 }, nickname: 'Popper' } }, 'its end line keeps what its file had said by then');
+    a.emit({ kind: 'result', ok: true, duration_ms: 5, usage: { input: 1, cache_read: 0, output: 1 } });
+    const res = v.events(x).filter((e) => e.kind === 'result').pop();
+    assert.deepStrictEqual(res.subagents.list.map((s) => s.name + ':' + s.state + ':' + (s.model || '-')), ['desk_audio:finished:gpt-6.1-sol', 'desk_speech:finished:-', 'desk_old:working:-', 'desk_new:working:gpt-5.6-sol'], 'the turn\'s result carries them all as they stand');
+    assert.deepStrictEqual(res.subagents.list[3].models, [{ model: 'gpt-6.1-sol', turns: 1 }, { model: 'gpt-5.6-sol', turns: 1 }]);
+    // a question Codex asked without waiting: a card, with the tab not waiting on it
+    const qs = [{ question: 'Where should replies play?', options: [{ label: 'Default output' }, { label: 'I will say' }], multiSelect: false }, { question: 'Anything else?', options: [], multiSelect: false }];
+    a.emit({ kind: 'question', id: 'call_q', async: true, questions: qs });
+    assert.deepStrictEqual(v.events(x).filter((e) => e.kind === 'question').pop(), { kind: 'question', id: 'call_q', async: true, questions: qs });
+    // a page made again is given the transcript's lines, and the question as it stands
+    const n = v.got.length; v.fire({ type: 'ready' }); await flush();
+    const replay = v.got.slice(n).filter((g) => g.type === 'event' && g.sid === x).map((g) => g.ev);
+    assert.deepStrictEqual(replay.filter((e) => e.kind === 'subagent').map((e) => e.name + ' ' + e.state + (e.info ? ' · ' + e.info.model : '')), ['desk_audio started', 'desk_speech started', 'desk_audio reported', 'desk_speech finished', 'desk_speech reported', 'desk_audio finished · gpt-6.1-sol'], 'the waiting is not a line of the transcript; an end line keeps its model');
+    assert(replay.some((e) => e.kind === 'question' && e.id === 'call_q'));
+    // answered: nothing waits for it, so the answers go as the next message, queued behind the turn
+    v.fire({ type: 'permission', sid: x, id: 'call_q', decision: 'answer', answers: { 'Where should replies play?': 'Default output', 'Anything else?': '  ' } }); await flush();
+    const answer = 'Answers to the questions you asked:\n- Where should replies play?\n  Default output\n- Anything else?\n  (no answer)';
+    { const { qid, ...u } = v.events(x).filter((e) => e.kind === 'user').pop(); assert.deepStrictEqual([v.tab(x).queued, typeof qid, u], [1, 'string', { kind: 'user', text: answer, queued: true }]); }
+    const n2 = v.got.length; v.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v.got.slice(n2).filter((g) => g.type === 'event' && g.sid === x && (g.ev.kind === 'answered' || g.ev.kind === 'question')).map((g) => g.ev), [{ kind: 'answered', questions: qs, answers: { 'Where should replies play?': 'Default output' } }], 'replayed as answered');
+    // the turn ends: its sub-agents end with its process, and the answer goes
+    a.finish(); await flush(); await flush();
+    assert.strictEqual(a.sent[a.sent.length - 1], answer, 'sent to Codex as the next message');
+    a.finish(); await flush(); await flush();
+    assert.deepStrictEqual([v.tab(x).busy, v.tab(x).subagents], [false, null], 'no sub-agents once the turn is over');
+    // a question dismissed sends nothing; one answered while Codex is idle goes at once
+    a.emit({ kind: 'question', id: 'q2', async: true, questions: [qs[1]] });
+    v.fire({ type: 'permission', sid: x, id: 'q2', decision: 'deny' }); await flush();
+    const sent = a.sent.length;
+    a.emit({ kind: 'question', id: 'q3', async: true, questions: [qs[1]] });
+    v.fire({ type: 'permission', sid: x, id: 'q3', decision: 'answer', answers: { 'Anything else?': 'No' } }); await flush();
+    assert.deepStrictEqual([a.sent.length, a.sent[a.sent.length - 1]], [sent + 1, 'An answer to the question you asked:\n- Anything else?\n  No'], 'dismissed: nothing; answered while idle: sent now');
+    m.perch.dispose();
+  }
+
+  // ---- a queued message can be taken back until its turn starts: from perch's own queue for Codex, from Claude Code's for Claude
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const replayed = async (sid) => { const n = v.got.length; v.fire({ type: 'ready' }); await flush(); return v.got.slice(n).filter((g) => g.type === 'event' && g.sid === sid && g.ev.kind === 'user').map((g) => g.ev.text + (g.ev.queued ? ' (queued)' : '')); };
+    // Codex: the queue is perch's own
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'send', sid: x, text: 'hold on' }); await flush();
+    const a = created[created.length - 1];
+    for (const t of ['one', 'two', 'one']) v.fire({ type: 'send', sid: x, text: t });
+    const qd = v.events(x).filter((e) => e.kind === 'user' && e.queued);
+    assert.deepStrictEqual([v.tab(x).queued, qd.map((e) => e.text), new Set(qd.map((e) => e.qid)).size], [3, ['one', 'two', 'one'], 3], 'each queued message has an id of its own, whatever its words');
+    v.fire({ type: 'unqueue', sid: x, qid: qd[0].qid }); await flush();
+    assert.deepStrictEqual([v.tab(x).queued, v.events(x).filter((e) => e.kind === 'unqueued').pop()], [2, { kind: 'unqueued', qid: qd[0].qid, ok: true }], 'taken back: out of the queue, and the page told');
+    assert.deepStrictEqual(await replayed(x), ['hold on', 'two (queued)', 'one (queued)'], 'and gone from what a page made again is given');
+    // the turn ends: the next queued message starts, and is an ordinary message from then on; the one taken back never reaches Codex
+    a.finish(); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([a.sent, v.events(x).filter((e) => e.kind === 'dequeued').map((e) => e.qid)], [['hold on', 'two', 'one'], [qd[1].qid, qd[2].qid]]);
+    assert.deepStrictEqual(await replayed(x), ['hold on', 'two', 'one'], 'each echo dropped once, though two queued messages had the same words: no bubble twice, none lost');
+    v.fire({ type: 'unqueue', sid: x, qid: qd[1].qid }); await flush();
+    assert.deepStrictEqual(v.events(x).filter((e) => e.kind === 'unqueued').pop(), { kind: 'unqueued', qid: qd[1].qid, ok: false, why: 'taken' }, 'too late once its turn has started');
+    // Stop drops what is queued: the note says how many, the bubbles go
+    v.fire({ type: 'send', sid: x, text: 'hold again' }); await flush();
+    v.fire({ type: 'send', sid: x, text: 'three' }); v.fire({ type: 'send', sid: x, text: 'four' });
+    const dropped = v.events(x).filter((e) => e.kind === 'user' && e.queued).slice(-2).map((e) => e.qid);
+    v.fire({ type: 'stop', sid: x }); await flush();
+    assert.deepStrictEqual(v.events(x).filter((e) => e.kind === 'unqueued').slice(-2), dropped.map((qid) => ({ kind: 'unqueued', qid, ok: true, quiet: true })));
+    assert(v.events(x).some((e) => e.kind === 'note' && e.text === '2 queued messages dropped'));
+    assert.deepStrictEqual((await replayed(x)).slice(-1), ['hold again']);
+    // Claude: Claude Code holds the queue; perch asks it to take a message back
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'hold the line' }); await flush();
+    const b = created[created.length - 1];
+    v.fire({ type: 'send', sid: c, text: 'c1' }); v.fire({ type: 'send', sid: c, text: 'c2' }); await flush();
+    const cq = v.events(c).filter((e) => e.kind === 'user' && e.queued).map((e) => e.qid);
+    v.fire({ type: 'unqueue', sid: c, qid: cq[0] }); await flush();
+    assert.deepStrictEqual([v.events(c).filter((e) => e.kind === 'unqueued').pop(), b.waiting.map(String)], [{ kind: 'unqueued', qid: cq[0], ok: true }, ['c2']]);
+    knobs.unqueue = 'unsupported';
+    try {
+      v.fire({ type: 'unqueue', sid: c, qid: cq[1] }); await flush();
+      assert.deepStrictEqual(v.events(c).filter((e) => e.kind === 'unqueued').pop(), { kind: 'unqueued', qid: cq[1], ok: false, why: 'unsupported' }, 'a Claude Code that cannot be asked: it stays queued');
+      assert.deepStrictEqual((await replayed(c)).slice(-1), ['c2 (queued)']);
+    } finally { knobs.unqueue = undefined; }
+    b.finish(); await flush(); await flush();
+    assert.deepStrictEqual([v.events(c).filter((e) => e.kind === 'dequeued').map((e) => e.qid), (await replayed(c))], [[cq[1]], ['hold the line', 'c2']], 'taken up by a turn: an ordinary message from then on');
+    v.fire({ type: 'unqueue', sid: 'nope', qid: 'x' }); v.fire({ type: 'unqueue', sid: c }); await flush();
+    m.perch.dispose();
+  }
+
+  // ---- the page's copy button: the host puts the text on the clipboard
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'copy', text: 'git status --short' }); v.fire({ type: 'copy' }); await flush();
+    assert.deepStrictEqual(m.ui.copied, ['git status --short', '']);
+    // the page may open the vendors' own pages in the browser, and nothing else
+    v.fire({ type: 'openExternal', url: 'https://chatgpt.com/codex/settings/usage' }); v.fire({ type: 'openExternal', url: 'https://claude.ai/settings/usage' });
+    v.fire({ type: 'openExternal', url: 'https://evil.example/chatgpt.com/' }); v.fire({ type: 'openExternal', url: 'http://chatgpt.com/x' }); v.fire({ type: 'openExternal' }); await flush();
+    assert.deepStrictEqual(m.ui.external, ['https://chatgpt.com/codex/settings/usage', 'https://claude.ai/settings/usage']);
+    m.perch.dispose();
+  }
+
+  // ---- Codex's sandbox cannot start on the machine: the choice to run without one, for the tab or for the machine
+  {
+    const HOST = require('os').hostname(), BWRAP = 'bwrap: No permissions to create a new namespace, likely because the kernel does not allow non-privileged user namespaces. On e.g. debian this can be enabled with \'sysctl kernel.unprivileged_userns_clone=1\'.';
+    const m = install(undefined, { remote: 'ssh-remote' }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'send', sid: x, text: 'what branch am i on?' }); await flush();
+    const a = created[created.length - 1];
+    a.emit({ kind: 'tool_use', id: 'c1', name: 'shell', input: { command: 'git status' } }); a.emit({ kind: 'tool_result', id: 'c1', text: BWRAP, isError: true }); await flush(); await flush();
+    assert.strictEqual(m.ui.warnings.pop(), `Codex's sandbox cannot start on ${HOST}: the kernel forbids the user namespaces it needs, and Codex has no other sandbox on Linux. Codex can run here without one, as you, with approvals as perch.codex.approvalPolicy says.`);
+    assert.deepStrictEqual([v.lastTabs().tabs.find((t) => t.id === x).mode, a.modes], ['workspace-write', []], 'declined: nothing changes');
+    a.emit({ kind: 'tool_result', id: 'c2', text: BWRAP, isError: true }); await flush();
+    assert.strictEqual(m.ui.warnings.length, 0, 'asked once per tab');
+    // for this tab only
+    v.fire({ type: 'new', kind: 'codex' }); const y = v.lastTabs().active; v.fire({ type: 'send', sid: y, text: 'ls' }); await flush();
+    const b = created[created.length - 1]; m.ui.answers.push('Full Access, This Tab');
+    b.emit({ kind: 'tool_result', id: 'c3', text: BWRAP, isError: true }); await flush(); await flush();
+    assert.deepStrictEqual([v.lastTabs().tabs.find((t) => t.id === y).mode, b.modes, m.globalState._dump()['perch.codex.unsandboxed']], ['danger-full-access', ['danger-full-access'], undefined]);
+    assert.strictEqual(v.events(y).filter((e) => e.kind === 'note').pop().text, 'Codex runs without a sandbox in this tab. Send the message again.');
+    v.fire({ type: 'new', kind: 'codex' }); assert.strictEqual(v.lastTabs().tabs.find((t) => t.id === v.lastTabs().active).mode, 'workspace-write', 'other tabs are as before');
+    // for the machine: remembered, and new Codex tabs here start without a sandbox and say so
+    v.fire({ type: 'new', kind: 'codex' }); const z = v.lastTabs().active; v.fire({ type: 'send', sid: z, text: 'ls' }); await flush();
+    const c = created[created.length - 1]; m.ui.answers.push(`Full Access on ${HOST}`);
+    c.emit({ kind: 'tool_result', id: 'c4', text: BWRAP, isError: true }); await flush(); await flush();
+    assert.deepStrictEqual([v.lastTabs().tabs.find((t) => t.id === z).mode, m.globalState._dump()['perch.codex.unsandboxed']], ['danger-full-access', { [HOST]: true }]);
+    assert.strictEqual(v.events(z).filter((e) => e.kind === 'note').pop().text, `Codex runs without a sandbox in this tab, and in new tabs on ${HOST}. Send the message again.`);
+    v.fire({ type: 'new', kind: 'codex' }); const w = v.lastTabs().active; await flush();
+    assert.strictEqual(v.lastTabs().tabs.find((t) => t.id === w).mode, 'danger-full-access');
+    assert.strictEqual(v.events(w).filter((e) => e.kind === 'note').pop().text, `Codex runs without a sandbox on ${HOST}: the kernel forbids the user namespaces its sandbox needs.`);
+    v.fire({ type: 'new', kind: 'claude' }); assert.strictEqual(v.lastTabs().tabs.find((t) => t.id === v.lastTabs().active).mode, 'default', 'Claude tabs are untouched');
+    m.perch.dispose();
+  }
+
+  // ---- Codex with no login on the machine: the first message is held back, the login offered, the text put back
+  {
+    const m = install(undefined, { meter: { codexLoggedIn: false }, remote: 'ssh-remote' }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active; const made = created.length;
+    v.fire({ type: 'send', sid: x, text: 'hello' }); await flush(); await flush();
+    assert.strictEqual(created.length, made, 'no agent is started: it would only be refused');
+    assert(/^Codex is not logged in on .+\. Log in, then send the message again\.$/.test(v.events(x).filter((e) => e.kind === 'note').pop().text));
+    assert.strictEqual(v.events(x).filter((e) => e.kind === 'insert').pop().text, 'hello', 'the message goes back into the box');
+    assert.deepStrictEqual(v.events(x).filter((e) => e.kind === 'note').pop().actions, [{ id: 'codexLogin', label: 'Log In' }, { id: 'codexDevice', label: 'Device Code' }], 'the two ways in stay as buttons under the note');
+    assert(/^Codex is not logged in on .+\. Perch runs it with your ChatGPT login, kept in \/home\/me\/\.codex\. Log In opens ChatGPT's sign-in page in your browser\. Device Code prints a link and a one-time code in a terminal instead, which ChatGPT must allow first \(Settings, Security and login, App security\)\.$/.test(m.ui.warnings.pop()), 'and the offer says where the login lives, and the two ways');
+    assert.deepStrictEqual([m.ui.terminals.length, m.box.codexWaits || 0, m.box.codexLogins], [0, 0, undefined], 'declined: nothing runs');
+    // taken up: the browser sign-in runs here, its page opens on the user's machine, the return port is forwarded, and the login is watched for
+    m.ui.answers.push('Log In'); v.fire({ type: 'send', sid: x, text: 'hello again' }); await flush(); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([m.box.codexLogins.length, /codex$/.test(m.box.codexLogins[0]), m.ui.forwarded, m.ui.external.pop(), m.ui.terminals.length, m.box.codexWaits, m.box.codexKilled, m.ui.infos.pop()],
+      [1, true, ['http://localhost:1455'], 'https://auth.openai.com/oauth/authorize?client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback', 0, 1, 1, 'Perch: Codex is logged in. Send your message again.'],
+      'the program here, the page there, the port between, and the server let go once the login is in');
+    assert.strictEqual(m.box.codexWaitUntil, false, 'the browser sign-in has no terminal to end its wait');
+    v.fire({ type: 'send', sid: x, text: 'hello again' }); await flush(); await flush();
+    assert.strictEqual(created.length, made + 1, 'logged in: the message goes to a Codex of its own');
+    // the note's buttons, pressed once the login is in: they say so and start nothing
+    v.fire({ type: 'noteAction', sid: x, action: 'codexLogin' }); v.fire({ type: 'noteAction', sid: x, action: 'codexDevice' }); await flush();
+    assert.deepStrictEqual([m.box.codexLogins.length, m.ui.terminals.length, m.ui.infos.pop()], [1, 0, 'Perch: Codex is logged in. Send your message again.']);
+    // and before it is: the note's Log In runs the same sign-in, with no notification first
+    m.box.codexLoggedIn = false; m.ui.warnings.length = 0;
+    v.fire({ type: 'noteAction', sid: x, action: 'codexLogin' }); await flush(); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([m.box.codexLogins.length, m.ui.warnings.length, m.ui.infos.pop()], [2, 0, 'Perch: Codex is logged in. Send your message again.']);
+    // the other way: the device code, in a terminal
+    m.box.codexLoggedIn = false; m.ui.answers.push('Device Code'); v.fire({ type: 'new', kind: 'codex' }); const y = v.lastTabs().active;
+    v.fire({ type: 'send', sid: y, text: 'hi' }); await flush(); await flush(); await flush();
+    const t = m.ui.terminals.pop();
+    assert.deepStrictEqual([t.o.name, t.sent.length, /login --device-auth$/.test(t.sent[0]), m.box.codexWaits, m.box.codexLogins.length, m.box.codexWaitUntil], ['Codex login', 1, true, 3, 2, true], 'the device code runs no browser sign-in: the two before it were the notification\'s and the note\'s. Its wait ends when its terminal closes');
+    // and the browser sign-in that cannot start says so
+    m.box.codexLoggedIn = false; m.box.codexLoginFails = 'spawn ENOENT'; m.ui.answers.push('Log In'); v.fire({ type: 'send', sid: y, text: 'hi' }); await flush(); await flush(); await flush();
+    assert.strictEqual(m.ui.errors.pop(), 'Perch: the Codex login could not start. spawn ENOENT');
+    m.box.codexLoginFails = null; m.box.codexLoggedIn = true;
+    // a login Codex refuses later (ChatGPT ended the session: revoked, invalidated, the same login refreshed on another
+    // machine): the turn's message and its queue go back to the box, a lasting note offers the login, and messages are held
+    // until auth.json holds a new login. The errors are those `codex exec` wrote on 2026-10-12 for a revoked login.
+    m.box.codexStamp = 'stamp-old';
+    v.fire({ type: 'send', sid: y, text: 'hold this' }); await flush();
+    const ag = created[created.length - 1];
+    v.fire({ type: 'send', sid: y, text: 'queued behind' });
+    m.ui.warnings.length = 0;
+    for (const t of ['Reconnecting... 1/5 (workspace routing discovery unauthorized (401))', 'Reconnecting... 2/5 (workspace routing discovery unauthorized (401))',
+      'Codex Exec exited with code 1: Reading prompt from stdin...\nERROR codex_login::auth::manager: Failed to refresh token status=401 Unauthorized detail=TokenErrorDetail { error_code: Some("refresh_token_invalidated"), error_message: Some("Your session has ended. Please log in again.") }']) ag.emit({ kind: 'error', text: t });
+    await flush();
+    const refusedNotes = () => v.events(y).filter((e) => e.kind === 'note' && /was refused/.test(e.text));
+    assert.deepStrictEqual([refusedNotes().length, refusedNotes()[0].actions.map((x) => x.id), /The messages are back in the box\.$/.test(refusedNotes()[0].text), /a copy of another machine's auth\.json ends when either copy refreshes/.test(refusedNotes()[0].text)],
+      [1, ['codexLogin', 'codexDevice'], true, true], 'said once, though Codex said it three times; with why, and with the ways in');
+    assert.deepStrictEqual([v.events(y).filter((e) => e.kind === 'insert').pop().text, v.tab(y).queued], ['hold this\n\nqueued behind', 0], 'the turn\'s message and the one queued behind it, back in the box in order; the queue is empty');
+    assert.strictEqual(m.ui.warnings.filter((x) => /was refused: ChatGPT ended its session/.test(x)).length, 1, 'one notification');
+    assert.strictEqual(m.globalState._dump()['perch.codex.refusedLogin'], 'stamp-old', 'which login was refused, kept across reloads');
+    ag.finish(); await flush(); await flush();
+    const sentBefore = ag.sent.length;
+    // the next message is held: no turn starts on a login Codex has refused
+    v.fire({ type: 'send', sid: y, text: 'try again' }); await flush();
+    assert.deepStrictEqual([ag.sent.length, /was refused, and no new one has been made/.test(refusedNotes().pop().text), v.events(y).filter((e) => e.kind === 'insert').pop().text], [sentBefore, true, 'try again']);
+    // the note's Log In runs a login, though auth.json is there, and waits for one other than the refused one
+    const logins = m.box.codexLogins.length;
+    v.fire({ type: 'noteAction', sid: y, action: 'codexLogin' }); await flush(); await flush(); await flush(); await flush();
+    assert.deepStrictEqual([m.box.codexLogins.length, m.box.codexWaitSince, m.globalState._dump()['perch.codex.refusedLogin']], [logins + 1, 'stamp-old', undefined]);
+    // a new login is there: messages go again
+    v.fire({ type: 'send', sid: y, text: 'after login' }); await flush();
+    assert.strictEqual(String(ag.sent[ag.sent.length - 1]), 'after login');
+    // a refused login is also ended by a refresh elsewhere on this machine: auth.json rewritten
+    ag.emit({ kind: 'error', text: 'Reconnecting... 1/5 (workspace routing discovery unauthorized (401))' }); await flush();
+    m.box.codexStamp = 'stamp-refreshed-by-the-codex-extension';
+    v.fire({ type: 'send', sid: y, text: 'refreshed' }); await flush();
+    assert.strictEqual(String(ag.sent[ag.sent.length - 1]), 'refreshed', 'the file changed: not held');
+    // other errors are no login matter; nor is a bare 401, which may be any server's
+    const w = m.ui.warnings.length; ag.emit({ kind: 'error', text: 'something else' }); ag.emit({ kind: 'error', text: 'unexpected status 401 Unauthorized: Missing bearer or basic authentication in header' }); await flush();
+    assert.deepStrictEqual([m.ui.warnings.length, m.globalState._dump()['perch.codex.refusedLogin']], [w, undefined], 'other errors are not a login matter');
+    m.perch.dispose();
+  }
+
+  // ---- a login note's buttons always answer: a login waiting already is brought back, not dropped; one done marks every
+  // login note done, in place, in every Codex tab, and so in what is replayed (seen 2026-10-12: the note's Log In did nothing)
+  {
+    const m = install(undefined, { meter: { codexLoggedIn: false } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'new', kind: 'codex' }); const z = v.lastTabs().active;
+    let release; m.box.codexLoginHold = new Promise((r) => { release = r; });
+    v.fire({ type: 'send', sid: x, text: 'hi' }); v.fire({ type: 'send', sid: z, text: 'there' }); await flush(); await flush();
+    const note = v.events(x).filter((e) => e.kind === 'note').pop();
+    assert.deepStrictEqual([note.nid, note.actions.map((a) => a.id)], ['codexLogin', ['codexLogin', 'codexDevice']]);
+    // the note's Log In: a login starts, its page opens, and it waits for the browser
+    m.ui.external.length = 0; m.ui.infos.length = 0;
+    v.fire({ type: 'noteAction', sid: x, action: 'codexLogin' }); await flush(); await flush(); await flush();
+    const page = m.ui.external[0];
+    assert.deepStrictEqual([m.box.codexLogins.length, typeof page, /^https:\/\/auth\.openai\.com\//.test(page)], [1, 'string', true]);
+    // pressed again while it waits, from the other tab: no second login; the same page again, and said so
+    v.fire({ type: 'noteAction', sid: z, action: 'codexLogin' }); await flush();
+    assert.deepStrictEqual([m.box.codexLogins.length, m.ui.external.length, m.ui.external[1], /already waiting for you: its sign-in page is open again/.test(m.ui.infos.pop())], [1, 2, page, true]);
+    // the browser comes back: every login note is done, in place, in each tab
+    release(); for (let i = 0; i < 6; i++) await flush();
+    for (const sid of [x, z]) {
+      const done = v.events(sid).filter((e) => e.kind === 'noteDone');
+      assert.deepStrictEqual([done.length, done[0] && done[0].nid, done[0] && /^Logged in on .+ at \d\d:\d\d: send the message again\.$/.test(done[0].text)], [1, 'codexLogin', true], 'in ' + sid);
+    }
+    // and in what a page made again is given: the note without its buttons, with the word
+    const n = v.got.length; v.fire({ type: 'ready' }); await flush();
+    const replayed = v.got.slice(n).filter((g) => g.type === 'event' && g.sid === x && g.ev.kind === 'note' && g.ev.nid === 'codexLogin').map((g) => g.ev);
+    assert.deepStrictEqual(replayed.map((e) => [e.actions, /^Logged in on /.test(e.done)]), [[undefined, true]]);
+    // pressed after the login: said, not a login
+    v.fire({ type: 'noteAction', sid: x, action: 'codexLogin' }); await flush();
+    assert.deepStrictEqual([m.box.codexLogins.length, m.ui.infos.pop()], [1, 'Perch: Codex is logged in. Send your message again.']);
+    // the device code, waiting: pressed again, its terminal comes back
+    m.box.codexLoggedIn = false; m.box.codexLoginHold = new Promise((r) => { release = r; });
+    v.fire({ type: 'noteAction', sid: x, action: 'codexDevice' }); await flush();
+    const shown = m.ui.terminals.length;
+    v.fire({ type: 'noteAction', sid: x, action: 'codexDevice' }); await flush();
+    assert.deepStrictEqual([m.ui.terminals.length, /already waiting for you, in the Codex login terminal/.test(m.ui.infos.pop())], [shown, true]);
+    // its terminal closed before a login was made (by the user, or on Windows as codex ends): the wait is over, and said so
+    m.ui.warnings.length = 0;
+    m.ui.terminals[shown - 1].dispose(); for (let i = 0; i < 4; i++) await flush();
+    assert.deepStrictEqual(m.ui.warnings, ['Perch: the Codex login did not complete.'], 'closed with no login: over, not waited on for fifteen minutes');
+    // on Windows the terminal runs codex itself, with its arguments as they are: no shell reads them
+    onPlatform('win32', () => v.fire({ type: 'noteAction', sid: x, action: 'codexDevice' })); await flush();
+    const tw = m.ui.terminals[shown];
+    assert.deepStrictEqual([m.ui.terminals.length, tw.o.name, /codex(\.exe)?$/.test(tw.o.shellPath), tw.o.shellArgs, tw.sent], [shown + 1, 'Codex login', true, ['login', '--device-auth'], []], 'Windows: the program run directly, nothing typed');
+    release(); for (let i = 0; i < 4; i++) await flush();
+    assert.strictEqual(m.ui.infos.pop(), 'Perch: Codex is logged in. Send your message again.');
+    m.box.codexLoginHold = null;
+    m.perch.dispose();
+  }
+
+  // ---- names, and the sessions of the past
+  {
+    const NOW = Date.now(), MIN = 60000;
+    const past = { sessions: [
+      { kind: 'claude', id: 'c-old', title: 'Perch session name and loading', named: true, updatedAt: NOW - 2 * MIN },
+      { kind: 'codex', id: 'x-old', title: 'hello', named: false, updatedAt: NOW - 26 * MIN },
+      { kind: 'claude', id: 'c-older', title: 'supertrend', named: true, updatedAt: NOW - 40 * 24 * 60 * MIN },
+    ] };
+    const m = install(undefined, { past }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const state = () => m.memento._dump()['perch.sessions.v1'];
+    const made = created.length;
+
+    // nothing open: renaming the active tab has nothing to act on
+    await m.commands['perch.renameTab'](); v.fire({ type: 'rename', sid: 'nope' }); await flush();
+    assert.deepStrictEqual([m.ui.asked.length, m.store.renamed], [0, []]);
+
+    // the list: both agents' sessions of this folder, newest first, each with a button to rename it
+    let list = await m.commands['perch.sessions']();
+    assert.deepStrictEqual(m.store.lists.pop(), { dir: process.cwd(), limit: 200 }, 'the sessions of the workspace folder');
+    assert.deepStrictEqual([list.shown, list.busy, list.placeholder, list.title], [true, false, 'Search sessions…', 'Perch sessions']);
+    assert.deepStrictEqual(list.rows(), [['$(add) New Claude tab', undefined], ['$(add) New Codex tab', undefined], ['Perch session name and loading', 'Claude · 2m'], ['hello', 'Codex · 26m'], ['supertrend', 'Claude · 1mo']], 'a new tab of each kind first, then the past');
+    assert.deepStrictEqual(list.items.filter((i) => i.past).map((i) => i.buttons.map((b) => [b.iconPath.id, b.tooltip])), Array(3).fill([['edit', 'Rename session'], ['trash', 'Delete session']]));
+    assert.deepStrictEqual(list.items.filter((i) => i.past).map((i) => i.iconPath.path || i.iconPath.dark.path), ['/ext/anthropic.claude-code/resources/claude-logo.svg', '/ext/openai.chatgpt/resources/blossom.dark.png', '/ext/anthropic.claude-code/resources/claude-logo.svg'], 'each under its vendor\'s icon, the one its editor tab carries');
+
+    // renaming one that is not open writes to the agent's record, and the list comes back with the new name
+    m.ui.inputs.push('  Codex   greeting ');
+    await list.press((i) => i.past && i.past.id === 'x-old');
+    assert.deepStrictEqual([m.ui.asked.pop().value, list.shown, list.disposed], ['hello', false, true], 'the box opens on the present name, in the list\'s place');
+    assert.deepStrictEqual(m.store.renamed, [['codex', 'x-old', 'Codex greeting', { dir: process.cwd() }]]);
+    assert.strictEqual(m.ui.lists.length, 2); list = m.ui.lists[1];
+    assert.deepStrictEqual([list.shown, list.rows()[3]], [true, ['Codex greeting', 'Codex · 26m']]);
+    assert.strictEqual(v.lastTabs().tabs.length, 0, 'renaming opens nothing');
+
+    // dismissed, or left empty: nothing is written
+    m.ui.inputs.push(undefined); await list.press((i) => i.past && i.past.id === 'c-old'); list = m.ui.lists[2];
+    m.ui.inputs.push('   '); await list.press((i) => i.past && i.past.id === 'c-old'); list = m.ui.lists[3];
+    assert.deepStrictEqual([m.store.renamed.length, m.ui.errors.length], [1, 0]);
+    assert.deepStrictEqual([m.ui.asked[0].validateInput(' \n'), m.ui.asked[0].validateInput(' a ')], ['A name cannot be empty.', null]);
+
+    // a record that cannot be written is said so
+    m.store.failRename = 'EACCES: permission denied'; m.ui.inputs.push('nope'); await list.press((i) => i.past && i.past.id === 'c-old'); list = m.ui.lists[4];
+    assert.strictEqual(m.ui.errors.pop(), 'Perch: the session could not be renamed. EACCES: permission denied');
+    assert.strictEqual(list.rows()[2][0], 'Perch session name and loading'); m.store.failRename = null;
+
+    // choosing one opens a tab on it, under its name; the agent starts on the first message, resuming that session
+    list.choose((i) => i.past && i.past.id === 'c-old');
+    assert.deepStrictEqual([list.shown, list.disposed], [false, true]);
+    let t = v.lastTabs();
+    assert.deepStrictEqual(t.tabs.map((x) => [x.kind, x.title, x.started]), [['claude', 'Perch session name and loading', false]]);
+    const c = t.active;
+    assert.deepStrictEqual(v.events(c).filter((e) => e.kind === 'note').map((e) => e.text), ['resumed claude session c-old · earlier transcript is not shown, the agent still has it']);
+    assert.deepStrictEqual([state().sessions[0].resume, state().sessions[0].titled, state().counters], ['c-old', true, { claude: 0, codex: 0 }], 'saved like any tab; a resumed tab takes no number');
+    assert.strictEqual(created.length, made, 'and costs nothing until it is used');
+    v.fire({ type: 'send', sid: c, text: 'where were we' }); await flush();
+    assert.deepStrictEqual([created.length - made, created[made].o.resume, v.tab(c).title], [1, 'c-old', 'Perch session name and loading'], 'the first message does not rename it');
+    assert.deepStrictEqual(m.store.renamed.length, 1, 'a name that came from the record is not written back to it');
+
+    // the list marks what is open, and choosing it goes to its tab instead of opening a second one
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    list = await m.commands['perch.sessions']();
+    assert.deepStrictEqual(list.rows().slice(2).map((r) => r[1]), ['Claude · 2m · open', 'Codex · 26m', 'Claude · 1mo']);
+    list.choose((i) => i.past && i.past.id === 'c-old');
+    assert.deepStrictEqual([v.lastTabs().tabs.length, v.lastTabs().active], [2, c]);
+
+    // renaming an open session from the list renames its tab too
+    list = await m.commands['perch.sessions'](); m.ui.inputs.push('Naming and loading');
+    await list.press((i) => i.past && i.past.id === 'c-old');
+    assert.deepStrictEqual([v.tab(c).title, m.store.renamed.pop(), state().sessions[0].title, state().sessions[0].unsaved], ['Naming and loading', ['claude', 'c-old', 'Naming and loading', { dir: process.cwd() }], 'Naming and loading', false]);
+    assert.strictEqual(m.ui.lists.pop().rows()[2][0], 'Naming and loading');
+
+    // the active tab by command, and any sidebar tab by a double-click on it
+    m.ui.inputs.push('Again'); await m.commands['perch.renameTab']();
+    assert.deepStrictEqual([m.ui.asked.pop().value, v.tab(c).title, m.store.renamed.pop().slice(0, 3)], ['Naming and loading', 'Again', ['claude', 'c-old', 'Again']]);
+
+    // a tab named before its first message: the agent has no record yet, so the name waits for the end of the first turn
+    m.ui.inputs.push('Codex scratch'); v.fire({ type: 'rename', sid: x }); await flush();
+    assert.deepStrictEqual([v.tab(x).title, m.store.renamed.length, state().sessions[1].unsaved], ['Codex scratch', 1, true]);
+    v.fire({ type: 'send', sid: x, text: 'hold on' }); await flush();
+    assert.deepStrictEqual([v.tab(x).title, m.store.renamed.length], ['Codex scratch', 1], 'the first message does not take the name back, and nothing is written mid-turn');
+    list = await m.commands['perch.sessions'](); list.hide();
+    const xAgent = created[created.length - 1]; xAgent.finish(); await flush();
+    const xid = state().sessions[1].resume;
+    assert.deepStrictEqual([m.store.renamed.pop(), state().sessions[1].unsaved], [['codex', xid, 'Codex scratch', { dir: process.cwd() }], false]);
+    v.fire({ type: 'send', sid: x, text: 'more' }); await flush();
+    assert.strictEqual(m.store.renamed.length, 1, 'written once');
+
+    // a name that cannot reach the record stays on the tab, and is not tried again after every turn
+    m.store.failRename = 'Session not found'; m.ui.inputs.push('Kept here'); v.fire({ type: 'rename', sid: x }); await flush();
+    assert.deepStrictEqual([v.tab(x).title, m.ui.warnings.pop()], ['Kept here', 'Perch: this tab keeps its name, but Codex\'s record of the session could not be given it. Session not found']);
+    v.fire({ type: 'send', sid: x, text: 'and more' }); await flush();
+    assert.deepStrictEqual([m.ui.warnings.length, state().sessions[1].title], [0, 'Kept here']); m.store.failRename = null;
+
+    // names survive a reload, waiting ones included
+    v.fire({ type: 'new', kind: 'claude' }); const w = v.lastTabs().active;
+    m.ui.inputs.push('Not started'); v.fire({ type: 'rename', sid: w }); await flush();
+    // each row has a second button: delete. Asked first, in a dialog that waits; declined, nothing happens
+    list = await m.commands['perch.sessions']();
+    assert.deepStrictEqual(list.items.find((i) => i.past && i.past.id === 'x-old').buttons.map((b) => b.tooltip), ['Rename session', 'Delete session']);
+    m.ui.warnings.length = 0; m.ui.details.length = 0;
+    await list.press((i) => i.past && i.past.id === 'x-old', 1);
+    assert.deepStrictEqual([m.ui.warnings.pop(), /^Codex's record of this session is removed from this machine and cannot be brought back\.$/.test(m.ui.details.pop()), m.store.deleted], ['Delete "' + list.items.find((i) => i.past && i.past.id === 'x-old').label + '"?', true, []], 'declined: nothing is deleted');
+    // taken up: the agent's own delete, given the Codex program for a Codex session; the list opens again without the row
+    list = m.ui.lists[m.ui.lists.length - 1]; m.ui.answers.push('Delete');
+    await list.press((i) => i.past && i.past.id === 'x-old', 1);
+    assert.deepStrictEqual([m.store.deleted.length, m.store.deleted[0].slice(0, 2), m.store.deleted[0][2].dir, typeof m.store.deleted[0][2].codex], [1, ['codex', 'x-old'], process.cwd(), 'string']);
+    list = m.ui.lists[m.ui.lists.length - 1];
+    assert(!list.items.some((i) => i.past && i.past.id === 'x-old'), 'gone from the list');
+    // a record that cannot be removed says so
+    list = m.ui.lists[m.ui.lists.length - 1]; const left = list.items.find((i) => i.past && !/open/.test(i.description || ''));   // one with no tab open: a tab would be closed first
+    if (left) { m.store.failDelete = 'EACCES: permission denied'; m.ui.answers.push('Delete'); await list.press((i) => i === left, 1); assert.strictEqual(m.ui.errors.pop(), 'Perch: the session could not be deleted. EACCES: permission denied'); m.store.failDelete = null; }
+    m.perch.dispose();
+    const m2 = install(m.memento._dump(), { past }); await flush();
+    const v2 = fakeView(); m2.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v2.lastTabs().tabs.map((q) => q.title), ['Again', 'Kept here', 'Not started']);
+    const before = created.length;
+    v2.fire({ type: 'send', sid: w, text: 'first words' }); await flush();
+    assert.deepStrictEqual([v2.tab(w).title, m2.store.renamed], ['Not started', [['claude', 'sess-' + before, 'Not started', { dir: process.cwd() }]]], 'written once the session exists');
+    m2.perch.dispose();
+
+    // an editor tab: the name is the tab's title
+    const e = install(undefined, { past, config: { newTabs: 'editor' } }); await flush();
+    list = await e.commands['perch.sessions'](); list.choose((i) => i.past && i.past.id === 'x-old');
+    const panel = e.ui.panels[0];
+    assert.deepStrictEqual([e.ui.panels.length, panel.title], [1, 'hello']);
+    panel.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(panel.lastTabs().tabs.map((q) => [q.kind, q.title]), [['codex', 'hello']]);
+    e.ui.inputs.push('Greeting'); await e.commands['perch.renameTab']();
+    assert.deepStrictEqual([panel.title, panel.lastTabs().tabs[0].title, e.store.renamed], ['Greeting', 'Greeting', [['codex', 'x-old', 'Greeting', { dir: process.cwd() }]]]);
+    list = await e.commands['perch.sessions'](); list.choose((i) => i.past && i.past.id === 'x-old');
+    assert.deepStrictEqual([e.ui.panels.length, panel.reveals], [1, 1], 'the open tab is brought forward');
+    e.perch.dispose();
+
+    // nothing to list, and records that cannot be read
+    const n = install(undefined, { past: { sessions: [] } }); await flush();
+    assert.strictEqual((await n.commands['perch.sessions']()).placeholder, 'No past sessions in this folder');
+    n.store.failed = ['claude', 'codex'];
+    assert.strictEqual((await n.commands['perch.sessions']()).placeholder, 'The sessions of Claude Code and Codex could not be read');
+    n.store.failed = ['codex']; n.store.sessions = past.sessions.slice(0, 1);
+    list = await n.commands['perch.sessions']();
+    assert.deepStrictEqual([list.title, list.items.filter((i) => i.past).length], ['Perch sessions · those of Codex could not be read', 1]);
+    n.perch.dispose();
+  }
+
+  // ---- a resumed session shows what was said in it before
+  {
+    const said = [{ kind: 'user', text: 'how do i rename', queued: false }, { kind: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }, { kind: 'tool_result', id: 't1', isError: false, text: 'src', truncated: false }, { kind: 'text', text: 'Like this.' }];
+    const past = { sessions: [{ kind: 'claude', id: 'c-old', title: 'Renaming', named: true, updatedAt: Date.now() }, { kind: 'codex', id: 'x-old', title: 'hello', named: false, updatedAt: Date.now() - 1 }, { kind: 'codex', id: 'x-bad', title: 'broken', named: false, updatedAt: Date.now() - 2 }],
+      transcripts: { 'c-old': { events: said, earlier: 0 }, 'x-old': { events: said.slice(3), earlier: 412 }, 'x-bad': new Error('unreadable') } };
+    const m = install(undefined, { past }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const shown = (sid) => { const e = v.events(sid); return e.slice(e.map((x) => x.kind).lastIndexOf('clear') + 1).filter((x) => x.kind !== 'busy' && x.kind !== 'status'); };
+
+    (await m.commands['perch.sessions']()).choose((i) => i.past && i.past.id === 'c-old'); const c = v.lastTabs().active;
+    assert.deepStrictEqual(shown(c), [{ kind: 'note', text: 'resumed claude session c-old · earlier transcript is not shown, the agent still has it' }], 'until it has been read');
+    await flush();
+    assert.deepStrictEqual(m.store.loads, [['claude', 'c-old', { dir: process.cwd() }]]);
+    assert.deepStrictEqual(shown(c), said, 'the transcript, and nothing about it');
+
+    // what is said now follows it, and a page made again is given all of it
+    v.fire({ type: 'send', sid: c, text: 'and again' }); await flush();
+    const v2 = fakeView(); m.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v2.events(c).filter((x) => ['user', 'text', 'note', 'tool_use', 'tool_result'].includes(x.kind)).map((x) => x.text || x.name), ['how do i rename', 'Bash', 'src', 'Like this.', 'and again', 'answer to and again']);
+
+    // a long one shows its end, and says so; one that cannot be read leaves the note as it was
+    (await m.commands['perch.sessions']()).choose((i) => i.past && i.past.id === 'x-old'); const x = v2.lastTabs().active; await flush();
+    assert.deepStrictEqual(v2.events(x).filter((e) => e.kind === 'text' || e.kind === 'note').slice(-2), [{ kind: 'note', text: '412 earlier entries are not shown, the agent still has them' }, { kind: 'text', text: 'Like this.' }], 'said before them, where they would have been');
+    (await m.commands['perch.sessions']()).choose((i) => i.past && i.past.id === 'x-bad'); const b = v2.lastTabs().active; await flush();
+    assert.deepStrictEqual(v2.events(b).filter((e) => e.kind === 'note'), [{ kind: 'note', text: 'resumed codex session x-bad · earlier transcript is not shown, the agent still has it' }]);
+
+    // a message sent before the transcript has been read stays after it
+    const m3 = install(undefined, { past }); await flush();
+    const v3 = fakeView(); m3.registered['perch.main'].resolveWebviewView(v3.view); v3.fire({ type: 'ready' }); await flush();
+    (await m3.commands['perch.sessions']()).choose((i) => i.past && i.past.id === 'c-old'); const c3 = v3.lastTabs().active;
+    v3.fire({ type: 'send', sid: c3, text: 'too quick' }); await flush(); await flush();
+    assert.deepStrictEqual(shown.call(null, c3).length >= 0 && v3.events(c3).slice(v3.events(c3).map((e) => e.kind).lastIndexOf('clear') + 1).filter((e) => ['user', 'text', 'note'].includes(e.kind)).map((e) => e.text), ['how do i rename', 'Like this.', 'too quick', 'answer to too quick']);
+
+    // after a window reload the tabs come back with their transcripts, from the record
+    m.perch.dispose(); m3.perch.dispose();
+    const r = install(m.memento._dump(), { past }); await flush();
+    const vr = fakeView(); r.registered['perch.main'].resolveWebviewView(vr.view); vr.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(r.store.loads.map((l) => l.slice(0, 2)), [['claude', 'c-old'], ['codex', 'x-old'], ['codex', 'x-bad']]);
+    assert.deepStrictEqual(vr.events(c).filter((e) => e.kind === 'text' || e.kind === 'note').map((e) => e.text).slice(-1), ['Like this.']);
+    r.perch.dispose();
+  }
+
+  // ---- after a reload, a tab behind another has no page until it is shown: its session is not given a second tab
+  {
+    const saved = { 'perch.sessions.v1': { active: null, counters: { claude: 2, codex: 1 }, sessions: [
+      { id: 's1', kind: 'claude', title: 'Naming', titled: true, resume: 'c-1', location: 'editor', paneled: true },
+      { id: 's2', kind: 'codex', title: 'Review', titled: true, resume: 'x-1', location: 'editor', paneled: true },
+      { id: 's3', kind: 'claude', title: 'Naming', titled: true, resume: 'c-2', location: 'editor', paneled: true },
+      { id: 's4', kind: 'claude', title: 'Lost', titled: true, resume: 'c-3', location: 'editor', paneled: true }] } };
+    const m = install(saved, { config: { newTabs: 'editor' } });
+    // VS Code kept four tabs. One is shown, and is given its page; of the rest, one was left working when the window closed
+    m.waitingTab('Naming'); m.waitingTab('Review \u2026'); m.waitingTab('\u25cf Naming');
+    const shown = m.ui.waiting.pop(); const p3 = m.restorePanel('s3', shown.label);
+    await wait(120);
+    assert.deepStrictEqual(m.ui.panels.filter((p) => !p.disposed).map((p) => p.title), ['Naming', 'Lost'], 'only the session with no tab at all is given one');
+    assert.deepStrictEqual(m.ui.closedTabs, []);
+
+    // clicked, a waiting tab is given its page, and is the session's one tab
+    const w1 = m.ui.waiting.shift(); const p1 = m.restorePanel('s1', w1.label);
+    assert.deepStrictEqual([p1.disposed, m.perch.panels.get('s1').panel === p1, m.ui.panels.filter((p) => !p.disposed).length], [false, true, 3]);
+
+    // gone to from elsewhere while its tab still waits: the new tab takes the place of the waiting one
+    m.perch.activate('s2'); await flush();
+    assert.deepStrictEqual([m.ui.closedTabs, m.ui.waiting.length, m.ui.panels.filter((p) => !p.disposed).map((p) => p.title)], [['Review \u2026'], 0, ['Naming', 'Lost', 'Naming', 'Review']]);
+    m.perch.activate('s2'); m.perch.activate('s1'); await flush();
+    assert.deepStrictEqual([m.ui.closedTabs.length, m.ui.panels.filter((p) => !p.disposed).length], [1, 4], 'a tab with a page is only brought forward');
+    assert(p3 && !p3.disposed);
+    m.perch.dispose();
+  }
+
+  // ---- what an agent reports beyond working and ready is part of the transcript
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'hold' }); await flush();
+    const a = created[created.length - 1], since = v.tab(c).busySince;
+    assert(v.tab(c).busy && since > Date.now() - 5000 && since <= Date.now(), 'a working tab says since when');
+    for (const text of ['context compacted', 'rate limit: rejected', 'ready', 'working', 'ready · fake', 'idle']) a.emit({ kind: 'status', text });
+    assert.deepStrictEqual(v.events(c).filter((e) => e.kind === 'note').map((e) => e.text), ['context compacted', 'rate limit: rejected']);
+    a.finish(); await flush();
+    assert.deepStrictEqual([v.tab(c).busy, v.tab(c).busySince], [false, 0]);
+    const v2 = fakeView(); m.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v2.events(c).filter((e) => e.kind === 'note').map((e) => e.text), ['context compacted', 'rate limit: rejected'], 'and is there when the page is made again');
+    m.perch.dispose();
+  }
+
+  // ---- a group of sessions only is locked, so a file opened from the Explorer goes to the group beside it
+  {
+    const perchTab = (label) => ({ label, input: { viewType: 'mainThreadWebview-perch.session' } }), file = { label: 'a.js', input: { uri: {} } };
+    const locks = (m) => m.ui.executed.filter((c) => c === 'workbench.action.lockEditorGroup').length;
+    const m = install(undefined, { config: { newTabs: 'editor' } }); await flush();
+    m.ui.group = () => ({ viewColumn: 2, tabs: [perchTab('Claude 1')] });
+    await m.commands['perch.newClaude'](); await flush();
+    assert.strictEqual(locks(m), 1, 'locked when its first session opens');
+    m.ui.group = () => ({ viewColumn: 2, tabs: [perchTab('Claude 1'), file] });
+    m.ui.panels[0].show(true, true); await flush();
+    assert.strictEqual(locks(m), 1, 'a group the user keeps files in as well is left as it is');
+    m.ui.group = () => ({ viewColumn: 2, tabs: [perchTab('Claude 1'), perchTab('Codex 1')] });
+    m.ui.panels[0].show(true, false); await flush(); assert.strictEqual(locks(m), 1, 'shown but not focused: the active group is another');
+    m.ui.panels[0].show(true, true); await flush(); assert.strictEqual(locks(m), 2, 'and a group brought back after a reload is locked when it is next used');
+    m.changeConfig({ lockGroup: false }); m.ui.panels[0].show(true, true); await flush();
+    assert.strictEqual(locks(m), 2, 'not if the user would rather not');
+
+    // a file opened from an answer goes beside the sessions too
+    m.ui.group = null; m.perch.openTarget('src/extension.js'); await flush(); await flush();
+    assert.deepStrictEqual(m.ui.columns, [-2], 'with no other group, a new one beside');
+    m.perch.dispose();
+  }
+
+  // ---- the lock comes off a group once its last Perch tab has gone and other tabs are left
+  {
+    const settle = () => wait(25);     // past the 10 ms the tests give the wait, which, set first, fires first
+    const uri = (p) => ({ scheme: 'file', path: p, fsPath: p, toString: () => 'file://' + p });
+    const add = (g, label, input) => { const t = { label, input, group: g }; g.tabs.push(t); return t; };
+    const perchIn = (g, label) => add(g, label, { viewType: 'mainThreadWebview-perch.session' });
+    const fileIn = (g, p) => add(g, p, { uri: uri(p) });
+    // what VS Code tells when a tab closes, or leaves for another group: a close, with the group it left
+    const leave = (m, t) => { t.group.tabs.splice(t.group.tabs.indexOf(t), 1); m.tabsChanged({ closed: [t] }); };
+    const unlocked = (m) => m.ui.executedWith.filter(([id]) => id === 'workbench.action.unlockEditorGroup').map(([, u]) => String(u));
+    const m = install(undefined, { config: { newTabs: 'editor' } }); await flush();
+    // A, where sessions opened first and files came later, and B, the user's files; B is the group in use unless said
+    const fresh = (active) => {
+      const A = { viewColumn: 1, tabs: [] }, B = { viewColumn: 2, tabs: [] };
+      m.ui.groups = [A, B]; m.ui.group = () => (active === 'A' ? A : B); m.ui.executedWith.length = 0;
+      return { A, B };
+    };
+
+    let { A, B } = fresh(), p1 = perchIn(A, 'Claude 1');
+    const p2 = perchIn(A, 'Codex 1'); fileIn(A, '/w/a.js'); fileIn(B, '/w/b.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'a session is left in the group: it stays locked');
+    leave(m, p2); await settle();
+    assert.deepStrictEqual(unlocked(m), ['file:///w/a.js'], 'the last one gone: unlocked, by a file open there');
+
+    // VS Code takes the group, most recently used first, that has the file: so a file open in no other group
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1');
+    fileIn(A, '/w/a.js'); fileIn(A, '/w/c.js'); fileIn(A, '/w/d.js');
+    fileIn(B, '/w/a.js'); add(B, 'c.js (Working Tree)', { original: uri('/w/c.js.orig'), modified: uri('/w/c.js') });
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), ['file:///w/d.js'], 'not one open in the other group, nor one side of a diff there');
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js'); fileIn(B, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'every file is open in the other group as well: the lock stays');
+    ({ A, B } = fresh('A')); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js'); fileIn(B, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), ['file:///w/a.js'], 'unless the group is the active one, which VS Code looks in first');
+
+    // a session moved to another group: VS Code opens it there, then closes it here
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
+    perchIn(B, 'Claude 1'); leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), ['file:///w/a.js'], 'moved away: the group it left is unlocked');
+    // a tab that takes the place of another, as a session given a page again does, opens a moment after the old one closes
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
+    leave(m, p1); perchIn(A, 'Claude 1'); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'replaced in the same group: it stays locked');
+
+    // nothing to unlock: the group went with its last tab, or nothing is left in it to find it by
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
+    m.ui.groups = [B]; leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'the group is gone');
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); add(A, 'Settings', undefined);
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'no file in it to point VS Code at');
+    ({ A, B } = fresh()); fileIn(A, '/w/a.js'); const f = fileIn(A, '/w/e.js');
+    leave(m, f); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'only a Perch tab leaving is looked at');
+
+    // a group holding an editor that locks a group by itself may be locked for that editor: it keeps the lock
+    m.ui.editorSettings = { autoLockGroups: { terminalEditor: true, 'mainThreadWebview-simpleBrowser.view': true, 'mainThreadWebview-perch.session': true } };
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); add(A, 'bash', new m.vscode.TabInputTerminal()); fileIn(A, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'a terminal');
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); add(A, 'Simple Browser', { viewType: 'mainThreadWebview-simpleBrowser.view' }); fileIn(A, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'a webview set to lock its group');
+    m.ui.editorSettings = { autoLockGroups: { terminalEditor: false, 'mainThreadWebview-perch.session': true } };
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); add(A, 'bash', new m.vscode.TabInputTerminal()); fileIn(A, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), ['file:///w/a.js'], 'not if the user has turned that off for terminals');
+
+    // before 1.92 VS Code could take the file to name another group than its own; and the user may want none of it
+    m.ui.version = '1.91.1';
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'an older VS Code: nothing is done');
+    m.ui.version = '1.92.0';
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), ['file:///w/a.js'], '1.92 finds the group by the file');
+    m.changeConfig({ lockGroup: false });
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
+    leave(m, p1); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'perch.lockGroup off: Perch neither locks nor unlocks');
+    m.changeConfig({ lockGroup: true });
+
+    // the window closing takes the tabs with it: nothing is unlocked on the way out
+    ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
+    leave(m, p1); m.perch.dispose(); await settle();
+    assert.deepStrictEqual(unlocked(m), [], 'shut down before the group was looked at');
+  }
+
+  // ---- the program an agent runs: the user's choice, else the SDK's own, which this checkout has
+  {
+    const m = install(undefined, { config: { 'codex.executable': '/opt/codex' } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const from = created.length;
+    v.fire({ type: 'new', kind: 'codex' }); v.fire({ type: 'send', sid: v.lastTabs().active, text: 'hi' });
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; v.fire({ type: 'send', sid: c, text: 'hi' }); await flush();
+    assert.deepStrictEqual([created[from].o.executable, created[from + 1].o.executable], ['/opt/codex', undefined]);
+    assert(!v.events(c).some((e) => e.kind === 'error'));
+    m.perch.dispose();
+  }
+
+  // ---- a question from Claude: the answers go back to the agent, and the transcript keeps what was answered
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; const s = m.perch.get(c);
+    const Q = [{ question: 'Which store?', header: 'Store', options: [{ label: 'Redis', description: '' }, { label: 'S3', description: '' }] }];
+    v.fire({ type: 'new', kind: 'claude' });   // another tab is active: the question raises attention
+    const asked = new Promise((res) => s.pending.set('q1', res)); s.post({ kind: 'question', id: 'q1', questions: Q });
+    assert.strictEqual(v.tab(c).attention, true);
+    v.fire({ type: 'permission', sid: c, id: 'q1', decision: 'answer', answers: { 'Which store?': ' S3 ', extra: 42, '': 'x', blank: '  ' } });
+    assert.deepStrictEqual(await asked, { decision: 'answer', answers: { 'Which store?': 'S3' } }, 'answers are text, by question, and nothing else');
+    assert.strictEqual(v.tab(c).attention, false);
+    const v2 = fakeView(); m.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(v2.events(c).filter((e) => e.kind === 'answered' || e.kind === 'question'), [{ kind: 'answered', questions: Q, answers: { 'Which store?': 'S3' } }], 'a page made again sees the question settled');
+    // no answers at all is a refusal, and a skipped question is one too
+    const q2 = new Promise((res) => s.pending.set('q2', res)); s.post({ kind: 'question', id: 'q2', questions: Q });
+    v.fire({ type: 'permission', sid: c, id: 'q2', decision: 'answer', answers: { 'Which store?': '' } });
+    assert.deepStrictEqual(await q2, { decision: 'deny', answers: {} });
+    const q3 = new Promise((res) => s.pending.set('q3', res)); s.post({ kind: 'question', id: 'q3', questions: Q });
+    v.fire({ type: 'permission', sid: c, id: 'q3', decision: 'deny' });
+    assert.deepStrictEqual(await q3, { decision: 'deny' });
+    assert.deepStrictEqual(s.history.filter((h) => h.kind === 'answered').map((h) => h.answers), [{ 'Which store?': 'S3' }, {}, {}]);
+    m.perch.dispose();
+  }
+
+  // ---- a link in an answer that names a file opens it
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const here = require('path').join(process.cwd(), 'src/extension.js');
+    for (const target of ['src/extension.js', 'src/extension.js#L42', 'src/extension.js#L42-L51', 'src/extension.js:7', 'src/extension.js:7:3', here + '#L2', 'file://' + here, 'src/extension%2Ejs']) { v.fire({ type: 'open', target }); await flush(); }
+    assert.deepStrictEqual(m.ui.opened, [[here, null], [here, [41, 41]], [here, [41, 50]], [here, [6, 6]], [here, [6, 6]], [here, [1, 1]], [here, null], [here, null]]);
+    for (const target of ['src/nowhere.js', 'src', 'javascript:alert(1)', '../../../../../../nonexistent/x', '', undefined]) { v.fire({ type: 'open', target }); await flush(); }
+    assert.strictEqual(m.ui.opened.length, 8, 'only a file that is there is opened');
+    assert.deepStrictEqual(m.ui.warnings.slice(0, 2), ['Perch: src/nowhere.js is not a file in this workspace.', 'Perch: src is not a file in this workspace.']);
+    m.perch.dispose();
+  }
+
+  // ---- past 20 images a Claude conversation is held to a size limit: the tab says so at the twentieth, once
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    const P = { mime: 'image/png', data: 'iVBORw0KGgo=' }, notes = () => v.events(c).filter((e) => e.kind === 'note').map((e) => e.text);
+    for (let i = 0; i < 6; i++) v.fire({ type: 'send', sid: c, text: 'shot ' + i, images: [P, P, P] });   // 18
+    await flush(); assert.deepStrictEqual(notes(), []);
+    v.fire({ type: 'send', sid: c, text: 'two more', images: [P, P] }); await flush();                    // 20
+    assert.deepStrictEqual(notes(), ['This conversation now carries 20 images. Past 20, the API refuses a conversation holding any image 2000 px or wider, which images from earlier versions of perch or from Claude Code\'s own reading may be. If a turn then fails with "an image could not be processed", /compact lets the earlier images go.']);
+    v.fire({ type: 'send', sid: c, text: 'words only' }); await flush(); assert.strictEqual(notes().length, 1, 'a message without an image says nothing');
+    v.fire({ type: 'send', sid: c, text: 'one over', images: [P] }); await flush();
+    assert.strictEqual(notes().length, 1, 'said once: images pasted here are within the limit');
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    for (let i = 0; i < 8; i++) v.fire({ type: 'send', sid: x, text: 'x' + i, images: [P, P, P] }); await flush();
+    assert.deepStrictEqual(v.events(x).filter((e) => e.kind === 'note'), [], 'Codex is not held to it');
+    m.perch.dispose();
+  }
+
+  // ---- the session's cost so far is kept with the tab, so after a reload the agent can still tell each turn's own cost
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; const s = m.perch.get(c);
+    v.fire({ type: 'send', sid: c, text: 'hi' }); await flush();
+    assert.strictEqual(created[created.length - 1].o.costBefore, undefined, 'a new session has no cost yet');
+    s.post({ kind: 'result', ok: true, cost: 1.25, costTurn: 1.25 }); s.post({ kind: 'result', ok: true, cost: 1.5, costTurn: 0.25 }); s.post({ kind: 'result', ok: true });
+    assert.strictEqual(m.memento._dump()['perch.sessions.v1'].sessions[0].costSoFar, 1.5, 'the last figure reported is saved; a result without one changes nothing');
+    m.perch.dispose();
+    const r = install(m.memento._dump()); await flush();
+    const vr = fakeView(); r.registered['perch.main'].resolveWebviewView(vr.view); vr.fire({ type: 'ready' }); await flush();
+    vr.fire({ type: 'send', sid: c, text: 'again' }); await flush();
+    assert.strictEqual(created[created.length - 1].o.costBefore, 1.5, 'and handed to the agent when the tab resumes');
+    r.perch.dispose();
+  }
+
+  // ---- "default" names the model a Claude session is really on: before it starts, the one Claude Code says new sessions
+  // start on (ANTHROPIC_MODEL or its settings' model; here Sonnet 4.6), and while it runs, the one its process
+  // reports. Chosen in a running session, default is Claude Code's built-in one (Opus 5.5 here). The efforts follow the label.
+  {
+    const ALL5 = ['low', 'medium', 'high', 'xhigh', 'max'], SONNET = ['low', 'medium', 'high', 'max'];
+    const startsOn = 'New sessions start on Sonnet 4.6, which ANTHROPIC_MODEL or Claude Code\'s settings name.';
+    const claude = Object.assign({}, CATALOGS.claude, {
+      defaultModel: { label: 'Sonnet 4.6', model: 'claude-sonnet-resolved', description: startsOn, efforts: SONNET, defaultEffort: '' },
+      models: [...CATALOGS.claude.models, { value: 'sonnet', label: 'Sonnet 4.6', resolved: 'claude-sonnet-resolved', description: 'Everyday', efforts: SONNET, defaultEffort: '' }],
+    });
+    knobs.startsOn = 'claude-sonnet-resolved';
+    try {
+      const m = install(undefined, { catalogs: { claude } }); await flush();
+      const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; const s = m.perch.get(c);
+      const tab = () => v.tab(c), def = () => tab().models[0];
+      assert.deepStrictEqual([def().label, def().title, vals(tab().efforts)], ['default · Sonnet 4.6', startsOn, ['', ...SONNET]], 'before it starts: the model new sessions start on, with its efforts (no xhigh)');
+      v.fire({ type: 'send', sid: c, text: 'hi' }); const a = created[created.length - 1];
+      assert.deepStrictEqual([a.o.model, tab().actualModel, def().label, def().title], [undefined, 'claude-sonnet-resolved', 'default · Sonnet 4.6', startsOn], 'and so it runs: the same, said the same way');
+      // a model chosen, then default again: the session goes to Claude Code's built-in default, and Claude says so
+      v.fire({ type: 'setModel', sid: c, value: 'opus' }); v.fire({ type: 'setEffort', sid: c, value: 'xhigh' });
+      assert.deepStrictEqual([tab().model, tab().effort, def().label], ['opus', 'xhigh', 'default · Sonnet 4.6'], 'on a chosen model, default still says what it gave');
+      v.fire({ type: 'setModel', sid: c, value: '' });
+      assert.deepStrictEqual([a.models, tab().actualModel, def().label, def().title], [['opus', ''], 'claude-opus-resolved', 'default · Opus 5.5', 'Claude Code says this session is running claude-opus-resolved; new sessions start on Sonnet 4.6.'], 'default now names what the session runs');
+      assert.deepStrictEqual([vals(tab().efforts), tab().effort, a.efforts], [['', ...ALL5], 'xhigh', ['xhigh']], 'with that model\'s efforts, which keep xhigh: it is not checked against the model the session started on');
+      // the process says it runs another model (a fallback, say): the efforts follow, and one that model lacks goes back to default
+      s.post({ kind: 'model', id: 'claude-sonnet-resolved' });
+      assert.deepStrictEqual([def().label, tab().effort, a.efforts, m.memento._dump()['perch.sessions.v1'].sessions[0].effort], ['default · Sonnet 4.6', '', ['xhigh', ''], ''], 'xhigh dropped, the session told, and saved');
+      s.post({ kind: 'context', percent: 3, used: 30000, max: 1000000, model: 'claude-mystery-9' });
+      assert.deepStrictEqual([def().label, vals(tab().efforts)], ['default · claude-mystery-9', ['', ...SONNET]], 'a model the list lacks goes by its id, with the efforts new sessions start with');
+      // a restart: the next process starts where new sessions do, and an effort that model lacks goes back to default
+      v.fire({ type: 'setModel', sid: c, value: '' }); v.fire({ type: 'setEffort', sid: c, value: 'xhigh' });
+      assert.deepStrictEqual([def().label, tab().effort], ['default · Opus 5.5', 'xhigh']);
+      s.restart();
+      assert.deepStrictEqual([tab().started, tab().actualModel, def().label, tab().effort, m.memento._dump()['perch.sessions.v1'].sessions[0].effort], [false, '', 'default · Sonnet 4.6', '', ''], 'back to the model new sessions start on, with an effort it has');
+      v.fire({ type: 'send', sid: c, text: 'again' });
+      assert.deepStrictEqual([created[created.length - 1].o.effort, def().label], [undefined, 'default · Sonnet 4.6']);
+      // a model chosen before start is not touched by any of this
+      v.fire({ type: 'new', kind: 'claude' }); const c2 = v.lastTabs().active;
+      v.fire({ type: 'setModel', sid: c2, value: 'haiku' }); v.fire({ type: 'send', sid: c2, text: 'hi' });
+      assert.deepStrictEqual([v.tab(c2).actualModel, v.tab(c2).models[0].label, vals(v.tab(c2).efforts)], ['claude-haiku-resolved', 'default · Sonnet 4.6', ['']], 'its default option says what new sessions start on; its efforts are Haiku\'s');
+      // until Claude says what a switch to default gave, the model the tab ran before is not named
+      knobs.slowModel = true;
+      v.fire({ type: 'setModel', sid: c2, value: '' });
+      assert.deepStrictEqual([v.tab(c2).actualModel, v.tab(c2).models[0].label], ['', 'default · Sonnet 4.6'], 'not Haiku: what new sessions start on, until Claude says');
+      m.perch.get(c2).post({ kind: 'context', percent: 3, used: 30000, max: 1000000, model: 'claude-opus-resolved' });
+      assert.strictEqual(v.tab(c2).models[0].label, 'default · Opus 5.5', 'and then what it said');
+      m.perch.dispose();
+    } finally { knobs.startsOn = undefined; knobs.slowModel = undefined; }
+  }
+
+  // ---- the prompt cache is warm from each response of a turn, not only from the turn's end: a long turn must not read "cold" throughout
+  {
+    const { ClaudeAgent } = require('module').prototype.require.call(module, '../src/claudeAgent.js');
+    const out = [], a = { live: '', waiting: [], emit: (e) => out.push(e), _taken: ClaudeAgent.prototype._taken };
+    ClaudeAgent.prototype._onMessage.call(a, { type: 'stream_event', event: { type: 'message_start' } });
+    assert.deepStrictEqual([out.length, out[0].kind, typeof out[0].at], [1, 'responded', 'number'], 'a response has begun: the request that brought it touched the cache');
+    ClaudeAgent.prototype._onMessage.call(a, { type: 'stream_event', event: { type: 'message_start' }, parent_tool_use_id: 'toolu_1' });
+    assert.strictEqual(out.length, 1, 'a subagent\'s request is another conversation\'s cache');
+    ClaudeAgent.prototype._onMessage.call(a, { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'x' } } });
+    assert.deepStrictEqual(out.slice(1), [{ kind: 'delta', text: 'x' }], 'the text of a response does not restart the clock again');
+    // a response's token counts are taken when it ends: a gateway in front of another vendor's model sends zeros first
+    out.length = 0;
+    const ev = (event, extra) => ClaudeAgent.prototype._onMessage.call(a, Object.assign({ type: 'stream_event', event }, extra));
+    ev({ type: 'message_start', message: { usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 1 } } });
+    ev({ type: 'message_start', message: { usage: { input_tokens: 7, output_tokens: 1 } } }, { parent_tool_use_id: 'toolu_1' });   // a subagent's response, alongside
+    ev({ type: 'message_delta', usage: { input_tokens: 2, cache_creation_input_tokens: 92842, cache_read_input_tokens: 0, output_tokens: 11, cache_creation: { ephemeral_1h_input_tokens: 0 } } });
+    ev({ type: 'message_delta', usage: { output_tokens: 40 } }, { parent_tool_use_id: 'toolu_1' });
+    ev({ type: 'message_stop' });
+    ev({ type: 'message_stop' }, { parent_tool_use_id: 'toolu_1' });
+    ev({ type: 'message_stop' });   // a stop with nothing open says nothing
+    assert.deepStrictEqual(out, [{ kind: 'responded', at: out[0].at }, { kind: 'usage', usage: { input: 2, cache_write: 92842, cache_read: 0, output: 11, cache_write_1h: 0 } }, { kind: 'usage', usage: { input: 7, cache_write: 0, cache_read: 0, output: 40, cache_write_1h: 0 } }],
+      'the counts as they stood at the end, each conversation\'s own; only the main thread\'s response restarts the cache clock');
+  }
+
+  // ---- which model answered: each response of the main conversation by the model it named, listed with the turn's result.
+  // A refusal fallback takes the refused response back (the frame that replaces it says so, and so does the notice), and
+  // says where the session went
+  {
+    const { ClaudeAgent } = require('module').prototype.require.call(module, '../src/claudeAgent.js');
+    const P = ClaudeAgent.prototype, out = [];
+    const a = { live: '', waiting: [], running: true, pending: 1, lastCost: null, emit: (e) => out.push(e), _context() {}, _taken: P._taken, _answered: P._answered, _retract: P._retract, _fellBack: P._fellBack };
+    const say = (m) => P._onMessage.call(a, m);
+    const A = (id, model, uuid, extra) => say(Object.assign({ type: 'assistant', uuid, message: { id, model, content: [] }, parent_tool_use_id: null }, extra));
+    const result = () => { say({ type: 'result', subtype: 'success' }); return out.filter((e) => e.kind === 'result').pop(); };
+    const fellBack = () => out.filter((e) => e.kind === 'fallback').pop();
+    A('msg_1', 'claude-opus-5-5', 'f1'); A('msg_1', 'claude-opus-5-5', 'f2');        // one response, a frame per block
+    A('msg_s', '<synthetic>', 'f3');                                                   // Claude Code's own message: no model's
+    A('msg_b', 'claude-haiku-4-5', 'f4', { parent_tool_use_id: 'toolu_1' });           // a sub-agent's
+    A(undefined, 'claude-fable-5-1', undefined);                                       // nothing to know it by
+    assert.deepStrictEqual(result().models, ['claude-opus-5-5'], 'the models that answered the main conversation, each once');
+    assert.strictEqual('models' in result(), false, 'a turn with no response names none');
+    // Opus 5.5's safeguards refuse a response: Claude Code takes it back, and Opus 4.8 answers instead
+    A('msg_2', 'claude-opus-5-5', 'f5'); A('msg_3', 'claude-opus-5-5', 'f6');
+    A('msg_4', 'claude-opus-4-8', 'f7', { supersedes: ['f5'] });
+    say({ type: 'system', subtype: 'model_refusal_fallback', trigger: 'refusal', direction: 'retry', scope: 'session', original_model: 'claude-opus-5-5', fallback_model: 'claude-opus-4-8', request_id: 'req_1',
+      api_refusal_category: 'cyber', api_refusal_explanation: null, retracted_message_uuids: ['f5', 'f6', 'gone'], refused_user_message_uuid: 'u1', content: 'NOTICE', uuid: 'n1', session_id: 's' });
+    assert.deepStrictEqual(fellBack(), { kind: 'fallback', from: 'claude-opus-5-5', to: 'claude-opus-4-8', scope: 'session', category: 'cyber', text: 'NOTICE' });
+    assert.deepStrictEqual(result().models, ['claude-opus-4-8'], 'the refused response answered nothing');
+    // an older CLI says no scope (it is the session's), no category, and nothing of what it took back
+    say({ type: 'system', subtype: 'model_refusal_fallback', original_model: 'claude-opus-5-5', fallback_model: 'claude-opus-4-8', content: 'x' });
+    assert.deepStrictEqual(fellBack(), { kind: 'fallback', from: 'claude-opus-5-5', to: 'claude-opus-4-8', scope: 'session', category: '', text: 'x' });
+    say({ type: 'system', subtype: 'model_refusal_fallback', scope: 'local', original_model: 'a', fallback_model: 'b', api_refusal_category: null, content: '' });
+    assert.deepStrictEqual(fellBack(), { kind: 'fallback', from: 'a', to: 'b', scope: 'local', category: '', text: '' }, 'a sub-agent\'s response, or a side question\'s');
+    // The API itself can retry a refused response on the fallback model: the answer then opens with a `fallback` block, and
+    // Claude Code's notice comes only when the turn ends, minutes later (seen 2026-11-13). The move is known from the block
+    out.length = 0;
+    say({ type: 'assistant', uuid: 'f8', parent_tool_use_id: null, message: { id: 'msg_5', model: 'claude-opus-4-8', content: [{ type: 'fallback', from: { model: 'claude-opus-5-5' }, to: { model: 'claude-opus-4-8' } }] } });
+    assert.deepStrictEqual(fellBack(), { kind: 'fallback', from: 'claude-opus-5-5', to: 'claude-opus-4-8', scope: 'session', category: '', text: '', early: true }, 'the move, from the answer\'s own fallback block');
+    out.length = 0;
+    say({ type: 'assistant', uuid: 'f9', parent_tool_use_id: 'toolu_2', message: { id: 'msg_6', model: 'claude-opus-4-8', content: [{ type: 'fallback', from: { model: 'claude-opus-5-5' }, to: { model: 'claude-opus-4-8' } }] } });
+    assert.deepStrictEqual(fellBack(), { kind: 'fallback', from: 'claude-opus-5-5', to: 'claude-opus-4-8', scope: 'local', category: '', text: '', early: true }, 'a sub-agent\'s answer moves only itself');
+    // Claude Code refuses its login: its own message, marked as the API's error, names the kind
+    out.length = 0;
+    const AUTH = 'Failed to authenticate: this login reached its time limit and cannot be renewed. Run `claude auth login` to sign in again.';
+    say({ type: 'assistant', uuid: 'g1', parent_tool_use_id: null, error: 'authentication_failed', message: { id: 'e1', model: '<synthetic>', content: [{ type: 'text', text: AUTH }] } });
+    assert.deepStrictEqual(out.filter((e) => e.kind === 'loginFailed'), [{ kind: 'loginFailed', text: AUTH }], 'a refused login is said as one');
+    out.length = 0;
+    say({ type: 'assistant', uuid: 'g2', parent_tool_use_id: null, error: 'rate_limit', message: { id: 'e2', model: '<synthetic>', content: [{ type: 'text', text: 'limit' }] } });
+    assert.deepStrictEqual(out.filter((e) => e.kind === 'loginFailed'), [], 'another error is not');
+  }
+
+  // ---- Claude Code moves a session to another model when the model's safeguards refuse a response (Opus 5.5 to Opus 4.8,
+  // cyber, as on 2026-10-20). The pill names the model running, marked; the transcript has Claude Code's notice; a turn
+  // answered by another model than the one meant says which. A report naming the model asked for does not undo the move
+  {
+    const NOTICE = 'Opus 5.5\'s safeguards flagged this session. Opus 4.6 is answering instead, or you can edit and retry with Opus 5.5.';
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; const s = m.perch.get(c);
+    v.fire({ type: 'setModel', sid: c, value: 'opus' });
+    v.fire({ type: 'send', sid: c, text: 'hi' }); await flush();
+    const tab = () => v.tab(c), last = (sid, kind) => v.events(sid).filter((e) => e.kind === kind).pop();
+    assert.deepStrictEqual([tab().actualModel, tab().off], ['claude-opus-resolved', null], 'on the model chosen: nothing to say');
+    s.post({ kind: 'result', ok: true, models: ['claude-opus-resolved'] });
+    assert.deepStrictEqual([last(c, 'result').answered, last(c, 'result').models], [undefined, undefined], 'a turn the model chosen answered says nothing of it');
+    s.post({ kind: 'result', ok: true, models: ['us.anthropic.claude-opus-resolved-v1:0'] });
+    assert.strictEqual(last(c, 'result').answered, undefined, 'nor does one it answered under its provider\'s id');
+
+    // the answer's own fallback block comes first: the pill moves at once, and the notice waits for Claude Code's words
+    const notesBefore = v.events(c).filter((e) => e.kind === 'note').length;
+    s.post({ kind: 'fallback', from: 'claude-opus-resolved', to: 'claude-opus-4-6', scope: 'session', category: '', text: '', early: true });
+    assert.deepStrictEqual([tab().off && tab().off.label, tab().actualModel, v.events(c).filter((e) => e.kind === 'note').length], ['Opus 4.6', 'claude-opus-4-6', notesBefore], 'moved, with no note of Perch\'s own');
+    s.post({ kind: 'fallback', from: 'claude-opus-resolved', to: 'claude-opus-4-6', scope: 'session', category: 'cyber', text: NOTICE });
+    assert.deepStrictEqual(last(c, 'note'), { kind: 'note', level: 'warn', text: NOTICE }, 'Claude Code\'s notice, in its own words');
+    const OFF = { model: 'claude-opus-4-6', label: 'Opus 4.6', title: 'Running Opus 4.6 (claude-opus-4-6), not Opus 5.5: Claude Code moved this session to it when Opus 5.5\'s safeguards stopped a response (cyber).' };
+    assert.deepStrictEqual([tab().off, tab().actualModel, tab().model], [OFF, 'claude-opus-4-6', 'opus'], 'the pill names the model running; the choice stays');
+    s.post({ kind: 'context', percent: 3, used: 30000, max: 1000000, model: 'claude-opus-resolved' });
+    assert.deepStrictEqual(tab().off, OFF, 'a report naming the model asked for does not undo the move');
+    s.post({ kind: 'result', ok: true, models: ['claude-opus-4-6'] });
+    assert.deepStrictEqual([last(c, 'result').answered, last(c, 'result').wanted], [[{ model: 'claude-opus-4-6', label: 'Opus 4.6' }], 'claude-opus-resolved'], 'each turn says which model answered it');
+    assert(s.history.some((h) => h.kind === 'note' && h.level === 'warn' && h.text === NOTICE), 'the notice is part of the transcript a page is rebuilt from');
+    // a model chosen: Claude Code is asked what it runs now, and that is the word
+    v.fire({ type: 'setModel', sid: c, value: 'haiku' });
+    assert.deepStrictEqual([tab().off, tab().actualModel], [null, 'claude-haiku-resolved']);
+    // a sub-agent's response from another model: the note, and the session stays where it is
+    s.post({ kind: 'fallback', from: 'claude-haiku-resolved', to: 'claude-opus-4-6', scope: 'local', category: '', text: '' });
+    assert.deepStrictEqual([last(c, 'note').text, tab().off], ['claude-haiku-resolved\'s safeguards stopped a response, and claude-opus-4-6 answered it instead.', null]);
+    // a restart starts afresh: the next process says what it runs
+    s.post({ kind: 'fallback', from: 'claude-haiku-resolved', to: 'claude-opus-4-6', scope: 'session', category: '', text: NOTICE });
+    assert.strictEqual(tab().off.title, 'Running Opus 4.6 (claude-opus-4-6), not Haiku 4.5: Claude Code moved this session to it when Haiku 4.5\'s safeguards stopped a response.');
+    s.restart();
+    assert.deepStrictEqual([tab().off, tab().actualModel], [null, '']);
+
+    // on default the pill names what runs anyway; a move is marked too, and the efforts follow it, as when the process reports a model
+    v.fire({ type: 'new', kind: 'claude' }); const d = v.lastTabs().active; const sd = m.perch.get(d);
+    v.fire({ type: 'send', sid: d, text: 'hi' }); await flush();
+    assert.deepStrictEqual([v.tab(d).off, v.tab(d).models[0].label], [null, 'default · Opus 5.5']);
+    sd.post({ kind: 'result', ok: true, models: ['claude-opus-4-6'] });
+    assert.strictEqual(last(d, 'result').answered, undefined, 'on default, with no move, there is no model meant to hold an answer to');
+    v.fire({ type: 'setEffort', sid: d, value: 'xhigh' });
+    sd.post({ kind: 'fallback', from: 'claude-opus-resolved', to: 'claude-opus-4-6', category: 'cyber', text: NOTICE });   // no scope, as from an older CLI: the session's
+    assert.deepStrictEqual([v.tab(d).off.label, v.tab(d).models[0].label, v.tab(d).effort, created[created.length - 1].efforts], ['Opus 4.6', 'default · Opus 4.6', '', ['xhigh', '']], 'xhigh, which Opus 4.6 lacks, back to default');
+    // on the gateway, whose relay says what answered: none of this
+    sd.gateway = true;
+    assert.strictEqual(sd.offModel(), null);
+    sd.post({ kind: 'result', ok: true, models: ['claude-opus-4-6'] });
+    assert.strictEqual(last(d, 'result').answered, undefined);
+    m.perch.dispose();
+  }
+
+  // ---- codebase search (codeindex/, docs/notes/201): off by default; turned on, wherever this machine's Python can run it, a
+  // tab's process is given the server; a change in the setting reaches each tab from its next message (a Claude tab restarts,
+  // after its turn if one is running; a Codex tab's next turn is a process anyway); search by meaning is offered once
+  {
+    const m = install(undefined, { codeIndex: { usable: true } }); await flush(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c0 = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c0, text: 'hi' }); await flush(); await flush();
+    assert.strictEqual(created[created.length - 1].o.search, undefined, 'off by default: no server, and nothing offered');
+    assert.strictEqual(m.ui.infos.filter((i) => /search by meaning/.test(i)).length, 0);
+    m.ui.answers.push('Not Now');       // turning it on offers search by meaning at once
+    m.changeConfig({ 'codebaseIndex.enabled': true }); await flush(); await flush();
+    const SERVER = { command: 'python3', args: ['/ext/fennets.perch/codeindex/server.py', process.cwd()], env: { CODEINDEX_MODELS: '/home/u/.local/share/perch/codeindex/models' } };
+    const offers = () => m.ui.infos.filter((i) => /Install search by meaning/.test(i)).length;
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'hi' }); await flush(); await flush();
+    const a = created[created.length - 1];
+    assert.deepStrictEqual(a.o.search, SERVER, 'turned on: the tab\'s process is given the search server');
+    assert.deepStrictEqual([offers(), m.globalState.get('perch.codebaseIndex.offered')], [1, true], 'search by meaning is offered, and once answered, not again');
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'send', sid: x, text: 'hi' }); await flush(); await flush();
+    const xa = created[created.length - 1];
+    assert.deepStrictEqual([xa.o.search, offers()], [SERVER, 1], 'Codex too; no second offer');
+    // turned off: the idle Claude tab's process ends, the next one goes without; the Codex tab, from its next turn
+    m.changeConfig({ 'codebaseIndex.enabled': false }); await flush(); await flush();
+    assert.strictEqual(a.disposed, true, 'the Claude process ends: its tool list is part of its cached prompt');
+    assert(v.events(c).some((e) => e.kind === 'note' && /^Codebase search is off for this tab from the next message; the conversation continues, the prompt cache starts over\.$/.test(e.text)));
+    assert.deepStrictEqual(xa.searches, [null], 'the Codex agent is told for its next turn');
+    assert(v.events(x).some((e) => e.kind === 'note' && e.text === 'Codebase search is off for this tab from its next turn.'));
+    v.fire({ type: 'send', sid: c, text: 'again' }); await flush();
+    const a2 = created[created.length - 1];
+    assert.strictEqual(a2.o.search, undefined, 'its next process has no search');
+    // on again, by the command, while the Claude tab's turn runs: it moves after the turn
+    v.fire({ type: 'send', sid: c, text: 'hold on' }); await flush();
+    await m.commands['perch.codebaseIndex.toggle'](); await flush(); await flush();
+    assert.deepStrictEqual(m.ui.configUpdates.pop(), ['codebaseIndex.enabled', true, 1], 'written where it was set: the user\'s settings here');
+    assert(/^Perch: codebase search is on\. Each tab takes it up from its next message\.$/.test(m.ui.infos.pop()));
+    assert.strictEqual(a2.disposed, false, 'a running turn is not cut short');
+    assert(v.events(c).some((e) => e.kind === 'note' && e.text === 'Codebase search is on. This tab takes it up after the current turn.'));
+    a2.finish(); await flush();
+    assert.strictEqual(a2.disposed, true);
+    assert(v.events(c).some((e) => e.kind === 'note' && e.text === 'Codebase search is on for this tab; the conversation continues, the prompt cache starts over.'));
+    v.fire({ type: 'send', sid: c, text: 'after' }); await flush();
+    assert.deepStrictEqual(created[created.length - 1].o.search, SERVER);
+    // search by meaning, installed by the command: new processes run the server on the private environment's Python
+    assert.strictEqual(await m.commands['perch.codebaseIndex.install'](), true);
+    assert.deepStrictEqual([m.ibox.installs, m.ui.progress.includes('Perch: installing search by meaning')], [1, true]);
+    assert(/^Perch: search by meaning is installed\. Codebase search moves to it by itself/.test(m.ui.infos.pop()));
+    assert.strictEqual(m.perch.codeSearch().command, '/home/u/.local/share/perch/codeindex/venv/bin/python');
+    assert.strictEqual(await m.commands['perch.codebaseIndex.install'](), true, 'twice: nothing to do');
+    assert.deepStrictEqual([m.ibox.installs, m.ui.infos.pop()], [1, 'Perch: search by meaning is already installed here.']);
+    // another Python, from the settings: asked again whether it can run the server
+    m.changeConfig({ 'codebaseIndex.python': '/opt/py312/bin/python3' }); await flush(); await flush();
+    assert.deepStrictEqual(m.ibox.made.map((i) => i.python), ['python3', '/opt/py312/bin/python3']);
+    m.perch.dispose();
+  }
+  // a multi-root workspace: every folder with the setting on, read per folder (a folder's own settings decide for it),
+  // in the workspace's order; a folder added or removed reaches each tab from its next process
+  {
+    const m = install(undefined, { config: { 'codebaseIndex.enabled': true }, codeIndex: { usable: true }, workspaceFolders: ['/w/fennets', '/w/lattice', '/w/tools'] }); await flush(); await flush();
+    m.ui.folderConfig['/w/lattice'] = { 'codebaseIndex.enabled': false };
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    m.ui.answers.push('Not Now');
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'hi' }); await flush(); await flush();
+    const a = created[created.length - 1];
+    assert.deepStrictEqual(a.o.search.args, ['/ext/fennets.perch/codeindex/server.py', '/w/fennets', '/w/tools'], 'the folders that are on, in order; lattice says no for itself');
+    m.vscode.workspace.workspaceFolders.push({ uri: { fsPath: '/w/burrow' } });
+    for (const f of m.ui.listeners.folders) f({ added: [], removed: [] });
+    await flush(); await flush();
+    assert.strictEqual(a.disposed, true, 'a folder added: the idle Claude tab restarts');
+    assert(v.events(c).some((e) => e.kind === 'note' && /^Codebase search covers fennets, tools, burrow for this tab from the next message/.test(e.text)), v.events(c).filter((e) => e.kind === 'note').map((e) => e.text).join(' | '));
+    v.fire({ type: 'send', sid: c, text: 'again' }); await flush();
+    assert.deepStrictEqual(created[created.length - 1].o.search.args.slice(1), ['/w/fennets', '/w/tools', '/w/burrow']);
+    m.perch.dispose();
+  }
+  // a window with no folder: nothing to search, so no server (never the home directory)
+  {
+    const m = install(undefined, { config: { 'codebaseIndex.enabled': true }, codeIndex: { usable: true }, workspaceFolders: [] }); await flush(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'hi' }); await flush(); await flush();
+    assert.strictEqual(created[created.length - 1].o.search, undefined);
+    m.perch.dispose();
+  }
+
+  // the toggle, first thing in a window: the Python check has not run yet (it waits for the setting), and the message waits for it
+  {
+    const m = install(undefined, { codeIndex: { usable: true } }); await flush(); await flush();
+    m.ui.answers.push('Not Now');
+    await m.commands['perch.codebaseIndex.toggle'](); await flush();
+    assert.strictEqual(m.ui.infos.filter((i) => /codebase search is on/.test(i)).pop(), 'Perch: codebase search is on. Each tab takes it up from its next message.', 'a Python that can run it is not called missing');
+    m.perch.dispose();
+  }
+  // where no Python here can run it (too old, or SQLite without FTS5): no tool at all, and nothing offered
+  {
+    const m = install(undefined, { config: { 'codebaseIndex.enabled': true }, codeIndex: { usable: false } }); await flush(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'hi' }); await flush(); await flush();
+    assert.deepStrictEqual([created[created.length - 1].o.search, m.ui.infos.filter((i) => /search by meaning/.test(i)).length], [undefined, 0]);
+    m.perch.dispose();
+  }
+
+  // ---- the index's state, for the panel the footer's "index" opens, and its switches: every folder of the workspace with
+  // its setting, read from the indexes' files by the server on or off; the workspace's switch writes the setting where it
+  // is set, a folder's its own .vscode/settings.json, and the panel is answered with the new state either way
+  {
+    const m = install(undefined, { config: { 'codebaseIndex.enabled': true }, codeIndex: { usable: true }, workspaceFolders: ['/w/fennets', '/w/tools'] }); await flush(); await flush();
+    m.ui.folderConfig['/w/tools'] = { 'codebaseIndex.enabled': false };
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    assert.strictEqual(v.tab(c).index, true, 'a folder is open: the footer offers the index');
+    const answers = () => v.got.filter((g) => g.type === 'indexStatus');
+    const next = async (fire) => { const n = answers().length; fire(); for (let i = 0; i < 400 && answers().length === n; i++) await new Promise((r) => setTimeout(r, 5)); return answers().pop(); };
+    const ask = () => next(() => v.fire({ type: 'indexStatus', sid: c }));
+    let a = await ask();
+    assert.deepStrictEqual([a.on, a.usable, a.meaning, a.folders.map((f) => [f.name, f.on, f.files]), m.ibox.statusAsked.pop()], [true, true, false, [['fennets', true, 10], ['tools', false, 10]], ['/w/fennets', '/w/tools']], 'every folder read, on or off, each with its setting');
+    assert(typeof a.at === 'number' && a.sid === c);
+    m.ui.answers.push('Not Now');   // search by meaning, offered as search comes on: declined
+    a = await next(() => v.fire({ type: 'searchFolder', sid: c, root: '/w/tools', on: true }));
+    assert.deepStrictEqual([m.ui.configUpdates.pop(), a.folders.map((f) => f.on)], [['codebaseIndex.enabled', true, 3, '/w/tools'], [true, true]], 'a folder\'s switch: its own settings, and the panel answered');
+    a = await next(() => v.fire({ type: 'searchToggle', sid: c }));
+    assert.deepStrictEqual([m.ui.configUpdates.pop(), a.on, a.folders.map((f) => f.on), m.ui.infos.filter((i) => /codebase search is (on|off)/.test(i)).length], [['codebaseIndex.enabled', false, 1], false, [false, true], 0], 'the workspace\'s switch: where the setting is set, without the command\'s message; a folder with its own setting keeps it');
+    assert.strictEqual(v.tab(c).index, true, 'still offered: the folders are still there');
+    const writes = m.ui.configUpdates.length;
+    a = await next(() => v.fire({ type: 'searchFolder', sid: c, root: '/w/nowhere', on: true }));
+    assert.deepStrictEqual([m.ui.configUpdates.length, a.folders.length], [writes, 2], 'a folder that is not in the workspace: nothing written, the panel answered all the same');
+    m.ibox.failStatus = 'boom'; a = await ask(); m.ibox.failStatus = null;
+    assert.deepStrictEqual([a.on, a.error, a.folders.map((f) => [f.name, f.on, f.files])], [false, 'The indexes could not be read: boom', [['fennets', false, undefined], ['tools', true, undefined]]], 'a read that fails: the folders and their switches all the same');
+    m.perch.dispose();
+  }
+  // search on, but no Python here can run it: the panel says so over the folders and their switches
+  {
+    const m = install(undefined, { config: { 'codebaseIndex.enabled': true }, codeIndex: { usable: false }, workspaceFolders: ['/w/fennets'] }); await flush(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    const answers = () => v.got.filter((g) => g.type === 'indexStatus');
+    v.fire({ type: 'indexStatus', sid: c }); for (let i = 0; i < 400 && !answers().length; i++) await new Promise((r) => setTimeout(r, 5));
+    const a = answers().pop();
+    assert.deepStrictEqual([v.tab(c).index, a.on, a.usable, /No Python here can run codebase search/.test(a.why), a.folders.map((f) => [f.name, f.on, f.files])], [true, true, false, true, [['fennets', true, undefined]]]);
+    m.perch.dispose();
+  }
+  // a window with no folder: nothing to index, so no button; asked anyway, it says so
+  {
+    const m = install(undefined, { codeIndex: { usable: true }, workspaceFolders: [] }); await flush(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    const answers = () => v.got.filter((g) => g.type === 'indexStatus');
+    v.fire({ type: 'indexStatus', sid: c }); for (let i = 0; i < 400 && !answers().length; i++) await new Promise((r) => setTimeout(r, 5));
+    const a = answers().pop();
+    assert.deepStrictEqual([v.tab(c).index, a.folders, /No folder is open/.test(a.why)], [false, [], true]);
+    m.perch.dispose();
+  }
+
+  // ---- the real Codex agent: the search server as --config overrides beside Bedrock's, never written to config.toml.
+  // (Claude's: the SDK's mcpServers, always loaded so the tool is in the first request's prefix; checked by a live run.)
+  {
+    const SERVER = { command: 'python3', args: ['/ext/codeindex/server.py', '/w'], env: { CODEINDEX_MODELS: '/m' } };
+    const { CodexAgent } = require('module').prototype.require.call(module, '../src/codexAgent.js');
+    const made = [];
+    const x = Object.create(CodexAgent.prototype);
+    Object.assign(x, { opts: { cwd: '/w', search: SERVER, bedrock: { endpoint: 'runtime', provider: 'amazon-bedrock-runtime', region: 'us-west-2', profile: 'dev' } }, sdk: { Codex: class { constructor(o) { made.push(o); } } } });
+    x._client();
+    assert.deepStrictEqual(made[0].config.mcp_servers, { codebase: SERVER }, 'the search server, as Codex config overrides');
+    assert.strictEqual(made[0].config.model_provider, 'amazon-bedrock-runtime', 'beside Bedrock\'s');
+    x.setSearch(null);
+    assert.deepStrictEqual([made[1].config.mcp_servers, x.changed], [undefined, true], 'taken away: the next turn runs without it');
+    x.opts.bedrock = undefined; x._client();
+    assert.strictEqual(made[2].config, undefined, 'and with neither, no overrides at all');
+  }
+
+  // ---- the real Codex agent: an app the turn tried is not connected (SharePoint, as seen on 2026-10-09): the connect link
+  // Codex's apps server gives in the result's _meta is said in a note, once a turn, as a button to chatgpt.com
+  {
+    const { CodexAgent, connectLink } = require('module').prototype.require.call(module, '../src/codexAgent.js');
+    const P = CodexAgent.prototype, out = [];
+    const a = { connectSaid: new Set(), emit: (e) => out.push(e), _connect: P._connect, _said: P._said };
+    const failed = (url) => ({ type: 'item.completed', item: { id: 'm1', type: 'mcp_tool_call', server: 'codex_apps', tool: 'microsoft_sharepoint.search', arguments: { query: 'SSP' }, error: null, status: 'completed',
+      result: { content: [{ type: 'text', text: 'connector_1e4f6a44acf14e3ca1d96672f8c945bc is not connected' }], structured_content: { error: 'connector_1e4f6a44acf14e3ca1d96672f8c945bc is not connected', error_code: 'USER_NOT_LOGGED_IN' },
+        _meta: { _codex_apps: { connector_auth_failure: { is_auth_failure: true, auth_reason: 'missing_link', connector_id: 'connector_1e4f6a44acf14e3ca1d96672f8c945bc', install_url: url, message: 'Connect this app on ChatGPT to use it in Codex.' } } } } } });
+    const URL = 'https://chatgpt.com/plugins/plugin_connector_1e4f6a44acf14e3ca1d96672f8c945bc';
+    P._onEvent.call(a, failed(URL), Date.now());
+    assert.deepStrictEqual(out.map((e) => e.kind), ['tool_result', 'note'], 'the result as before, then the note');
+    assert.strictEqual(out[0].text, '{"error":"connector_1e4f6a44acf14e3ca1d96672f8c945bc is not connected","error_code":"USER_NOT_LOGGED_IN"}', 'the result shows what it always showed');
+    assert.deepStrictEqual(out[1].actions, [{ id: 'connectApp', label: 'Connect on ChatGPT', url: URL }]);
+    assert(/^microsoft_sharepoint is not connected to the ChatGPT account Codex signs in with\. Connect this app on ChatGPT to use it in Codex\. The sign-in happens on chatgpt\.com, in your browser/.test(out[1].text));
+    P._onEvent.call(a, failed(URL), Date.now());
+    assert.deepStrictEqual(out.map((e) => e.kind), ['tool_result', 'note', 'tool_result'], 'a second failing call in the turn: no second note');
+    assert.strictEqual(connectLink(failed('https://evil.example/x').item.result), null, 'only a chatgpt.com link is taken');
+    assert.deepStrictEqual([connectLink(null), connectLink({}), connectLink({ _meta: { _codex_apps: { connector_auth_failure: { is_auth_failure: false, install_url: URL } } } })], [null, null, null]);
+    out.length = 0; P._onEvent.call(a, { type: 'item.completed', item: { id: 'm2', type: 'mcp_tool_call', server: 'codex_apps', tool: 'gmail.search', result: { content: [], structured_content: { ok: 1 } } } }, Date.now());
+    assert.deepStrictEqual(out.map((e) => e.kind), ['tool_result'], 'a call that worked: nothing more');
+  }
+
+  // ---- the real Codex agent: a web search said in full once it completes, as `codex exec` 0.159 reports one (captured on
+  // 2026-10-12). Before, its card said {"query": ""} and the foot of the transcript "Running web_search" for minutes after
+  // the searches had ended: Codex fills the item in only on completing, and the completion was not read
+  {
+    const { CodexAgent, webInput, webFound } = require('module').prototype.require.call(module, '../src/codexAgent.js');
+    const P = CodexAgent.prototype, out = [];
+    const a = { emit: (e) => out.push(e), _said: P._said, _connect: P._connect, connectSaid: new Set() };
+    const page = (title, url) => ({ type: 'text_result', domain: 'developers.openai.com', ref_id: 'r', snippet: 'Total lines: 3585', title, url });
+    const DOC = 'https://developers.openai.com/api/docs/guides/tools-web-search';
+    P._onEvent.call(a, { type: 'item.started', item: { id: 'w1', type: 'web_search', query: '', action: { type: 'other' } } }, Date.now());
+    P._onEvent.call(a, { type: 'item.completed', item: { id: 'w1', type: 'web_search', query: 'OpenAI Responses API web search tool docs', action: { type: 'search', query: 'OpenAI Responses API web search tool docs' }, results: [page('Web search | OpenAI API', DOC), page('Web search', 'https://developers.openai.com/api/docs/guides/agents-api/tools/web-search')] } }, Date.now());
+    assert.deepStrictEqual(out, [
+      { kind: 'tool_use', id: 'w1', name: 'web_search', input: { action: '' } },
+      { kind: 'tool_use', id: 'w1', name: 'web_search', input: { action: 'search', query: 'OpenAI Responses API web search tool docs' }, update: true },
+      { kind: 'tool_result', id: 'w1', text: 'Web search | OpenAI API — ' + DOC + '\nWeb search — https://developers.openai.com/api/docs/guides/agents-api/tools/web-search', isError: false },
+    ], 'nothing known at the start; the card again in full at the end, then its result');
+    // a page opened (the action stays `other`; the page is the result), and a phrase looked for in one
+    assert.deepStrictEqual(webInput({ query: '', action: { type: 'other' }, results: [page('Web search | OpenAI API', DOC)] }), { action: 'open', url: DOC, title: 'Web search | OpenAI API' });
+    assert.deepStrictEqual(webInput({ query: "'web_search_call' in " + DOC, action: { type: 'find_in_page', url: DOC, pattern: 'web_search_call' }, results: [page('Web search | OpenAI API', DOC)] }), { action: 'find', pattern: 'web_search_call', url: DOC });
+    // as a rollout file spells them: `findInPage` with no address (the page's own is taken), a search of several queries
+    assert.deepStrictEqual(webInput({ query: "'### response.web_search_call'", action: { type: 'findInPage', url: null, pattern: '### response.web_search_call' }, results: [page('Web search', DOC)] }), { action: 'find', pattern: '### response.web_search_call', url: DOC });
+    assert.deepStrictEqual(webInput({ query: 'a ...', action: { type: 'search', query: null, queries: ['a', 'b'] } }), { action: 'search', queries: ['a', 'b'] });
+    assert.deepStrictEqual([webInput({}), webInput(null), webFound({ results: [] }), webFound(null)], [{ action: '' }, { action: '' }, '', ''], 'nothing known: nothing said');
+    const many = webFound({ results: Array.from({ length: 11 }, (_, i) => page('P' + i, 'https://x/' + i)) }).split('\n');
+    assert.deepStrictEqual([many.length, many[7], many[8]], [9, 'P7 — https://x/7', '… and 3 more'], 'eight pages, and how many more');
+  }
+
+  // ---- a Codex session's usage, thread by thread, for the table the footer opens: read from the session's files, each
+  // thread priced at its models' list rates; a thread with a model the table has no price for is not priced
+  {
+    const fs = require('fs'), path = require('path');
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    const answers = () => v.got.filter((g) => g.type === 'subagentUsage');
+    const ask = async () => { const n = answers().length; v.fire({ type: 'subagentUsage', sid: x }); for (let i = 0; i < 400 && answers().length === n; i++) await new Promise((r) => setTimeout(r, 5)); return answers().pop(); };
+    assert.strictEqual(v.tab(x).thread, false, 'no thread yet: no table to offer');
+    assert(/no Codex session yet/.test((await ask()).error), 'asked before its first turn: said why there is nothing');
+    v.fire({ type: 'send', sid: x, text: 'hello' }); await flush();
+    const id = v.events(x).find((e) => e.kind === 'session').id;
+    assert.strictEqual(v.tab(x).thread, true, 'its thread on record as soon as it is: the footer offers the table');
+    const home = fs.mkdtempSync(path.join(require('os').tmpdir(), 'perch-usage-host-')), day = path.join(home, 'sessions', '2026', '10', '12');
+    m.box.codexHome = home;
+    assert(String((await ask()).error).includes(path.join(home, 'sessions')), 'its file not found: said where it was looked for');
+    fs.mkdirSync(day, { recursive: true });
+    const put = (tid, recs) => fs.writeFileSync(path.join(day, 'rollout-2026-10-12T10-00-00-' + tid + '.jsonl'), recs.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const ctx = (turn_id, model) => ({ type: 'turn_context', payload: { turn_id, model, effort: 'ultra' } });
+    const use = (i, c, w, o) => ({ type: 'token_usage_record', payload: { usage: { input_tokens: i, cached_input_tokens: c, cache_write_input_tokens: w, output_tokens: o } } });
+    const act = (agent_path, agent_thread_id) => ({ timestamp: '2026-10-12T10:01:00Z', type: 'event_msg', payload: { type: 'item_completed', item: { type: 'SubAgentActivity', id: 's', kind: 'started', agent_path, agent_thread_id } } });
+    put(id, [ctx('r1', 'gpt-6.1-sol'), use(1000000, 900000, 50000, 10000), act('/root/alpha', 'kid-a'), act('/root/odd', 'kid-o')]);
+    put('kid-a', [ctx('a1', 'gpt-6.1-sol'), use(100000, 0, 0, 1000)]);
+    put('kid-o', [ctx('o1', 'gpt-unknown'), use(10, 0, 0, 1)]);
+    const u = await ask();
+    const near = (a, b, what) => assert(typeof a === 'number' && Math.abs(a - b) < 1e-9, what + ': ' + a + ' is not ' + b);
+    // gpt-6.1-sol in the test table: $2/M input, $2.50/M written to the cache, $0.20/M read from it, $10/M output
+    near(u.main.cost, 50000 * 2e-6 + 50000 * 2.5e-6 + 900000 * 2e-7 + 10000 * 1e-5, 'the main thread: its uncached, written, cached and output tokens, each at its rate');
+    near(u.subagents[0].cost, 100000 * 2e-6 + 1000 * 1e-5, 'a sub-agent at its model\'s rates');
+    assert.deepStrictEqual([u.sid, typeof u.at, u.prices, u.backend, u.main.thread, u.main.turns, u.main.tokens, 'spent' in u.main], [x, 'number', true, 'chatgpt', id, 1, { input: 1000000, cached: 900000, output: 10000 }, false]);
+    assert.deepStrictEqual(u.subagents.map((s) => [s.name, s.model, s.cost === null ? null : 'priced', s.unpriced || null]), [['alpha', 'gpt-6.1-sol', 'priced', null], ['odd', 'gpt-unknown', null, ['gpt-unknown']]],
+      'a thread on a model the table does not price: no cost, and which model');
+    // a Claude tab: the same table, read by claudeSessionUsage, priced at Anthropic's list rates, with the tab's backend
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    const askC = async () => { const n = answers().length; v.fire({ type: 'subagentUsage', sid: c }); for (let i = 0; i < 400 && answers().length === n; i++) await new Promise((r) => setTimeout(r, 5)); return answers().pop(); };
+    assert(/no Claude session yet/.test((await askC()).error) && v.tab(c).thread === false, 'asked before its first turn: said why there is nothing');
+    v.fire({ type: 'send', sid: c, text: 'hello' }); await flush();
+    const cid = v.events(c).find((e) => e.kind === 'session').id;
+    assert.strictEqual(v.tab(c).thread, true, 'its session on record: the footer offers the table');
+    assert(/not found under .*projects/.test((await askC()).error), 'its file not found: said where it was looked for');
+    m.store.claudeUsage[cid] = { main: { thread: cid, model: 'claude-opus-5-5', effort: 'max', turns: 3, tokens: { input: 1000000, cached: 900000, output: 10000 }, spent: [{ model: 'claude-opus-5-5', input: 1000000, cached: 900000, write: 50000, output: 10000 }] },
+      subagents: [{ name: 'Find the gateway code', nickname: 'general-purpose', thread: 'aaa1', state: 'finished', first: 1, last: 2, model: 'claude-opus-5-5', effort: 'low', turns: 1, tokens: { input: 100000, cached: 0, output: 1000 }, spent: [{ model: 'claude-opus-5-5', input: 100000, cached: 0, write: 0, output: 1000 }] }] };
+    const uc = await askC();
+    // claude-opus-5-5 in the test table: $5/M input, $6.25/M written to the cache, $0.50/M read from it, $25/M output
+    near(uc.main.cost, 50000 * 5e-6 + 50000 * 6.25e-6 + 900000 * 5e-7 + 10000 * 2.5e-5, 'the main thread at Anthropic\'s rates');
+    near(uc.subagents[0].cost, 100000 * 5e-6 + 1000 * 2.5e-5, 'a sub-agent too');
+    assert.deepStrictEqual([uc.kind, uc.backend, uc.main.thread, uc.main.turns, uc.subagents[0].name, uc.subagents[0].state], ['claude', 'subscription', cid, 3, 'Find the gateway code', 'finished']);
+  }
+
+  // ---- the real Codex agent watches its thread's file while a turn runs, for what the SDK does not stream
+  {
+    const { CodexAgent } = require('module').prototype.require.call(module, '../src/codexAgent.js');
+    const made = [];
+    class FakeWatch { constructor(o) { this.o = o; this.started = 0; this.stopped = 0; made.push(this); } start() { this.started++; } stop() { this.stopped++; } }
+    const out = [], P = CodexAgent.prototype;
+    const a = { opts: { Watch: FakeWatch, codexHome: '/h' }, threadId: null, watch: null, running: true, emit: (e) => out.push(e), _watch: P._watch, _unwatch: P._unwatch };
+    P._watch.call(a); assert.strictEqual(made.length, 0, 'a new thread has no file to watch until Codex names it');
+    P._onEvent.call(a, { type: 'thread.started', thread_id: 't9' }, Date.now());
+    assert.deepStrictEqual([made.length, made[0].o.id, made[0].o.home, made[0].started, out[0]], [1, 't9', '/h', 1, { kind: 'session', id: 't9' }], 'named: watched from then on');
+    P._watch.call(a); assert.strictEqual(made.length, 1, 'one watch at a time');
+    made[0].o.emit({ kind: 'subagent', name: 'a', state: 'started' });
+    assert.deepStrictEqual(out.pop(), { kind: 'subagent', name: 'a', state: 'started' }, 'what it reads, the agent says');
+    P._unwatch.call(a); assert.deepStrictEqual([made[0].stopped, a.watch], [1, null], 'stopped, after its last read, when the turn ends');
+    a.opts.watch = false; P._watch.call(a); assert.strictEqual(made.length, 1, 'turned off');
+    a.opts.watch = undefined; P._watch.call(a); const w = a.watch;
+    P._startOver.call(a, 'another provider'); assert.deepStrictEqual([w.stopped, a.watch, a.threadId], [1, null, null], 'a thread started over: the old one\'s watch goes');
+    class Broken { constructor() { throw new Error('no'); } }
+    const b = { opts: { Watch: Broken }, threadId: 't', watch: null }; P._watch.call(b); assert.strictEqual(b.watch, null, 'a watch that cannot start stops no turn');
+  }
+
+  // ---- the real Codex agent: a thread cannot cross between OpenAI and Bedrock, so a switch across them, or a refusal for encrypted reasoning, starts a new thread
+  {
+    const { CodexAgent } = require('module').prototype.require.call(module, '../src/codexAgent.js');
+    const out = [], a = { opts: {}, threadId: 't1', thread: null, sdk: null, emit: (e) => out.push(e) };
+    const options = CodexAgent.prototype._options.call({ opts: { cwd: '/git/one', additionalDirectories: ['/git/two', '/git/three'] } });
+    assert.deepStrictEqual([options.workingDirectory, options.additionalDirectories], ['/git/one', ['/git/two', '/git/three']], 'the real Codex SDK receives every multi-root workspace folder');
+    CodexAgent.prototype.setBackend.call(a, { apiKey: 'sk-x' }); assert.strictEqual(a.fresh, undefined, 'ChatGPT to the API key: the same provider, the thread goes on');
+    CodexAgent.prototype.setBackend.call(a, { bedrock: { provider: 'amazon-bedrock' } }); assert.strictEqual(a.fresh, true, 'to Bedrock: the thread cannot follow');
+    a.fresh = undefined; a.threadId = null;
+    CodexAgent.prototype.setBackend.call(a, {}); assert.strictEqual(a.fresh, undefined, 'with no thread yet there is nothing to leave');
+    CodexAgent.prototype._said.call(a, '{"error":{"code":"invalid_encrypted_content","message":"invalid encrypted content","param":"input"}}');
+    assert.deepStrictEqual([a.crossed, out], [true, []], 'the refusal is not shown as an error: send starts over and tries again');
+    CodexAgent.prototype._onEvent.call(a, { type: 'turn.failed', error: { message: 'invalid_encrypted_content' } }, Date.now());
+    assert.deepStrictEqual(out, [], 'nor is the failed turn');
+    CodexAgent.prototype._said.call(a, 'This session was recorded with model gpt-6-astra but is resuming with openai.gpt-6-astra.');
+    assert.strictEqual(out.pop().kind, 'note', 'Codex\'s word on the model change is a note, as before');
+  }
+
+  // ---- the real Claude agent: a queued message carries a uuid, can be taken back before a turn takes it up, and is said to start
+  {
+    const { ClaudeAgent, AsyncQueue } = require('module').prototype.require.call(module, '../src/claudeAgent.js');
+    const P = ClaudeAgent.prototype, out = [];
+    const a = { running: true, pending: 1, waiting: [], sessionId: 's1', queue: new AsyncQueue(), query: null, emit: (e) => out.push(e) };
+    P.send.call(a, 'first queued'); P.send.call(a, 'second queued');
+    const users = out.filter((e) => e.kind === 'user');
+    assert.deepStrictEqual(users.map((u) => [u.text, u.queued, typeof u.qid]), [['first queued', true, 'string'], ['second queued', true, 'string']]);
+    const [q1, q2] = users.map((u) => u.qid);
+    assert.deepStrictEqual([a.waiting, a.queue.items.map((m) => [m.uuid, m.priority]), a.pending], [[q1, q2], [[q1, 'next'], [q2, 'next']], 3], 'each goes to Claude Code with its uuid, behind the turn');
+    // not yet handed to Claude Code: taken out of perch's own input stream
+    assert.deepStrictEqual(await P.unqueue.call(a, q1), { ok: true });
+    assert.deepStrictEqual([a.waiting, a.queue.items.map((m) => m.uuid), a.pending], [[q2], [q2], 2]);
+    // handed over already: Claude Code is asked, and says whether it still had it
+    a.queue.items.length = 0; const asked = [];
+    a.query = { cancelAsyncMessage: async (u) => { asked.push(u); return true; } };
+    assert.deepStrictEqual([await P.unqueue.call(a, q2), asked, a.waiting, a.pending], [{ ok: true }, [q2], [], 1], 'cancelled in Claude Code; the turn that runs still counts');
+    P.send.call(a, 'third'); const q3 = out.filter((e) => e.kind === 'user').pop().qid;
+    a.queue.items.length = 0; a.query = { cancelAsyncMessage: async () => false };
+    assert.deepStrictEqual([await P.unqueue.call(a, q3), a.waiting], [{ ok: false, why: 'taken' }, []], 'a turn had taken it up: too late, and it waits no longer');
+    P.send.call(a, 'fourth'); const q4 = out.filter((e) => e.kind === 'user').pop().qid;
+    a.queue.items.length = 0; a.query = {};
+    assert.deepStrictEqual([await P.unqueue.call(a, q4), a.waiting], [{ ok: false, why: 'unsupported' }, [q4]], 'a Claude Code that cannot be asked: it stays queued, and will run');
+    a.query = { cancelAsyncMessage: async () => { throw new Error('unknown subtype'); } };
+    assert.deepStrictEqual(await P.unqueue.call(a, q4), { ok: false, why: 'unsupported' });
+    assert.deepStrictEqual(await P.unqueue.call(a, 'nope'), { ok: false, why: 'taken' }, 'one never queued, or long gone');
+    // a turn takes queued messages up: said for each, by the uuids Claude Code stamps on the turn's first messages
+    P.send.call(a, 'fifth'); const q5 = out.filter((e) => e.kind === 'user').pop().qid; out.length = 0;
+    P._taken.call(a, { type: 'stream_event', user_message_uuids: [q4, 'other'], user_message_uuid: q5 });
+    assert.deepStrictEqual([out, a.waiting], [[{ kind: 'dequeued', qid: q4 }, { kind: 'dequeued', qid: q5 }], []]);
+    P._taken.call(a, { type: 'assistant', user_message_uuids: [q4] }); assert.strictEqual(out.length, 2, 'each once');
+    // idle, or the process gone: nothing is queued any more
+    P.send.call(a, 'sixth'); const q6 = out.filter((e) => e.kind === 'user').pop().qid; out.length = 0;
+    P._settle.call(a); assert.deepStrictEqual([out, a.waiting], [[{ kind: 'dequeued', qid: q6 }], []]);
+    // a message sent while nothing runs is no queued one: no uuid, nothing to take back
+    const b = { running: false, pending: 0, waiting: [], sessionId: '', queue: new AsyncQueue(), emit: (e) => out.push(e) };
+    P.send.call(b, 'now'); assert.deepStrictEqual([out.pop().qid, out.pop().qid, b.queue.items[0].uuid, b.waiting], [undefined, undefined, undefined, []]);
+  }
+
+  // ---- the real Claude agent takes Claude Code's word on whether a turn runs: a lost result must not leave a tab working
+  {
+    const { ClaudeAgent } = require('module').prototype.require.call(module, '../src/claudeAgent.js');
+    const out = [], a = { running: true, pending: 2, waiting: [], emit: (e) => out.push(e), _context() {}, _state: ClaudeAgent.prototype._state, _taken: ClaudeAgent.prototype._taken, _settle: ClaudeAgent.prototype._settle };
+    ClaudeAgent.prototype._onMessage.call(a, { type: 'system', subtype: 'session_state_changed', state: 'requires_action' });
+    assert.deepStrictEqual([a.running, a.pending, out], [true, 2, []], 'waiting on the user is still a running turn');
+    ClaudeAgent.prototype._onMessage.call(a, { type: 'system', subtype: 'session_state_changed', state: 'idle' });
+    assert.deepStrictEqual([a.running, a.pending, out], [false, 0, [{ kind: 'busy', busy: false }]], 'idle ends the turn whatever the count says');
+    ClaudeAgent.prototype._onMessage.call(a, { type: 'system', subtype: 'session_state_changed', state: 'idle' });
+    assert.strictEqual(out.length, 1, 'said once');
+    ClaudeAgent.prototype._onMessage.call(a, { type: 'system', subtype: 'session_state_changed', state: 'running' });
+    assert.deepStrictEqual([a.running, a.pending, out[1]], [true, 1, { kind: 'busy', busy: true }], 'a turn Claude Code starts on its own is shown too');
+  }
+
+  // ---- the real Claude agent asks which model it runs as soon as the model is changed, so "default" can name it at once
+  {
+    const { ClaudeAgent } = require('module').prototype.require.call(module, '../src/claudeAgent.js');
+    const out = [], set = [];
+    let fail = null, now = 'us.anthropic.claude-sonnet-4-6';
+    const query = { setModel: async (m) => { if (fail) throw new Error(fail); set.push(m); now = m ? 'us.anthropic.claude-' + m : 'us.anthropic.claude-opus-5-5'; }, getContextUsage: async () => ({ percentage: 2, totalTokens: 20000, maxTokens: 1000000, model: now }) };
+    const a = { query, emit: (e) => out.push(e), _context: ClaudeAgent.prototype._context };
+    await ClaudeAgent.prototype.setModel.call(a, 'haiku'); await flush();
+    await ClaudeAgent.prototype.setModel.call(a, ''); await flush();
+    assert.deepStrictEqual([set, out.map((e) => e.kind + ' ' + e.model)], [['haiku', undefined], ['context us.anthropic.claude-haiku', 'context us.anthropic.claude-opus-5-5']], 'default is no model, and each change is followed by Claude\'s word on what runs now');
+    fail = 'not now'; out.length = 0;
+    await ClaudeAgent.prototype.setModel.call(a, 'opus'); await flush();
+    assert.deepStrictEqual(out, [{ kind: 'error', text: 'could not set model: not now' }], 'a change that fails is said, and nothing is asked');
+    await ClaudeAgent.prototype.setModel.call({ query: null, emit: (e) => out.push(e) }, 'opus');
+    assert.strictEqual(out.length, 1, 'with no process there is nothing to change');
+  }
+
+  // ---- pasted images go with the message, to either agent
+  {
+    const PNG = { mime: 'image/png', data: 'iVBORw0KGgo=' }, JPG = { mime: 'image/jpeg', data: '/9j/4AAQ' };
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const from = created.length;
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c, text: 'what is wrong here', images: [PNG, JPG] }); await flush();
+    const ca = created[from];
+    assert.deepStrictEqual([ca.sent, ca.images], [['what is wrong here'], [[PNG, JPG]]]);
+    assert.deepStrictEqual(v.events(c).filter((e) => e.kind === 'user'), [{ kind: 'user', text: 'what is wrong here', queued: false, images: 2 }], 'the transcript says how many, and does not hold them');
+    // a thumbnail the page made travels with the message into the transcript; a bad one is dropped, the image itself never kept
+    const T = 'data:image/jpeg;base64,/9j/4AAQ';
+    v.fire({ type: 'send', sid: c, text: 'thumbs', images: [Object.assign({ thumb: T }, PNG), Object.assign({ thumb: 'javascript:x' }, JPG), Object.assign({ thumb: 'data:image/jpeg;base64,' + 'A'.repeat(90000) }, PNG)] }); await flush();
+    const ut = v.events(c).filter((e) => e.kind === 'user').pop();
+    assert.deepStrictEqual([ut.images, ut.thumbs, ca.images[1]], [3, [T, '', ''], [PNG, JPG, PNG]]);
+    assert.deepStrictEqual(m.perch.get(c).history.filter((h) => h.kind === 'user').pop().thumbs, [T, '', ''], 'kept for a page made again');
+    assert(!JSON.stringify(m.memento._dump()).includes(PNG.data), 'nor does what is saved');
+    // the thumbnails are saved with the tab, and after a reload rejoin the messages the record says had images
+    const st = m.memento._dump()['perch.sessions.v1'].sessions.find((s) => s.id === c);
+    assert.deepStrictEqual(st.kept, [['', ''], [T, '', '']], 'one entry per message sent with images, oldest first');
+    {
+      const events = [{ kind: 'user', text: 'what is wrong here', queued: false, images: 2 }, { kind: 'text', text: 'nothing' }, { kind: 'user', text: 'thumbs', queued: false, images: 3 }, { kind: 'text', text: 'three' }];
+      const r = install(m.memento._dump(), { past: { transcripts: { [st.resume]: { events, earlier: 0 } } } }); await flush();
+      const vr = fakeView(); r.registered['perch.main'].resolveWebviewView(vr.view); vr.fire({ type: 'ready' }); await flush(); await flush();
+      assert.deepStrictEqual(vr.events(c).filter((e) => e.kind === 'user').map((e) => e.thumbs), [undefined, [T, '', '']], 'the last message with images has its thumbnails back; one whose thumbnails were all dropped has none');
+      // when the record holds more image messages than were saved with the tab, the saved ones go to the latest
+      const r2 = install(m.memento._dump(), { past: { transcripts: { [st.resume]: { events: [{ kind: 'user', text: 'older', queued: false, images: 1 }, ...events], earlier: 0 } } } }); await flush();
+      const v2 = fakeView(); r2.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush(); await flush();
+      assert.deepStrictEqual(v2.events(c).filter((e) => e.kind === 'user').map((e) => e.thumbs), [undefined, undefined, [T, '', '']]);
+      // what is saved is bounded: the oldest thumbnails go once they weigh too much
+      const s2 = r2.perch.get(c); for (let i = 0; i < 3; i++) s2.keep(['data:image/jpeg;base64,' + 'A'.repeat(700000)]);
+      assert.deepStrictEqual([s2.kept.length, s2.kept[0][0].length > 100000], [2, true], 'about 1.5 MB in all');
+      r.perch.dispose(); r2.perch.dispose();
+    }
+
+    // an image with no words is a message; it does not name the tab
+    v.fire({ type: 'new', kind: 'claude' }); const c2 = v.lastTabs().active;
+    v.fire({ type: 'send', sid: c2, text: '', images: [PNG] }); await flush();
+    assert.deepStrictEqual([created[from + 1].sent, created[from + 1].images, v.tab(c2).title], [[''], [[PNG]], 'Claude 2']);
+    v.fire({ type: 'send', sid: c2, text: 'and now in words' }); await flush();
+    assert.deepStrictEqual([v.tab(c2).title, created[from + 1].images[1]], ['and now in words', []], 'the first words do');
+    v.fire({ type: 'send', sid: c2, text: '  ', images: [] }); v.fire({ type: 'send', sid: c2, text: '' }); await flush();
+    assert.strictEqual(created[from + 1].sent.length, 2, 'nothing at all is still not a message');
+
+    // what cannot be sent is left out, and said
+    const big = { mime: 'image/png', data: 'A'.repeat(5000001) };
+    v.fire({ type: 'send', sid: c, text: 'mixed', images: [PNG, { mime: 'image/svg+xml', data: 'PHN2Zz4=' }, big, { mime: 'image/png', data: 'not base64!' }, { mime: 'image/png' }, null, 'x', JPG] }); await flush();
+    assert.deepStrictEqual(ca.images[2], [PNG, JPG]);
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'note').pop().text, '6 images left out: a message takes 8 images, each a PNG, JPEG, GIF, or WebP of up to 5 MB');
+    v.fire({ type: 'send', sid: c, text: 'many', images: Array(10).fill(PNG) }); await flush();
+    assert.deepStrictEqual([ca.images[3].length, v.events(c).filter((e) => e.kind === 'note').pop().text.slice(0, 18)], [8, '2 images left out:']);
+    v.fire({ type: 'send', sid: c, text: '', images: [big] }); await flush();
+    assert.strictEqual(ca.sent.length, 4, 'a message whose only image cannot be sent is not sent empty');
+    v.fire({ type: 'send', sid: c, text: 'odd', images: 'nonsense' }); await flush();
+    assert.deepStrictEqual(ca.images[4], []);
+
+    // Codex: with the IDE context, and through the queue
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    v.fire({ type: 'send', sid: x, text: 'hold this', images: [PNG] }); await flush();
+    const xa = created[created.length - 1];
+    assert.deepStrictEqual([xa.sent, xa.images, xa.shownAs], [['hold this'], [[PNG]], [{ text: 'hold this', tag: undefined }]]);
+    v.fire({ type: 'send', sid: x, text: 'next', images: [JPG, PNG] }); await flush();
+    { const { qid, ...u } = v.events(x).filter((e) => e.kind === 'user').pop(); assert.deepStrictEqual([typeof qid, u], ['string', { kind: 'user', text: 'next', queued: true, images: 2 }]); }
+    v.fire({ type: 'send', sid: x, text: 'with thumb', images: [Object.assign({ thumb: T }, PNG)] }); await flush();
+    { const { qid, ...u } = v.events(x).filter((e) => e.kind === 'user').pop(); assert.deepStrictEqual([typeof qid, u], ['string', { kind: 'user', text: 'with thumb', queued: true, images: 1, thumbs: [T] }], 'a queued Codex message shows its thumbnail at once'); }
+    assert.strictEqual(xa.sent.length, 1, 'waiting behind the turn');
+    xa.finish(); await flush(); await flush();
+    assert.deepStrictEqual([xa.sent, xa.images[1]], [['hold this', 'next', 'with thumb'], [JPG, PNG]], 'a queued message keeps its images');
+    m.perch.dispose();
+
+    // the real Codex agent hands images over as files, and takes them away with it
+    const fs = require('fs'), { CodexAgent } = require('module').prototype.require.call(module, '../src/codexAgent.js');
+    const a = { imageDir: null, imageCount: 0, turnAbort: null, _unwatch: CodexAgent.prototype._unwatch };
+    const input = CodexAgent.prototype._input.call(a, 'look', [PNG, JPG]);
+    assert.deepStrictEqual(input.map((i) => [i.type, i.text || require('path').basename(i.path)]), [['text', 'look'], ['local_image', '1.png'], ['local_image', '2.jpg']]);
+    assert.deepStrictEqual(fs.readFileSync(input[1].path), Buffer.from(PNG.data, 'base64'));
+    assert.deepStrictEqual(CodexAgent.prototype._input.call(a, '  ', [PNG]).map((i) => [i.type, require('path').basename(i.path)]), [['local_image', '3.png']], 'no words, no text part; files are never reused');
+    const dir = a.imageDir; CodexAgent.prototype.dispose.call(a);
+    assert.deepStrictEqual([fs.existsSync(dir), a.imageDir], [false, null]);
+  }
+
+  // ======================================================================== a Claude tab on the gateway
+  // The gateway is a tab's own backend: its process gets the variables of the user's env file, and the window's switch does
+  // not touch it. The file here is a throwaway; the stub points every other test at a path that does not exist, so the
+  // developer's own gateway file is never read.
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-host-gw-')), file = path.join(tmp, 'env');
+    try {
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
+      const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      // no file yet: nothing offers a tab on the gateway, but the command and the footer's menu still lead to one
+      assert.deepStrictEqual(v.lastTabs().gateway, { file, exists: false, ok: false }, 'every tabs message says where the file is and whether there is one');
+      assert.deepStrictEqual(m.ui.contexts, [['perch.gateway', false]], 'the title menus are told to hide their gateway entry');
+      m.picks.push((i) => i.gateway); assert.strictEqual(await m.commands['perch.new'](), null, 'the quick pick has no gateway entry');
+      await m.commands['perch.newClaudeGateway']();
+      let t = v.lastTabs(); const g = t.tabs[0].id;
+      assert.deepStrictEqual([t.tabs[0].title, t.tabs[0].gateway, t.tabs[0].gatewayWarn, t.tabs[0].backend, t.tabs[0].cache.minutes], ['Claude 1', true, true, '', 5], 'a tab on the gateway, flagged while there is no file; its cache lifetime is the API\'s five minutes');
+      // the first message is held, and Open the File makes the file from the template
+      const n0 = created.length;
+      m.ui.answers.push('Open the File');
+      v.fire({ type: 'send', sid: g, text: 'hello gateway' }); await flush(); await flush();
+      assert.strictEqual(created.length, n0, 'no process is started');
+      assert(v.events(g).some((e) => e.kind === 'note' && e.text === `This tab is on the gateway, but ${file} does not exist. Fill it in, or take this tab off the gateway, then send the message again.`), 'the tab says why');
+      assert(v.events(g).some((e) => e.kind === 'insert' && e.text === 'hello gateway'), 'the message is put back in the box');
+      assert.deepStrictEqual(v.events(g).filter((e) => e.kind === 'note').pop().actions, [{ id: 'gatewayFile', label: 'Open the File' }, { id: 'gatewayLeave', label: 'Leave the Gateway' }], 'and the ways on are buttons under the note, which stay when the notification has gone');
+      assert(/^This tab is on the LLM gateway, but .* does not exist\. Perch gives a tab on the gateway the variables in that file/.test(m.ui.warnings.pop()));
+      assert.deepStrictEqual(m.ui.opened.pop(), [file, null], 'the file is opened in the editor');
+      assert.strictEqual(fs.readFileSync(file, 'utf8').split('\n')[2], 'export ANTHROPIC_BASE_URL=', 'made from the template');
+      if (process.platform !== 'win32') assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600, 'for its owner only');
+      // with a file, the gateway is on offer; the tab stays flagged until the file is filled in
+      v.fire({ type: 'activate', sid: g }); t = v.lastTabs();
+      assert.deepStrictEqual([t.gateway.exists, t.gateway.ok, t.tabs[0].gatewayWarn], [true, false, true]);
+      assert.deepStrictEqual(m.ui.contexts.pop(), ['perch.gateway', true], 'and the title menus show their entry');
+      m.picks.push((i) => i.kind === 'claude'); const s1 = await m.commands['perch.new'](); assert.deepStrictEqual([s1.kind, s1.gateway, s1.title], ['claude', false, 'Claude 2'], 'the quick pick offers Claude; the gateway is a choice in the tab\'s backend menu');
+      m.perch.closeSession(s1.id); const s2 = m.perch.addSession('claude', { gateway: true }); assert.deepStrictEqual([s2.kind, s2.gateway, s2.title], ['claude', true, 'Claude 3']);
+      m.perch.closeSession(s2.id);
+      // the note's own buttons: the file again (it exists now, and is opened as it is), and this tab off the gateway and back
+      v.fire({ type: 'noteAction', sid: g, action: 'gatewayFile' }); await flush();
+      assert.deepStrictEqual(m.ui.opened.pop(), [file, null], 'the note\'s button opens the file');
+      v.fire({ type: 'noteAction', sid: g, action: 'gatewayLeave' }); assert.strictEqual(v.lastTabs().tabs[0].gateway, false, 'and its other button takes the tab off the gateway');
+      v.fire({ type: 'noteAction', sid: g, action: 'gatewayLeave' }); v.fire({ type: 'noteAction', sid: g, action: 'bogus' }); assert.strictEqual(v.lastTabs().tabs[0].gateway, false, 'pressed again, or junk: nothing');
+      v.fire({ type: 'setBackend', sid: g, value: 'gateway' }); assert.strictEqual(v.lastTabs().tabs[0].gateway, true);
+      m.ui.answers.push('Leave the Gateway');
+      v.fire({ type: 'send', sid: g, text: 'again' }); await flush(); await flush();
+      assert(/sets no ANTHROPIC_BASE_URL\. Perch gives/.test(m.ui.warnings.pop()), 'an empty file is named for what it lacks');
+      assert.deepStrictEqual([created.length, v.lastTabs().tabs[0].gateway], [n0, false], 'no process; the tab is taken off the gateway at the user\'s word');
+      // back on, from the footer's menu, with a usable file: the process gets the file's variables, with Bedrock off
+      v.fire({ type: 'setBackend', sid: g, value: 'gateway' });
+      assert.strictEqual(v.lastTabs().tabs[0].gateway, true);
+      fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://gw.example.com/llm-api\nexport ANTHROPIC_AUTH_TOKEN="tok"   # mine\nexport ANTHROPIC_MODEL=router-auto[1m]\n');
+      v.fire({ type: 'send', sid: g, text: 'hello gateway' });
+      assert.strictEqual(created.length, n0 + 1, 'a process starts');
+      const agent = created[n0];
+      assert.deepStrictEqual(agent.o.env, { CLAUDE_CODE_USE_BEDROCK: '0', ANTHROPIC_BASE_URL: 'https://gw.example.com/llm-api', ANTHROPIC_AUTH_TOKEN: 'tok', ANTHROPIC_MODEL: 'router-auto[1m]' }, 'the file\'s variables, and Bedrock off');
+      assert.strictEqual(agent.o.model, undefined, 'the tab on default sends no model: the file\'s ANTHROPIC_MODEL decides');
+      assert.deepStrictEqual(agent.o.gateway, { target: 'https://gw.example.com/llm-api' }, 'the process runs through the relay to the file\'s base URL');
+      t = v.lastTabs();
+      assert.deepStrictEqual([t.tabs[0].backend, t.tabs[0].gatewayWarn, t.tabs[0].started, t.gateway.ok, t.tabs[0].cache.minutes], ['gateway', false, true, true, 5]);
+      // what answered: the relay's word on each response, counted for the turn and put on the result; the last one on the tab
+      assert.deepStrictEqual(t.tabs[0].models[0], { value: '', label: 'default · router-auto[1m]', title: 'ANTHROPIC_MODEL in the gateway file' }, 'the default is the file\'s model, not the window\'s');
+      assert.strictEqual(t.tabs[0].via, 'global.openai.gpt-6-luna', 'the model that answered last');
+      const res = v.events(g).filter((e) => e.kind === 'result').pop();
+      assert.deepStrictEqual(res.via, [{ model: 'global.openai.gpt-6-luna', short: 'gpt-6-luna', n: 2 }, { model: 'xai/grok-4.6', short: 'grok-4.6', n: 1 }], 'three requests, two models, on the result line');
+      assert(!v.events(g).some((e) => e.kind === 'relay'), 'the relay\'s own events stay in the host');
+      const near = (a, b) => Math.abs(a - b) < 1e-9;
+      assert(near(res.gatewayCost, 0.0003) && near(res.gatewayCostSoFar, 0.0003), 'the gateway\'s figures for the turn\'s three requests, summed, and the session\'s so far');
+      v.fire({ type: 'send', sid: g, text: 'and again' });
+      const res2 = v.events(g).filter((e) => e.kind === 'result').pop();
+      assert.deepStrictEqual(res2.via.map((x) => x.n), [2, 1], 'counted per turn, not since the tab opened');
+      assert(near(res2.gatewayCost, 0.0003) && near(res2.gatewayCostSoFar, 0.0006), 'the turn\'s figure starts over; the session\'s accumulates');
+      assert(near(m.memento._dump()['perch.sessions.v1'].sessions[0].gatewayCost, 0.0006), 'and is saved with the tab');
+      // each response's token counts, priced at the model that answered it: two on Luna, one on Grok (the fake agent's 1000 in, 100 out each)
+      const lunaReq = 1000 * 1e-7 + 100 * 5e-7, grokReq = 1000 * 2e-6 + 100 * 6e-6;
+      assert(near(res2.gatewayEstimate, 2 * lunaReq + grokReq) && near(res2.gatewayEstimateSoFar, 2 * (2 * lunaReq + grokReq)), 'the turn at list prices for what answered, and the session so far; beside the gateway\'s own figure, which the page prefers');
+      assert.strictEqual(res2.keySpend, 0.5, 'what the gateway says the token has spent in all');
+      assert(near(m.memento._dump()['perch.sessions.v1'].sessions[0].gatewayEstimate, 2 * (2 * lunaReq + grokReq)), 'saved with the tab');
+      // a streamed response carries no price from the gateway: the estimate is what the turn has
+      knobs.relayCost = null;
+      try {
+        v.fire({ type: 'send', sid: g, text: 'streamed' });
+        const res3 = v.events(g).filter((e) => e.kind === 'result').pop();
+        assert.deepStrictEqual([res3.gatewayCost, near(res3.gatewayEstimate, 2 * lunaReq + grokReq)], [undefined, true], 'no figure from the gateway; the estimate stands alone');
+      } finally { knobs.relayCost = 0.0001; }
+      assert.strictEqual(m.box.writes.length, 0, 'nothing is written to Claude Code\'s settings for any of this');
+      // the window's switch restarts the other Claude tabs and leaves a tab on the gateway alone
+      v.fire({ type: 'new', kind: 'claude', gateway: false }); const plain = v.lastTabs().tabs[1].id;   // asked for plainly: the gateway, once chosen, is where new tabs start
+      v.fire({ type: 'send', sid: plain, text: 'hi' });
+      const plainAgent = created[n0 + 1]; assert.deepStrictEqual([plainAgent.o.env, plainAgent.o.gateway, v.lastTabs().tabs[1].via, v.lastTabs().tabs[1].models[0].label], [undefined, undefined, '', 'default · Opus 5.5'], 'a tab not on the gateway gets no extra environment, no relay, and the window\'s default');
+      assert(!v.events(plain).some((e) => e.kind === 'result' && e.via), 'and no result line of its says anything of a gateway');
+      v.fire({ type: 'meterToggle' }); await flush(); await flush();
+      assert.deepStrictEqual([m.box.bedrock, agent.disposed, plainAgent.disposed], [true, false, true], 'the switch to API / Bedrock restarts the plain tab, not the gateway one');
+      assert(!v.events(g).some((e) => e.kind === 'note' && /backend is now/.test(e.text)), 'and says nothing to it');
+      // the window being on API / Bedrock does not stop a gateway tab: its process is given the gateway's variables as settings of its own,
+      // which Claude Code applies over ~/.claude/settings.json. Nothing is held, nothing is asked.
+      v.fire({ type: 'new', kind: 'claude', gateway: true }); const g2 = v.lastTabs().tabs[2].id;
+      assert.strictEqual(v.lastTabs().tabs[2].gateway, true, 'the + menu opens a tab on the gateway');
+      v.fire({ type: 'new', kind: 'claude', gateway: true }); const g3 = v.lastTabs().tabs[3].id;
+      v.fire({ type: 'send', sid: g3, text: 'x' }); await flush(); await flush();
+      assert.deepStrictEqual([created.length, created[n0 + 2].o.gateway, created[n0 + 2].o.env.CLAUDE_CODE_USE_BEDROCK, v.events(g3).some((e) => e.kind === 'note' && /settings\.json/.test(e.text))], [n0 + 3, { target: 'https://gw.example.com/llm-api' }, '0', false], 'a process starts through the relay, though the window is on API / Bedrock');
+      v.fire({ type: 'close', sid: g3 }); await flush();
+      assert.strictEqual(v.lastTabs().tabs.length, 3);
+      v.fire({ type: 'meterToggle' }); await flush(); await flush();
+      assert.strictEqual(m.box.bedrock, false, 'back on the subscription for what follows');
+      assert.strictEqual(agent.disposed, false, 'the running gateway tab was untouched by that switch too');
+      // moving a running tab off the gateway: its process ends and the next message resumes the session without the gateway
+      const writes = m.box.writes.length;
+      v.fire({ type: 'setBackend', sid: g, value: 'subscription' }); await flush();
+      assert.deepStrictEqual([agent.disposed, v.lastTabs().tabs[0].gateway, v.lastTabs().tabs[0].started, m.box.writes.length], [true, false, false, writes], 'the process ends; already on the subscription, the switch is not touched');
+      assert(v.events(g).some((e) => e.kind === 'note' && e.text === 'This tab is on subscription (login) from the next message; the conversation continues, the prompt cache starts over.'));
+      v.fire({ type: 'send', sid: g, text: 'resume' });
+      assert.deepStrictEqual([created[created.length - 1].o.resume, created[created.length - 1].o.env, created[created.length - 1].o.backend, v.lastTabs().tabs[0].backend, v.lastTabs().tabs[0].own], ['sess-' + n0, undefined, { bedrock: false }, 'subscription', 'subscription'], 'the same session, resumed on the subscription as this tab\'s own choice, told to its process as settings');
+      // the menu's API / Bedrock is this tab's own: the window's switch is not touched, and the next process gets the backend as its settings
+      v.fire({ type: 'setBackend', sid: g, value: 'api' }); await flush(); await flush();
+      assert.deepStrictEqual([m.box.bedrock, m.box.writes.length, v.lastTabs().tabs[0].own, v.lastTabs().tabs[0].gateway, v.lastTabs().tabs[0].started], [false, writes, 'api', false, false], 'the window stays on the subscription; the running process ended');
+      v.fire({ type: 'send', sid: g, text: 'on api' }); await flush();
+      assert.deepStrictEqual([created[created.length - 1].o.backend, created[created.length - 1].o.offGateway, created[created.length - 1].o.env, v.lastTabs().tabs[0].backend], [{ bedrock: true }, undefined, undefined, 'api'], 'its process is on API / Bedrock by its own settings');
+      const nAgents = created.length; v.fire({ type: 'setBackend', sid: g, value: 'api' }); await flush();
+      assert.deepStrictEqual([created.length, v.lastTabs().tabs[0].started], [nAgents, true], 'asking for the backend the tab is on changes nothing');
+      v.fire({ type: 'meterToggle' }); await flush(); await flush();
+      assert.deepStrictEqual([m.box.bedrock, v.lastTabs().tabs[0].started, v.lastTabs().tabs[0].own], [true, true, 'api'], 'the window moves to API / Bedrock; a tab with a backend of its own is left alone');
+      v.fire({ type: 'meterToggle' }); await flush(); await flush(); assert.strictEqual(m.box.bedrock, false, 'back on the subscription');
+      v.fire({ type: 'setBackend', sid: g, value: 'bogus' }); v.fire({ type: 'setBackend', sid: plain, value: 'gateway' }); v.fire({ type: 'setBackend', sid: 'nope', value: 'gateway' });
+      assert.deepStrictEqual([v.lastTabs().tabs[0].gateway, v.lastTabs().tabs[1].gateway], [false, true], 'junk is ignored; any Claude tab can be put on the gateway');
+      // a tab in the middle of a turn moves after it
+      v.fire({ type: 'send', sid: g2, text: 'hold this' });
+      const held = created[created.length - 1]; assert.deepStrictEqual([held.o.env.ANTHROPIC_BASE_URL, v.lastTabs().tabs[2].busy], ['https://gw.example.com/llm-api', true]);
+      v.fire({ type: 'setBackend', sid: g2, value: 'subscription' }); await flush();
+      assert.deepStrictEqual([held.disposed, v.lastTabs().tabs[2].gateway], [false, false], 'the choice is made now, the move waits for the turn');
+      assert(v.events(g2).some((e) => e.kind === 'note' && e.text === 'This tab moves to subscription (login) after the current turn; the conversation continues, the prompt cache starts over.'));
+      held.finish(); await flush();
+      assert.deepStrictEqual([held.disposed, v.lastTabs().tabs[2].started], [true, false], 'moved once the turn ended');
+      // a Codex tab has no gateway
+      v.fire({ type: 'new', kind: 'codex', gateway: true }); const cx = v.lastTabs().tabs[3];
+      assert.deepStrictEqual([cx.kind, cx.gateway, cx.gatewayWarn], ['codex', false, false]);
+      v.fire({ type: 'setBackend', sid: cx.id, value: 'gateway' }); assert.strictEqual(v.lastTabs().tabs[3].gateway, false);
+      // the choice survives a reload
+      const dump = m.memento._dump();
+      assert.deepStrictEqual(dump['perch.sessions.v1'].sessions.map((s) => s.gateway), [false, true, false, false], 'saved with each tab');
+      const m2 = install(dump, { config: { 'claude.gatewayEnv': file } }); await flush();
+      const v2 = fakeView(); m2.registered['perch.main'].resolveWebviewView(v2.view); v2.fire({ type: 'ready' }); await flush();
+      assert.deepStrictEqual(v2.lastTabs().tabs.map((x) => [x.gateway, x.own, x.cache && x.cache.minutes]), [[false, 'api', 5], [true, '', 5], [false, 'subscription', 60], [false, '', null]], 'restored as they were, a backend of a tab\'s own included, with that backend\'s cache lifetime');
+      assert.deepStrictEqual(dump['perch.sessions.v1'].sessions.map((s) => near(s.gatewayCost, 0.0006)), [true, false, false, false], 'the first tab\'s gateway figure is kept with it, though it has left the gateway; the others have none');
+      v2.fire({ type: 'send', sid: v2.lastTabs().tabs[1].id, text: 'after the reload' });
+      assert(near(v2.events(v2.lastTabs().tabs[1].id).filter((e) => e.kind === 'result').pop().gatewayCostSoFar, 0.0003), 'a tab with no saved figure starts from nothing');
+      v2.fire({ type: 'setBackend', sid: v2.lastTabs().tabs[0].id, value: 'gateway' }); v2.fire({ type: 'send', sid: v2.lastTabs().tabs[0].id, text: 'back on' });
+      assert(near(v2.events(v2.lastTabs().tabs[0].id).filter((e) => e.kind === 'result').pop().gatewayCostSoFar, 0.0009), 'the first tab, back on the gateway, carries on from what was saved');
+      assert.deepStrictEqual(v2.lastTabs().gateway, { file, exists: true, ok: true });
+      // Returning to a Claude gateway uses the gateway file's model names in both footer and command paths, not the
+      // native Claude catalog. The command keeps its historical effort semantics; this checks only its catalog.
+      const returner = m2.perch.get(v2.lastTabs().tabs[1].id);
+      assert(returner.gateway && returner.switchVendor('codex'));
+      assert.deepStrictEqual(returner.switchTo().models, [{ value: '', label: 'default · router-auto[1m]', efforts: ['low', 'medium', 'high'], defaultEffort: '' }]);
+      const offered = [];
+      m2.picks.push((i) => { offered.push(i.label); return i.value === ''; });
+      await m2.perch.continueIn('claude', { sid: returner.id }); await flush();
+      assert.deepStrictEqual([offered, returner.kind, returner.gateway], [['default · router-auto[1m]'], 'claude', true], 'the command offers and restores the gateway default');
+      // the sessions list and the handoff offer a tab on the gateway too, now that there is a file
+      const qp = await m2.perch.pickSession();
+      assert.deepStrictEqual(qp.rows().slice(0, 2).map((r) => r[0]), ['$(add) New Claude tab', '$(add) New Codex tab'], 'no tab kind of its own: the gateway is a backend');
+      qp.choose((i) => i.fresh === 'claude');
+      assert.strictEqual(v2.lastTabs().tabs.pop().gateway, true, 'a new tab starts where the last Claude tab was put: on the gateway, chosen earlier in this window');
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  }
+
+  // ---- a model saved by its id, the 1M form among them, is named as the catalog names it, with its efforts
+  {
+    const m = install({ 'perch.sessions.v1': { active: 'z', counters: { claude: 1, codex: 0 }, sessions: [{ id: 'z', kind: 'claude', title: 'prompt analysis', titled: true, model: 'claude-fable-resolved[1m]', effort: 'max', location: 'sidebar' }] } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const t = v.lastTabs().tabs[0];
+    assert.strictEqual(t.model, 'claude-fable-resolved[1m]', 'the choice is kept as it was made');
+    assert.deepStrictEqual(t.models.find((o) => o.value === t.model), { value: 'claude-fable-resolved[1m]', label: 'Fable 5.1 (1M)', title: 'For your toughest challenges' });
+    assert.strictEqual(t.effort, 'max', 'its effort is one Fable takes');
+    assert(t.efforts.some((o) => o.value === 'max'));
+    m.perch.dispose();
+  }
+
+  // ---- Claude's models are those of the backend the tabs run on, from the latest load only; a model saved under another
+  // backend's name is launched by this one's (seen 2026-10-27: a subscription tab sent Bedrock's us.anthropic.claude-fable-5-1)
+  {
+    const m = install({ 'perch.sessions.v1': { active: 'f', counters: { claude: 2, codex: 0 }, sessions: [
+      { id: 'f', kind: 'claude', title: 'bedrock id', titled: true, model: 'us.anthropic.claude-fable-resolved', location: 'sidebar' },
+      { id: 'g', kind: 'claude', title: 'bedrock 1m', titled: true, model: 'us.anthropic.claude-fable-resolved[1m]', location: 'sidebar' }] } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush(); await flush();
+    assert.strictEqual(knobs.claudeLoads[knobs.claudeLoads.length - 1].settings.env.CLAUDE_CODE_USE_BEDROCK, '0', 'loaded for the subscription, said outright');
+    v.fire({ type: 'send', sid: 'f', text: 'hi' }); await flush();
+    assert.strictEqual(created[created.length - 1].o.model, 'fable', 'launched by the subscription\'s name for it');
+    assert.strictEqual(m.perch.get('f').model, 'fable', 'and kept so');
+    v.fire({ type: 'send', sid: 'g', text: 'hi' }); await flush();
+    assert.strictEqual(created[created.length - 1].o.model, 'fable[1m]', 'its 1M context kept');
+    m.perch.dispose();
+
+    // a slow load begun before a newer one does not replace it
+    const SUB = CATALOGS.claude, BEDROCK = { defaultModel: SUB.defaultModel, models: [{ value: 'us.anthropic.claude-fable-resolved', label: 'Fable', resolved: '', description: '', efforts: [], defaultEffort: '' }] };
+    const waits = [];
+    const n = install(undefined, { catalogs: { claude: () => new Promise((r) => waits.push(r)) } }); await flush();
+    const nv = fakeView(); n.registered['perch.main'].resolveWebviewView(nv.view); nv.fire({ type: 'ready' }); await flush();
+    n.perch.loadCatalogs(true); await flush();
+    assert.strictEqual(waits.length, 2);
+    waits[1](SUB); await flush(); await flush();
+    waits[0](BEDROCK); await flush(); await flush();
+    assert.strictEqual(n.perch.catalog.claude, SUB, 'the newer catalog stays');
+    n.perch.dispose();
+  }
+
+  // ---- a tab goes on with the other vendor, and back (note 202)
+  {
+    const was = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'perch-noclaude-'));   // no real session files
+    try {
+      const m = install(undefined, { past: { transcripts: {} } }); await flush();
+      const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+      const asked0 = m.ui.details.length;
+      m.picks.push((i) => i.value === '');
+      await m.commands['perch.continueInCodex'](); await flush();
+      assert.strictEqual(v.lastTabs().tabs[0].kind, 'codex', 'a tab with no turn yet switches with nothing to carry');
+      assert.strictEqual(m.ui.details.length, asked0, 'no confirmation');
+      assert(!v.events(c).filter((e) => e.vendor === 'codex').pop().actions, 'nothing to preview');
+      m.ui.answers.length = 0;
+      const back0 = m.perch.get(c); back0.switchVendor('claude'); assert.strictEqual(back0.kind, 'claude');
+
+      v.fire({ type: 'send', sid: c, text: 'fix the flush bug' }); await flush();
+      const s = m.perch.get(c), a = created[created.length - 1], id1 = s.agentSessionId;
+      m.store.transcripts[id1] = { events: [{ kind: 'user', text: 'fix the flush bug' }, { kind: 'tool_use', id: 't', name: 'Read', input: { file_path: process.cwd() + '/src/a.js' } }, { kind: 'tool_result', id: 't', text: 'BODY' }, { kind: 'text', text: 'answer to fix the flush bug' }], earlier: 0 };
+      // the same vendor: nothing to do
+      const infos = m.ui.infos.length;
+      await m.commands['perch.continueInClaude']();
+      assert(/is on Claude already/.test(m.ui.infos[infos]));
+      v.fire({ type: 'setEffort', sid: c, value: 'high' }); await flush();
+      assert.strictEqual(s.effort, 'high', 'the effort this tab had on Claude will be remembered across the switch');
+
+      // to Codex: its model chosen, what it will read said, the switch made
+      m.picks.push((i) => i.value === 'gpt-6-luna');
+      await m.commands['perch.continueInCodex'](); await flush();
+      assert.strictEqual(s.kind, 'codex'); assert.strictEqual(s.model, 'gpt-6-luna'); assert.strictEqual(s.mode, 'workspace-write', 'Codex\'s own mode, not one carried over');
+      assert.strictEqual(s.agentSessionId, null, 'a new Codex conversation'); assert(a.disposed, 'the Claude process ends');
+      let t = v.lastTabs().tabs[0];
+      assert.strictEqual(t.kind, 'codex'); assert.deepStrictEqual(t.modes, ['read-only', 'workspace-write', 'danger-full-access']);
+      const divider = v.events(c).filter((e) => e.kind === 'note' && e.vendor === 'codex').pop();
+      assert(divider && /^Continued on Codex with GPT-6-Luna · read 2 messages of the conversation above/.test(divider.text), divider && divider.text);
+      assert.strictEqual(m.memento._dump()['perch.sessions.v1'].sessions[0].handoff.messages, 2, 'saved with the tab until it is sent');
+      // the divider's Preview opens what will go, in an editor
+      assert.deepStrictEqual(divider.actions, [{ id: 'handoffPreview', label: 'Preview' }]);
+      const opened = m.ui.opened.length;
+      v.fire({ type: 'noteAction', sid: c, action: 'handoffPreview' }); await flush(); await flush();
+      assert.strictEqual(m.ui.opened.length, opened + 1, 'shown in an editor');
+      // another model chosen before anything is said: the divider names it
+      v.fire({ type: 'setModel', sid: c, value: 'gpt-6-sol' }); await flush();
+      assert(/^Continued on Codex with GPT-6-Sol · read 2 messages/.test(v.events(c).filter((e) => e.kind === 'note' && e.vendor === 'codex').pop().text));
+      v.fire({ type: 'setModel', sid: c, value: 'gpt-6-luna' }); await flush();
+
+      // a reload before anything is sent: the divider keeps its Preview, and the conversation still goes with the next message
+      {
+        const r0 = install(m.memento._dump(), { past: { transcripts: m.store.transcripts } }); await flush();
+        const rv0 = fakeView(); r0.registered['perch.main'].resolveWebviewView(rv0.view); rv0.fire({ type: 'ready' }); await flush(); await flush(); await flush();
+        const d0 = rv0.events(c).filter((e) => e.vendor === 'codex').pop();
+        assert(d0 && /^Continued on Codex/.test(d0.text) && d0.actions && d0.actions[0].id === 'handoffPreview', 'Preview after a reload');
+        assert(r0.perch.get(c).handoff, 'still waiting to go');
+        r0.perch.dispose();
+      }
+      // the first message carries the conversation; the transcript shows the words
+      v.fire({ type: 'send', sid: c, text: 'review it' }); await flush();
+      const b = created[created.length - 1];
+      assert(!b.claude && b.o.model === 'gpt-6-luna');
+      assert(b.sent[0].startsWith('Earlier in this tab the user worked with Claude'), b.sent[0].slice(0, 80));
+      assert(b.sent[0].includes('--- user\nfix the flush bug') && b.sent[0].includes('    · Read src/a.js') && !b.sent[0].includes('BODY'));
+      assert(b.sent[0].endsWith('--- end of the earlier conversation\n\nreview it'));
+      assert.strictEqual(v.events(c).filter((e) => e.kind === 'user').pop().text, 'review it');
+      v.fire({ type: 'send', sid: c, text: 'and more' }); await flush();
+      assert.strictEqual(String(b.sent[1]), 'and more', 'once only');
+      const id2 = s.agentSessionId;
+      m.store.transcripts[id2] = { events: [{ kind: 'user', text: String(b.sent[0]) }, { kind: 'text', text: 'answer to review it' }, { kind: 'user', text: 'and more' }, { kind: 'text', text: 'answer to and more' }], earlier: 0 };
+
+      // and back to Claude: its own conversation goes on, handed only what Codex said
+      // this time from the footer's menu, which offers each Claude model's own efforts. Clicking the model itself sends
+      // the empty effort deliberately, so its default replaces the explicit effort this tab used on Claude before.
+      const sw = v.lastTabs().tabs[0].switchTo;
+      assert.strictEqual(sw.kind, 'claude'); assert.deepStrictEqual(sw.models.slice(0, 2), [
+        { value: '', label: 'default · Opus 5.5', efforts: CATALOGS.claude.defaultModel.efforts, defaultEffort: '' },
+        { value: 'opus', label: 'Opus 5.5', efforts: CATALOGS.claude.models[0].efforts, defaultEffort: '' },
+      ]);
+      assert.deepStrictEqual(sw.models.find((x) => x.value === 'haiku').efforts, [], 'a model with no effort control has no contextual effort menu');
+      v.fire({ type: 'switchVendor', sid: c, kind: 'claude', model: '', effort: '' }); await flush(); await flush(); await flush();
+      // what the page asked and what was done are in the Perch output channel, so a switch that lands wrong can be read back
+      assert(m.ui.traces.some((l) => / the page asks: tab \w{8} "fix the flush bug" codex → claude, model "", effort ""$/.test(l)), m.ui.traces.join('\n'));
+      assert(m.ui.traces.some((l) => / switched tab \w{8} "fix the flush bug": codex → claude, model "", effort "", resuming /.test(l)), m.ui.traces.join('\n'));
+      assert.strictEqual(s.kind, 'claude'); assert.strictEqual(s.agentSessionId, id1, 'the earlier Claude session resumes'); assert.strictEqual(s.mode, 'default'); assert.strictEqual(s.effort, '', 'the model row chose its default rather than restoring high');
+      assert(b.disposed);
+      v.fire({ type: 'send', sid: c, text: 'thanks' }); await flush();
+      const c2 = created[created.length - 1];
+      assert.strictEqual(c2.o.resume, id1);
+      assert(c2.sent[0].startsWith('Earlier in this tab the user worked with Codex (GPT-6-Luna)'), c2.sent[0].slice(0, 80));
+      assert(c2.sent[0].includes('review it') && c2.sent[0].includes('answer to and more'));
+      assert(!c2.sent[0].includes('fix the flush bug'), 'Claude is not handed back its own conversation');
+      t = v.lastTabs().tabs[0]; assert.strictEqual(t.kind, 'claude');
+      assert.deepStrictEqual(t.path, ['claude', 'codex', 'claude'], 'the way the tab went, for its tooltip and mark');
+      // the sessions list: each record says the way its tab went, and opens that tab, not a second one
+      m.store.sessions = [{ kind: 'claude', id: id1, title: 'fix the flush bug', updatedAt: Date.now() }, { kind: 'codex', id: id2, title: 'review it', updatedAt: Date.now() - 60000 }];
+      const list = await m.commands['perch.sessions']();
+      assert.deepStrictEqual(list.items.filter((i) => i.past).map((i) => i.description), ['Claude → Codex → Claude · now · open', 'Claude → Codex → Claude · 1m · open']);
+      const tabsBefore = m.perch.sessions.length;
+      list.choose((i) => i.past && i.past.id === id2); await flush();
+      assert.strictEqual(m.perch.sessions.length, tabsBefore, 'Codex\'s record of a switched tab opens that tab');
+      // a name given to the tab goes to both records
+      s.title = 'flush bug, reviewed'; s.named = true; s.unsaved = true;
+      await m.perch.saveName(s);
+      assert.deepStrictEqual(m.store.renamed.slice(-2).map((r) => r.slice(0, 3)), [['claude', id1, 'flush bug, reviewed'], ['codex', id2, 'flush bug, reviewed']]);
+      assert.deepStrictEqual(m.memento._dump()['perch.sessions.v1'].sessions[0].periods.map((p) => [p.kind, p.resume]), [['claude', id1], ['codex', id2], ['claude', id1]]);
+
+      // a round trip with nothing said leaves no stretch behind, resumed or not: the periods, and so the reload, stay as they were
+      // (the records are read with real file I/O: a few ticks are not enough, so the switch is waited for)
+      v.fire({ type: 'switchVendor', sid: c, kind: 'codex', model: 'gpt-6-luna', effort: 'high' }); await wait(60);
+      assert.strictEqual(s.kind, 'codex'); assert.strictEqual(s.agentSessionId, id2); assert.deepStrictEqual([s.model, s.effort], ['gpt-6-luna', 'high'], 'a contextual effort choice is kept with its model');
+      v.fire({ type: 'switchVendor', sid: c, kind: 'claude', model: '', effort: '' }); await wait(60);
+      assert.strictEqual(s.kind, 'claude'); assert.strictEqual(s.agentSessionId, id1);
+      assert.deepStrictEqual(s.periods.map((p) => [p.kind, p.resume, p.said]), [['claude', id1, true], ['codex', id2, true], ['claude', id1, true]], 'no empty stretches kept');
+      m.store.renamed.length = 0;
+
+      // a reload reads both records back, in the order the tab went
+      m.store.transcripts[id1].events.push({ kind: 'user', text: String(c2.sent[0]) }, { kind: 'text', text: 'answer to thanks' });
+      m.perch.dispose();
+      const r = install(m.memento._dump(), { past: { transcripts: m.store.transcripts } }); await flush();
+      const rv = fakeView(); r.registered['perch.main'].resolveWebviewView(rv.view); rv.fire({ type: 'ready' }); await flush(); await flush(); await flush();
+      const said = rv.events(c).filter((e) => ['user', 'text', 'note'].includes(e.kind)).map((e) => (e.kind === 'note' ? (e.vendor ? '|' + e.vendor : null) : e.text)).filter(Boolean);
+      const from = said.lastIndexOf('fix the flush bug');
+      assert.deepStrictEqual(said.slice(from), ['fix the flush bug', 'answer to fix the flush bug', '|codex', 'review it', 'answer to review it', 'and more', 'answer to and more', '|claude', 'thanks', 'answer to thanks']);
+      assert.strictEqual(rv.lastTabs().tabs[0].kind, 'claude');
+      assert(rv.events(c).some((e) => e.vendor === 'codex' && / · sent from Claude on your Claude subscription to Codex on your ChatGPT login/.test(e.text) && !e.level), 'both ends named; a vendor\'s service to a vendor\'s service is not marked');
+      // from an account of the user's own (here the gateway) to a vendor's service: said, and marked
+      const rs = r.perch.get(c); rs.gateway = true;
+      await r.perch.continueIn('codex', { sid: c, model: '' }); await flush();
+      const out = rv.events(c).filter((e) => e.vendor === 'codex').pop();
+      assert(/ · sent from Claude on the LLM gateway to Codex on your ChatGPT login/.test(out.text) && out.level === 'warn', out.text);
+      r.perch.dispose();
+    } finally { if (was === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = was; }
+  }
+
+  // jay's Jira projects (note 108): asked for at activation and as a page comes into view, told to every page, and the
+  // only projects whose ticket keys the page may ask jay to open
+  {
+    const m = install(undefined, { config: { newTabs: 'editor' }, commandAnswers: { 'jay.projectKeys': () => ['PLAT', 'DEMO', 'PLAT', 'bad key', 7] } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const told = (got) => got.filter((x) => x.type === 'ticketProjects').map((x) => x.projects);
+    assert.deepStrictEqual(told(v.got), [['DEMO', 'PLAT']], 'a page that becomes ready is told the projects jay knows, once each, in order');
+    const opened = () => m.ui.executedWith.filter(([id]) => id === 'jay.openTicket').map(([, k]) => k);
+    v.fire({ type: 'openTicket', key: 'DEMO-16542' }); await flush();
+    assert.deepStrictEqual(opened(), ['DEMO-16542'], 'a key of a known project opens through jay');
+    for (const key of ['SEC-044', 'UTF-8', 'demo-1', 'DEMO-12 ', 'DEMO-', 'PLAT-1; rm', 42, undefined, null]) v.fire({ type: 'openTicket', key });
+    await flush();
+    assert.deepStrictEqual(opened(), ['DEMO-16542'], 'an unknown project or anything not a key is not passed on');
+    m.ui.commandAnswers['jay.openTicket'] = () => { throw new Error('jay could not open it'); };
+    v.fire({ type: 'openTicket', key: 'PLAT-3' }); await flush();
+    assert.deepStrictEqual(opened(), ['DEMO-16542', 'PLAT-3'], 'asked; a failure in jay is ignored');
+    // an editor tab is told too, and coming into view asks jay again; a list that has not changed is not sent again
+    await m.commands['perch.newClaude']();
+    const p1 = m.ui.panels[0]; p1.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(told(p1.got), [['DEMO', 'PLAT']], 'an editor tab is told when it is ready');
+    m.ui.commandAnswers['jay.projectKeys'] = () => ['PLAT'];
+    p1.show(false); p1.show(true, true); await flush();
+    assert.deepStrictEqual([told(p1.got).pop(), told(v.got).pop()], [['PLAT'], ['PLAT']], 'a tab coming into view asks again; every page is told the change');
+    v.reveal(); await flush();
+    assert.strictEqual(told(v.got).length, 2, 'the same list is not sent again');
+    v.fire({ type: 'openTicket', key: 'DEMO-1' }); await flush();
+    assert.deepStrictEqual(opened().slice(2), [], 'a project jay no longer knows is not opened');
+    // jay uninstalled: the command is not found, which is no projects
+    m.ui.commandAnswers['jay.projectKeys'] = () => { throw new Error("command 'jay.projectKeys' not found"); };
+    v.reveal(); await flush();
+    assert.deepStrictEqual([told(v.got).pop(), told(p1.got).pop()], [[], []], 'no jay: no projects');
+    v.fire({ type: 'openTicket', key: 'PLAT-3' }); await flush();
+    assert.deepStrictEqual(opened().slice(2), [], 'and nothing opens');
+    m.perch.dispose();
+    // jay not installed at activation: a page is told nothing, and nothing fails
+    const n = install(undefined, { commandAnswers: { 'jay.projectKeys': () => Promise.reject(new Error("command 'jay.projectKeys' not found")) } }); await flush();
+    const nv = fakeView(); n.registered['perch.main'].resolveWebviewView(nv.view); nv.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(told(nv.got), [], 'without jay a page is told nothing');
+    assert.deepStrictEqual(n.ui.executedWith.map(([id]) => id).filter((id) => id.startsWith('jay.')), ['jay.projectKeys'], 'jay was asked at activation');
+    n.perch.dispose();
+  }
+
+  // a setting cannot be both a value and the parent of another: VS Code's settings tree drops the child ("Ignoring
+  // perch.secretCheck.ignore as perch.secretCheck is true"). So no contributed setting's name is a prefix of another's.
+  {
+    const props = Object.keys(require('../package.json').contributes.configuration.properties);
+    const clash = props.filter((a) => props.some((b) => b.startsWith(a + '.')));
+    assert.deepStrictEqual(clash, [], 'no setting is the parent of another: ' + clash.join(', '));
+    assert(props.includes('perch.secretCheck.enabled') && props.includes('perch.secretCheck.ignore'), 'the secret check\'s two settings');
+  }
+
+  // the composer's secret check (note 110): the settings and the remembered hashes go to every page; "Not a secret" is
+  // kept as a hash in globalState; the clear command forgets them; an invalid ignore expression is noted once in a tab
+  {
+    const H1 = 'a'.repeat(64), H2 = '0123456789abcdef'.repeat(4);
+    const m = install(undefined, { config: { newTabs: 'editor', 'secretCheck.ignore': ['TRC[0-9a-f]{20}', '(unclosed', 7] } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const told = (got) => got.filter((x) => x.type === 'secretCheck');
+    assert.deepStrictEqual(told(v.got), [{ type: 'secretCheck', enabled: true, ignore: ['TRC[0-9a-f]{20}'], allowed: [] }], 'a ready page is told: on by default, the valid expressions only, nothing allowed yet');
+    await m.commands['perch.newClaude']();
+    const p1 = m.ui.panels[0]; p1.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(told(p1.got).pop(), { type: 'secretCheck', enabled: true, ignore: ['TRC[0-9a-f]{20}'], allowed: [] }, 'an editor tab too');
+    // "Not a secret": the hash is stored and every page hears of it
+    p1.fire({ type: 'secretAllow', hash: H1 }); await flush();
+    assert.deepStrictEqual(m.globalState._dump()['perch.secretCheck.allowed'], [H1], 'kept in globalState');
+    assert.deepStrictEqual([told(p1.got).pop().allowed, told(v.got).pop().allowed], [[H1], [H1]], 'every page is told');
+    p1.fire({ type: 'secretAllow', hash: H1 }); v.fire({ type: 'secretAllow', hash: H2.toUpperCase() });
+    for (const bad of ['', 'secret value', 'g'.repeat(64), 'a'.repeat(63), 42, undefined]) v.fire({ type: 'secretAllow', hash: bad });
+    await flush();
+    assert.deepStrictEqual(m.globalState._dump()['perch.secretCheck.allowed'], [H1, H2], 'once each, in lower case; anything not a SHA-256 hex is refused, so no value can be stored');
+    // a reload keeps them
+    const r = install(undefined, { globals: m.globalState._dump() }); await flush();
+    const rv = fakeView(); r.registered['perch.main'].resolveWebviewView(rv.view); rv.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(told(rv.got).pop().allowed, [H1, H2], 'remembered across a reload');
+    r.perch.dispose();
+    // the clear command forgets them, and says so to every page
+    await m.commands['perch.clearSecretExceptions']();
+    assert.deepStrictEqual(m.globalState._dump()['perch.secretCheck.allowed'], [], 'emptied');
+    assert.deepStrictEqual([told(p1.got).pop().allowed, told(v.got).pop().allowed], [[], []], 'every page is told');
+    // the invalid expression: one note in the tab, not one per message
+    const sid = p1.lastTabs().tabs[0].id;
+    p1.fire({ type: 'send', sid, text: 'hello' }); await flush(); p1.fire({ type: 'send', sid, text: 'again' }); await flush();
+    const notes = () => p1.events(sid).filter((e) => e.kind === 'note' && /perch\.secretCheck\.ignore/.test(e.text));
+    assert.strictEqual(notes().length, 1, 'one note for the invalid expression');
+    assert(notes()[0].text.includes('(unclosed'), 'naming it: ' + notes()[0].text);
+    // switched off, and the list changed: every page is told at once
+    m.changeConfig({ 'secretCheck.enabled': false, 'secretCheck.ignore': ['BLD-[0-9]+'] }); await flush();
+    assert.deepStrictEqual(told(v.got).pop(), { type: 'secretCheck', enabled: false, ignore: ['BLD-[0-9]+'], allowed: [] }, 'a settings change reaches the pages');
+    m.perch.dispose();
+  }
+
+  // jay's Confluence site (note 108): asked for with the projects, told to every page when it changes, and the only site
+  // whose /wiki/ links the page may ask jay to open; a link jay cannot open goes to the browser
+  {
+    const answers = { 'jay.siteUrl': () => 'https://example.atlassian.net', 'jay.openPage': () => true };
+    const m = install(undefined, { config: { newTabs: 'editor' }, commandAnswers: answers }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const told = (got) => got.filter((x) => x.type === 'confluenceSite').map((x) => x.url);
+    assert.deepStrictEqual(told(v.got), ['https://example.atlassian.net'], 'a page that becomes ready is told the site, once');
+    const URL1 = 'https://example.atlassian.net/wiki/spaces/DEMO/pages/1001/Demo+plan';
+    const opened = () => m.ui.executedWith.filter(([id]) => id === 'jay.openPage').map(([, u]) => u);
+    v.fire({ type: 'openPage', url: URL1 }); await flush();
+    assert.deepStrictEqual([opened(), m.ui.external.length], [[URL1], 0], 'a page of the site opens through jay, not the browser');
+    for (const url of ['https://example.atlassian.net/browse/DEMO-1', 'https://other.example.com/wiki/spaces/DEMO', 'https://example.atlassian.net.evil.example/wiki/x', 'https://example.atlassian.net@evil.example/wiki/x', 'http://example.atlassian.net/wiki/x', 'javascript:alert(1)', 'https://example.atlassian.net/wikis/x', 42, undefined, null]) v.fire({ type: 'openPage', url });
+    await flush();
+    assert.deepStrictEqual([opened(), m.ui.external.length], [[URL1], 0], 'another site, another path, another scheme, or not a URL: neither jay nor the browser');
+    // jay could not open it: the browser does
+    answers['jay.openPage'] = () => false;
+    v.fire({ type: 'openPage', url: URL1 }); await flush();
+    assert.deepStrictEqual(m.ui.external, [URL1], 'false from jay: the browser');
+    answers['jay.openPage'] = () => { throw new Error('jay broke'); };
+    v.fire({ type: 'openPage', url: URL1 }); await flush();
+    assert.strictEqual(m.ui.external.length, 2, 'an error from jay: the browser');
+    answers['jay.openPage'] = () => Promise.reject(new Error('rejected'));
+    v.fire({ type: 'openPage', url: URL1 }); await flush();
+    assert.strictEqual(m.ui.external.length, 3, 'a rejection from jay: the browser');
+    delete answers['jay.openPage'];
+    v.fire({ type: 'openPage', url: URL1 }); await flush();
+    assert.strictEqual(m.ui.external.length, 4, 'command not found: the browser');
+    // a changed site is told to every page, the same one is not told again, and the old site no longer opens
+    await m.commands['perch.newClaude']();
+    const p1 = m.ui.panels[0]; p1.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(told(p1.got), ['https://example.atlassian.net'], 'an editor tab is told when it is ready');
+    answers['jay.siteUrl'] = () => 'https://example.atlassian.net/';
+    v.reveal(); await flush();
+    assert.strictEqual(told(v.got).length, 1, 'the same site (a trailing slash aside) is not sent again');
+    answers['jay.siteUrl'] = () => 'https://demo.example.com';
+    p1.show(false); p1.show(true, true); await flush();
+    assert.deepStrictEqual([told(p1.got).pop(), told(v.got).pop()], ['https://demo.example.com', 'https://demo.example.com'], 'a tab coming into view asks again; every page is told');
+    v.fire({ type: 'openPage', url: URL1 }); await flush();
+    assert.strictEqual(m.ui.external.length, 4, 'the old site is not the site any more: nothing opens');
+    // jay signed out, or gone
+    answers['jay.siteUrl'] = () => null;
+    v.reveal(); await flush();
+    assert.deepStrictEqual([told(v.got).pop(), told(p1.got).pop()], [null, null], 'signed out: no site');
+    v.fire({ type: 'openPage', url: 'https://demo.example.com/wiki/x' }); await flush();
+    assert.strictEqual(m.ui.external.length, 4, 'and nothing opens');
+    answers['jay.siteUrl'] = () => 'ftp://nonsense';
+    v.reveal(); await flush();
+    assert.strictEqual(told(v.got).length, 3, 'a site that is not https is no site');
+    m.perch.dispose();
+    const n = install(undefined, {}); await flush();
+    const nv = fakeView(); n.registered['perch.main'].resolveWebviewView(nv.view); nv.fire({ type: 'ready' }); await flush();
+    assert.deepStrictEqual(told(nv.got), [], 'without jay a page is told nothing');
+    n.perch.dispose();
+  }
+
+  // ---- each Claude tab's workflow phase (note 203): from main-thread Skill calls whose result is ok, from the user's slash
+  // commands, and from the session's whole record when the tab reopens or comes back to it; never saved with the tab
+  {
+    const m = install(undefined, { past: { transcripts: {} } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    assert.strictEqual(v.tab(c).phase, null, 'no workflow skill yet: no phase');
+    // skill sets the phase once its result is ok
+    knobs.skills = [{ skill: 'trivialpowers:brainstorming' }];
+    v.fire({ type: 'send', sid: c, text: 'design the flush fix' }); await flush();
+    assert.deepStrictEqual(v.tab(c).phase, { phase: 'Design', skill: 'trivialpowers:brainstorming' });
+    knobs.skills = [{ skill: 'trivialpowers:writing-plans', isError: true }, { skill: 'trivialpowers:test-driven-development' }];
+    v.fire({ type: 'send', sid: c, text: 'plan it' }); await flush();
+    assert.deepStrictEqual(v.tab(c).phase, { phase: 'Design', skill: 'trivialpowers:brainstorming' }, 'a failed call, and a skill of no phase, leave it');
+    // sub-agent skill calls do not move the phase
+    knobs.skills = [{ skill: 'trivialpowers:executing-plans', sub: true }];
+    v.fire({ type: 'send', sid: c, text: 'build it with a sub-agent' }); await flush();
+    assert.strictEqual(v.tab(c).phase.phase, 'Design', 'a sub-agent\'s call is its own conversation\'s');
+    // a slash command sets the phase
+    v.fire({ type: 'send', sid: c, text: '/writing-plans for the flush fix' }); await flush();
+    assert.deepStrictEqual(v.tab(c).phase, { phase: 'Plan', skill: 'writing-plans' });
+    const s = m.perch.get(c), id1 = s.agentSessionId;
+    // a bare slash command is named in full when Claude Code's command list has exactly one <plugin>:<name> for it
+    { const cmds = (...names) => s.view.setCommands('claude', names.map((name) => ({ name, description: 'd' })));
+      cmds('clear', 'trivialpowers:finishing-a-development-branch');
+      v.fire({ type: 'send', sid: c, text: '/brainstorming the flush fix' }); await flush();
+      assert.deepStrictEqual(v.tab(c).phase, { phase: 'Design', skill: 'brainstorming' }, 'no command by that name in the list: bare');
+      cmds('clear', 'trivialpowers:brainstorming', 'trivialpowers:writing-plans');
+      v.fire({ type: 'send', sid: c, text: '/writing-plans' }); await flush(); v.fire({ type: 'send', sid: c, text: '/brainstorming the flush fix' }); await flush();
+      assert.deepStrictEqual(v.tab(c).phase, { phase: 'Design', skill: 'trivialpowers:brainstorming' }, 'one plugin offers it: its full name');
+      cmds('trivialpowers:brainstorming', 'other:brainstorming');
+      v.fire({ type: 'send', sid: c, text: '/writing-plans' }); await flush(); v.fire({ type: 'send', sid: c, text: '/brainstorming' }); await flush();
+      assert.deepStrictEqual(v.tab(c).phase, { phase: 'Design', skill: 'brainstorming' }, 'two plugins offer it: bare');
+      cmds('trivialpowers:brainstorming');
+      v.fire({ type: 'send', sid: c, text: '/writing-plans' }); await flush(); v.fire({ type: 'send', sid: c, text: '/other:brainstorming' }); await flush();
+      assert.deepStrictEqual(v.tab(c).phase, { phase: 'Design', skill: 'other:brainstorming' }, 'a name with a prefix is kept as typed');
+      cmds('clear');
+      v.fire({ type: 'send', sid: c, text: '/writing-plans for the flush fix' }); await flush();
+      assert.deepStrictEqual(v.tab(c).phase, { phase: 'Plan', skill: 'writing-plans' }); }
+    // the phase follows what was sent: a note kept for the record goes ahead of the message, so it no longer starts with /
+    s.records = ['For the record: PR #1 (https://x.example/1) was merged at 10:00.']; s.recordsSent = 0;
+    v.fire({ type: 'send', sid: c, text: '/finishing-a-development-branch' }); await flush();
+    assert.deepStrictEqual(v.tab(c).phase, { phase: 'Plan', skill: 'writing-plans' }, 'a slash command behind a note runs no command');
+    assert(!('phase' in m.memento._dump()['perch.sessions.v1'].sessions.find((x) => x.id === c)), 'not saved with the tab');
+    // codex stretch hides the pill, return restores it: the phase the session had as the tab left it, kept in memory by
+    // session id, so its record is not read again
+    m.store.transcripts[id1] = { events: [{ kind: 'user', text: 'design the flush fix', queued: false }], earlier: 0, phase: { phase: 'Build', skill: 'executing-plans' } };
+    assert(s.switchVendor('codex')); await flush();
+    assert.deepStrictEqual([v.tab(c).kind, v.tab(c).phase, s.phase], ['codex', null, null], 'Codex has no phase');
+    const reads = () => m.store.loads.filter((l) => l[0] === 'claude' && l[1] === id1).length, read0 = reads();
+    assert(s.switchVendor('claude')); await flush(); await flush();
+    assert.strictEqual(s.agentSessionId, id1);
+    assert.deepStrictEqual(v.tab(c).phase, { phase: 'Plan', skill: 'writing-plans' }, 'the phase of the session it is back on, as it was');
+    assert.strictEqual(reads(), read0, 'kept, not read again');
+    // a session the tab has no phase for yet is read once, then kept
+    v.fire({ type: 'new', kind: 'claude' }); const c3 = v.lastTabs().active, s3 = m.perch.get(c3);
+    v.fire({ type: 'send', sid: c3, text: 'look at the logs' }); await flush();
+    const id3 = s3.agentSessionId, reads3 = () => m.store.loads.filter((l) => l[0] === 'claude' && l[1] === id3).length;
+    assert(id3 && s3.phase === null);
+    m.store.transcripts[id3] = { events: [], earlier: 0, phase: { phase: 'Build', skill: 'executing-plans' } };
+    assert(s3.switchVendor('codex')); await flush();
+    assert(s3.switchVendor('claude')); await flush(); await flush();
+    assert.deepStrictEqual([v.tab(c3).phase, reads3()], [{ phase: 'Build', skill: 'executing-plans' }, 1], 'the phase of the session it is back on, from its record');
+    assert(s3.switchVendor('codex')); await flush();
+    assert(s3.switchVendor('claude')); await flush(); await flush();
+    assert.deepStrictEqual([v.tab(c3).phase, reads3()], [{ phase: 'Build', skill: 'executing-plans' }, 1], 'read once');
+    // a new Claude thread starts with no phase
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    const sx = m.perch.get(x); sx.phase = { phase: 'Plan', skill: 'writing-plans' };   // as if left over
+    assert(sx.switchVendor('claude')); await flush();
+    assert.deepStrictEqual([sx.agentSessionId, v.tab(x).phase], [null, null]);
+    // reopened tab gets its phase from the record: one stretch (loadPast), and one that has been on both vendors (loadPeriods)
+    const dump = m.memento._dump(), tabs = dump['perch.sessions.v1'].sessions;
+    tabs.push(Object.assign({}, tabs.find((t) => t.id === c), { id: 'P2', resume: 'cl-2', periods: [{ kind: 'claude', resume: 'cl-2', said: true }, { kind: 'codex', resume: 'cx-2', said: true }, { kind: 'claude', resume: 'cl-2', said: true }] }));
+    const r = install(dump, { past: { transcripts: {
+      [id1]: { events: [{ kind: 'user', text: 'design the flush fix', queued: false }], earlier: 3, phase: { phase: 'Finish', skill: 'finishing-a-development-branch' } },
+      'cl-2': { events: [{ kind: 'user', text: 'one', queued: false }], earlier: 0, phase: { phase: 'Design', skill: 'brainstorming' } },
+      'cx-2': { events: [{ kind: 'user', text: 'two', queued: false }], earlier: 0, phase: null },
+    } } }); await flush();
+    const vr = fakeView(); r.registered['perch.main'].resolveWebviewView(vr.view); vr.fire({ type: 'ready' }); await flush(); await flush(); await flush();
+    assert.deepStrictEqual(vr.tab(c).phase, { phase: 'Finish', skill: 'finishing-a-development-branch' });
+    assert.deepStrictEqual(vr.tab('P2').phase, { phase: 'Design', skill: 'brainstorming' });
+    const p2 = r.perch.get('P2'), readsP2 = () => r.store.loads.filter((l) => l[0] === 'claude' && l[1] === 'cl-2').length, readP2 = readsP2();
+    assert(p2.switchVendor('codex')); await flush();
+    assert(p2.switchVendor('claude')); await flush(); await flush();
+    assert.deepStrictEqual([p2.agentSessionId, vr.tab('P2').phase, readsP2()], ['cl-2', { phase: 'Design', skill: 'brainstorming' }, readP2], 'kept from the read as the tab reopened');
+    assert.strictEqual(vr.tab(x).phase, null, 'a tab with no workflow skill on record has none');
+    r.perch.dispose(); m.perch.dispose();
+  }
+
+  // ---- the workflow a Claude tab can start when it is in none (note 203, 0.7.42): from Claude Code's command list, sent
+  // with every tab next to its phase, and again when the list changes
+  {
+    const m = install(undefined, { past: { transcripts: {} } }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active;
+    v.fire({ type: 'new', kind: 'codex' }); const x = v.lastTabs().active;
+    const s = m.perch.get(c), cmds = (...names) => s.view.setCommands('claude', names.map((name) => ({ name, description: 'd' })));
+    cmds('clear', 'trivialpowers:brainstorming', 'trivialpowers:writing-plans');
+    assert.deepStrictEqual([v.tab(c).phase, v.tab(c).workflow], [null, { plugin: 'trivialpowers', command: '/brainstorming' }], 'one plugin offers it: the short command, sent as the list arrives');
+    assert.strictEqual(v.tab(x).workflow, null, 'Codex: none');
+    cmds('trivialpowers:brainstorming', 'other:brainstorming');
+    assert.deepStrictEqual(v.tab(c).workflow, { plugin: 'other', command: '/other:brainstorming' }, 'two plugins: the first of the list (kept sorted by name), in full');
+    cmds('clear', 'compact');
+    assert.strictEqual(v.tab(c).workflow, null, 'no workflow plugin loaded');
+    m.perch.dispose();
+  }
+
+  console.log('HOST OK');
+})().catch((e) => { console.error('HOST FAILED:', e.stack || e.message); process.exit(1); });

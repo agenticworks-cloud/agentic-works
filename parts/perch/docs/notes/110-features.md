@@ -1,0 +1,774 @@
+# Features
+
+The composer, the usage meters and the footer, dictation, and what Perch does and does not do with the user's data. One file, formerly 4 notes, each a section that keeps its number: links from elsewhere point at `#n<number>`.
+
+- [110 — The composer](#n110)
+- [111 — Usage meters](#n111)
+- [112 — Dictation](#n112)
+- [113 — Security and privacy](#n113)
+
+<a id="n110"></a>
+
+## 110 — The composer
+
+One composer, shared by all tabs on a page, reflecting the active tab.
+It takes its vendor's look through a class on the container and CSS
+`order`, so both layouts are the same elements.
+
+### Claude tab
+
+| Tool | Data |
+| --- | --- |
+| **+** | File picker. Inserts `@relative/path` |
+| **/** | Slash commands. Typing `/` opens the same list |
+| Ring | Context used. Amber at 80%, red at 95% |
+| Clock | Minutes until the prompt cache goes cold |
+| Pill | Model and effort, opens a menu |
+| Bolt | Permission mode: Ask, Edits, Plan, Auto, Bypass |
+| Microphone | Dictation |
+| Square | Send, or Stop |
+
+### Codex tab
+
+**+**, the sandbox behind a shield (Full access in amber), the model with
+its effort and a chevron, IDE context, the microphone, and a round send
+button. The Codex extension's "Work locally" chooser is not copied: the
+SDK runs local threads only (no cloud option), and a label styled like
+the vendor's chooser read as a broken switch; it was taken out on
+2026-10-02.
+
+### The cache clock
+
+How long Claude Code keeps the prompt cache warm, by Claude Code's own
+rule (read from the 2.1.119 binary; `src/meter.js`, `promptCacheMinutes`):
+
+1. `FORCE_PROMPT_CACHING_5M` set: five minutes.
+2. `ENABLE_PROMPT_CACHING_1H` set (on Bedrock,
+   `ENABLE_PROMPT_CACHING_1H_BEDROCK`): one hour.
+3. Otherwise one hour on a claude.ai login, five minutes on an API key,
+   a gateway token, Bedrock, Vertex, or Foundry.
+
+The variables are read as Claude Code sees them: the settings files'
+`env` blocks over a gateway file's variables over the process
+environment. A running tab keeps the lifetime of the backend it started
+on.
+
+The clock counts down from the last request, not the last answer: the
+agent says `responded` when each response of a turn begins (the SDK's
+`message_start`, which the request that touched the cache brought), and
+again at the turn's end. Counting from the turn's end only, as it first
+did, left the pill reading "cold" all through a turn that began after an
+expiry, however long the turn ran and however many requests had warmed
+the cache since (seen on 2026-10-05). A subagent's requests are another
+conversation's cache and do not restart the clock.
+
+### Slash filter
+
+A filter of one or two letters matches command **names** only.
+Descriptions are searched from three letters. Otherwise `/c` matched
+`/model`, whose description contains a "c".
+
+### Secret check
+
+Built in 0.7.44, 2026-11-23. A password or key pasted into the composer by mistake would go to the model and into the
+session's record, which Perch cannot take back. So Send first runs a quick check, in the page, on the text alone
+(no network call), for Claude and Codex tabs alike; nothing reaches the agent until it passes or the user says so.
+
+**What counts** (a fixed list of rules, each with a name shown to the user):
+
+| Rule | Matches |
+|---|---|
+| Anthropic / OpenAI key | `sk-` followed by 20+ key characters with a digit or mixed case among them (`sk-ant-…`, `sk-proj-…`; not `sk-learn-…`) |
+| GitHub token | `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` + 36 characters; `github_pat_…` |
+| AWS access key | `AKIA` or `ASIA` + 16 upper-case letters or digits |
+| Slack token | `xoxb-`, `xoxp-`, `xoxa-`, `xoxr-` … |
+| Google API key | `AIza` + 35 characters |
+| JSON Web Token | `eyJ…` `.` `eyJ…` `.` signature |
+| Private key | `-----BEGIN … PRIVATE KEY-----`, and PGP's `… PRIVATE KEY BLOCK-----` |
+| Password in a URL | `scheme://user:password@host`, the user name may be empty (`redis://:pw@host`) |
+| Secret assignment | `password`, `passwd`, `pwd`, `secret`, `api_key`, `apikey`, `token`, `access_token` then `=` or `:` then a value of 6+ non-space characters (quotes allowed); not a type expression (`string`, `boolean`, `None` alone or followed by `[ < | ? , ; )`, `Optional[…]`, `List[…]`…), and not one starting `$`, `process.env`, `os.environ`, `env.`, `<`, `/`, `~` or `{{` |
+| Random-looking string | one token of 32+ characters, no spaces, high entropy (≥ 4.0 bits per character over letters, digits and `+/_-=`, with the Miller–Madow small-sample correction, without which 4% of random 32-character keys fall short), with a digit in it (long identifiers reach 4.2 bits); not words run together (separators or camelCase boundaries, and pieces averaging 3+ letters, most with a vowel, none with five consonants in a row; a one-case key with no separators is never words), not a UUID, not a 40- or 64-hex hash, not a `sha256-`/`sha384-`/`sha512-` integrity value, not a URL without credentials, not a `data:` URI, not a file path (`./`, a drive, `a/b.ext`, `host.tld/…`, or `/…` and `~/…` most of whose folders read as names: words in any case, with dots, dashes, `_`, `@`, `~`, or a UUID or hex id; `//` and one-character folders are not names) |
+
+**What happens.** The message stays in the box; a strip above it names the rule — *"This looks like a password
+or key (GitHub token). It would go to the model and into the session record."* — highlights the matched text in
+the box, and offers:
+
+- **Send anyway** — sends it unchanged; the same text is not flagged again in this tab.
+- **Not a secret** — sends it and remembers the matched value, so it is never flagged again anywhere. Perch keeps
+  only a SHA-256 hash of the value, in its own stored state, never the value; **Perch: Clear Secret-Check
+  Exceptions** forgets them. The page works the hash out itself, in plain JavaScript (`sha256Hex` in
+  `src/secretCheck.js`), so the check stays synchronous and needs no `crypto.subtle`, which a page served over plain
+  http (code-server) does not have.
+- **Edit** — closes the strip, focus back in the box.
+- **Why?** — the rule's name and a one-line description of what it matches.
+
+**Settings.** `perch.secretCheck.enabled` (default `true`) switches the check off. `perch.secretCheck.ignore`: a list of
+regular expressions; a matched value that any of them matches in full is never flagged (a trace-id or
+build-id format, say). An invalid expression is skipped, with one note in the tab.
+
+**Not covered:** pasted images, files the agent reads by itself, text sent by other means (handoffs, kestrel's
+prompts, which the user reviews before pressing Enter), and terminal `claude`. A slash command's own text is
+checked like any message.
+
+---
+
+<a id="n111"></a>
+
+## 111 — Usage meters
+
+The footer follows the active tab.
+
+### Claude
+
+Ported from [AI Meter](https://github.com/seanahn/ai-meter), by the same
+author, and merged in rather than called across extensions.
+
+**Subscription mode.** `GET api.anthropic.com/api/oauth/usage`, with the
+OAuth token Claude Code stores in `~/.claude/.credentials.json` or the
+macOS Keychain. Polled every five minutes and cached in `globalState`,
+so the gauge is there at once after a reload.
+
+**Cost mode.** Used when Claude is configured for Bedrock or API, where
+there is no quota to report. Tokens and estimated cost are computed from
+the transcripts under `~/.claude/projects/`. Files are read
+incrementally, and one message, which produces a line per content block,
+is counted once.
+
+Prices used, in dollars per million tokens:
+
+| Model family | Input | Output |
+| --- | --- | --- |
+| Fable, Mythos | 10 | 50 |
+| Opus 5 and 4.5 to 4.8 | 5 | 25 |
+| Opus 4.0, 4.1, 3 | 15 | 75 |
+| Sonnet | 3 | 15 |
+| Haiku 4 | 1 | 5 |
+| Haiku 3.5 | 0.8 | 4 |
+| Older Haiku | 0.25 | 1.25 |
+
+A model that matches none of these is counted in tokens and shown as
+having no price data, rather than priced by guess.
+
+Cache reads bill at 0.1 times input; cache writes at 1.25 times for a
+five-minute lifetime and 2 times for an hour. These are list prices.
+Bedrock or partner billing may differ.
+
+**Failures are classified by HTTP status.**
+
+| Status | Read as | Response |
+| --- | --- | --- |
+| 429 | rate limited | Keep the reading, mark it stale, wait |
+| 401, 403 | login expired | Offer login |
+| 5xx | network | Retry |
+| 200, unusable body | bad response | Retry |
+
+**Back-off.** After a 429 perch waits at least a minute, doubling to
+half an hour and honouring `Retry-After`, and makes no request in that
+time even when refresh is clicked. The original read a 429 as a
+malformed body and retried every 15 seconds, which prolongs a rate
+limit.
+
+**The backend switch** (`Perch: Toggle Claude Backend`) writes
+`env.CLAUDE_CODE_USE_BEDROCK` in `~/.claude/settings.json`: the window's
+default, for tabs that have not chosen a backend of their own and for
+`claude` in a terminal.
+
+- The settings value wins over an exported environment variable, and
+  `settings.local.json` over `settings.json`. Verified against Claude
+  Code by AI Meter.
+- Model pins are backend-specific. Switching to subscription sets aside
+  a Bedrock model id and blanks provider-prefixed `ANTHROPIC_MODEL` pins.
+  Switching back restores them.
+- The file is written atomically, by rename.
+- A settings file that is not valid JSON is **refused**, not replaced.
+- An open Claude tab that follows the window moves to the new backend
+  (a tab given a backend of its own in the footer's menu, carried to its
+  process as settings of its own, stays): its process ends (after
+  the current turn, if one is running) and the next message resumes the
+  session on the new backend, as after a window reload. The transcript
+  and the session id stay; the prompt cache starts over, being a
+  property of the backend. The tab is told so.
+
+**A backend of the tab's own (0.7.12, 2026-10-29).** The footer's menu
+chooses for this tab alone, all three entries: subscription, API /
+Bedrock, or the gateway. Subscription or API / Bedrock is kept on the
+tab (`own`, saved with it, carried across a vendor switch) and given to
+its next process as settings of its own — `CLAUDE_CODE_USE_BEDROCK` and
+the model slots, as `ownBackendSettings` in `src/gateway.js` makes them,
+the same mechanism that takes a tab off a pinned gateway — which Claude
+Code applies over `~/.claude/settings.json`. So two tabs run on different
+backends side by side, nothing is written to the file, and the window's
+switch leaves such a tab where it is. A process already on the backend
+asked for is not restarted. The catalog of the other backend is loaded
+once when a tab first needs it (`claudeCatalog`), the window's serving
+meanwhile with names mapped across backends. The footer's pill shows the
+tab's backend; where the window's reading does not apply (a tab on API
+under a subscription window, or the reverse), the reading shows `—` and
+the usage panel says whose reading it is. The held-message notes and
+the login dialog act on the tab's own backend. Outside Perch nothing
+changes: a terminal `claude` reads only the file.
+
+**The gateway** is a third backend, a tab's own rather than the window's.
+A gateway is an Anthropic-compatible endpoint reached with
+`ANTHROPIC_BASE_URL` and a token, as a company's LLM proxy is. The user
+keeps its variables in a file written as a shell reads it
+(`export KEY=VALUE`), `~/.config/gateway-claude/env` by default
+(`perch.claude.gatewayEnv`), so one file serves a terminal launcher and
+perch. A tab on the gateway gets the file's variables added to its
+process's environment (`src/gateway.js` reads the file each time a
+process starts, or a `tabs` message is built: it is small, and the user
+may be editing it). Nothing else changes: `~/.claude/settings.json` is
+not written, the token is never in a file of perch's, and the session
+record, `CLAUDE.md`, memory, and MCP servers are those of any other tab.
+Verified: with an OAuth login present in `~/.claude`, Claude Code
+authenticates with the environment's bearer token at the environment's
+base URL and leaves the login alone ([note 115](114-quality-and-open-work.md#n115)).
+
+- The choice is a field of the session, saved with it. Moving a tab onto
+  or off the gateway ends its process and resumes the session, as the
+  window's switch does; the window's switch leaves tabs on the gateway
+  alone.
+- A gateway tab's first message is held when the file is missing or sets
+  no URL or token, or when the window is on API / Bedrock, since Claude
+  Code's settings win over a process's environment. The offers: open the
+  file (made from a template, mode 600, never over an existing one), use
+  the subscription, or take the tab off the gateway.
+- The gateway is a backend of a Claude tab, not a kind of tab. It is
+  chosen in the footer's backend menu under any Claude tab, where the
+  entry reads **LLM gateway** (this tab only), beside the window's two;
+  the picker, **+** and the sessions list offer Claude and Codex only.
+  A kind of its own ("Claude on the gateway", then "LLM gateway", with
+  its own numbering and icon) was tried on 2026-10-02 and taken out the
+  same day: the tab's prompt, tools, permissions, `CLAUDE.md`, skills and
+  record are all Claude Code's, and only the route differs, so a second
+  identity in the tab bar said the wrong thing. The name "LLM gateway"
+  stayed, since the client being Claude Code matters less than the router
+  behind it, which is what the tab is of; the file, the setting and the
+  code keep the plain word "gateway", which fits anyone's proxy.
+- The choice sticks. Once a tab is put on the gateway, new Claude tabs
+  start on it (`perch.claude.newTabsOnGateway` in global state, since the
+  gateway file is the machine's), until a tab is put back on the
+  subscription or API / Bedrock from the same menu; those two stick
+  through Claude Code's own setting, as before. The first-message help's
+  "Leave the Gateway" moves one tab and changes no default.
+- The gateway's model menu is the file's names, not Claude Code's
+  catalog: the default is `ANTHROPIC_MODEL`, and opus, sonnet and haiku
+  are what `ANTHROPIC_DEFAULT_*_MODEL` map them to (`src/gateway.js`,
+  `gatewayModels`), which is what the gateway receives, because those
+  three aliases are exactly what Claude Code translates through those
+  variables and a catalog id such as `claude-fable-5-1` would go out
+  untranslated to a router that has no such name. Effort offers the usual
+  levels, a router's names saying nothing of it. This is now the
+  fallback: since 0.7.19 the menu is the gateway's own list, asked of
+  `GET /v1/models` when a gateway tab needs it and again after ten
+  minutes (`gatewayCatalog`, `fetchGatewayModels`). Its 100 names on
+  2026-11-10 were 13 models: each also listed with an `anthropic/`
+  prefix, most with effort variants (`opus-high` … `opus-max`). The menu
+  shows one entry per model, grouped Claude, OpenAI, other, routers, and
+  sends `anthropic/<model>[1m]`, which Claude Code passes through as it
+  is; the effort chosen goes into the name (`anthropic/opus-high[1m]`,
+  `gatewayModelName`), with no effort setting on top, since the
+  variants are how the gateway pins effort. A model offers only the
+  levels the gateway names (Sonnet has no `low`; routers none). The
+  default stays `ANTHROPIC_MODEL`, sent by no name, so it offers no
+  effort. A tab moved onto the
+  gateway with a catalog model chosen starts from the file's default, so
+  the pill never names a Claude model while the gateway answers; an alias
+  survives the move back.
+- A tab whose file is missing or incomplete holds its first message,
+  puts it back in the box, and says why in a note. The two ways on, the
+  file (made from the template if absent) and the tab off the gateway,
+  are buttons under that note (a note event may carry `actions`; the page
+  posts `noteAction`), where they stay: the notification beside them,
+  which says more, hides itself after a few seconds, and on a first run
+  that was the whole of the guidance. Each button is safe to press again,
+  since an old note keeps its buttons. The other first-message holds
+  carry theirs the same way: Claude on API / Bedrock with no credentials
+  (Open settings.json, Use Subscription), Claude on the subscription with
+  no login (Log In, Use API / Bedrock), and Codex with no login (Log In,
+  Device Code). A button acts only on what still applies: Use
+  Subscription does nothing in a window already on it, Log In says so
+  when the login is already there, and a login taken from a button runs
+  without the notification, which may be gone or still waiting unseen
+  in the notification centre. The Codex sign-in is one run at a time
+  whichever asked for it, since it listens on a fixed port.
+- A Claude login refused in a running session is met the same way
+  (2026-11-17). The login file was there, so nothing held the message,
+  and Claude Code answered with its own words, "this login reached its
+  time limit and cannot be renewed. Run `claude auth login`", a command
+  where the tab has a button. Its message, marked `authentication_failed`,
+  now brings a note with Log In and Use API / Bedrock, and the message
+  goes back to the box. This Log In signs in although a login file is
+  there, since that login is the one refused; the next message starts a
+  fresh process, which reads the new login. On the gateway or API /
+  Bedrock the login is not the subscription's, and Claude Code's words
+  stand alone.
+- With no `ANTHROPIC_MODEL` in the file the model button reads
+  "default" and its tooltip says to set one. It first read "the gateway's
+  default", which was wrong as well as long: the gateway does not choose,
+  Claude Code sends the name it would use anyway (the environment's
+  `ANTHROPIC_MODEL`, or its own default), which a gateway may not know.
+- The template turns the hour-long prompt cache on (`ENABLE_PROMPT_CACHING_1H=1`).
+  Claude Code's rule, read from the 2.1.119 binary: `FORCE_PROMPT_CACHING_5M`
+  forces five minutes, `ENABLE_PROMPT_CACHING_1H` forces the hour (Bedrock
+  needs `ENABLE_PROMPT_CACHING_1H_BEDROCK`), and otherwise the hour goes only
+  to a claude.ai login that is not in overage, which an `ANTHROPIC_AUTH_TOKEN`
+  is not, so a gateway tab would send no `ttl` and get five minutes. On a
+  per-token bill the hour costs 0.75× more on each write and saves a whole
+  re-write of the context at the first pause over five minutes; with a 150 K
+  context one pause an hour pays for it several times over, so the file
+  turns it on and says what to remove if the gateway rejects it. The cache
+  pill reads the same three variables, from settings.local.json's env block
+  over settings.json's over the gateway file over the process (the order
+  Claude Code applies them); overage is not visible to it.
+- The gauge shows nothing under a gateway tab. The gateway's usage is its
+  own, and the cost-mode figures would be at Anthropic list prices for
+  names the gateway may map to anything. The result line under each
+  answer still shows the tokens.
+- The cache clock assumes five minutes, the API's lifetime.
+- **Which model answered.** A routed name is resolved per request, and
+  the gateway's answer body carries the alias, not the deployment; the
+  Agent SDK surfaces no response headers. So the tab's process goes
+  through the relay ([note 108](104-architecture.md#n108)), and the gateway's `x-litellm-model-name`
+  is read off each response. The host counts them per turn and puts them
+  on the `result` (`via gpt-6-luna ×3, grok-4.6` under the answer: a turn
+  is several requests, and the router may send each somewhere else), and
+  the last one on the tab, for the model button's tooltip. The same
+  headers carry the gateway's own
+  price for each response (`x-litellm-response-cost`); the host sums
+  them per turn and the result line shows that figure in place of
+  Claude Code's `total_cost_usd`, which prices a gateway's names by
+  guess (≈$0.045 against the gateway's $0.0021 for one "hello" on
+  Luna). The session's sum is saved with the tab. But LiteLLM puts that
+  header only on a response it has finished pricing, and a streamed one
+  is not priced when its headers go out: Claude Code streams every
+  request, so a tab never sees it (measured 2026-10-02: the same request
+  unstreamed carried `x-litellm-response-cost: 0.000918`, streamed it
+  carried the zeroed `-original`, `-input`, `-output` parts and no cost).
+  So each response's token counts are priced by the host at the
+  answering model's list rates. The counts are taken from the response's
+  own stream, when it ends (`claudeAgent.js`: the largest value of each
+  field across `message_start` and `message_delta`, per conversation,
+  said at `message_stop`), not from the SDK's assistant message: a
+  gateway in front of another vendor's model sends zeros at the start and
+  the real counts in the closing delta (measured 2026-10-05: start
+  `input 0, output 0`, end `input 9, output 17`), and a figure taken at
+  the start read ≈$0.0000 for a turn that had written 92,842 tokens. They
+  are priced
+  (`src/prices.js`): the relay's model names are queued per turn in
+  order and each `usage` takes the next, so a turn of two requests on
+  Luna and one on Grok is three requests at their own rates. The rates
+  are LiteLLM's public table (`model_prices_and_context_window.json`,
+  the one the gateway prices with, short of a deployment's own
+  overrides), fetched once a week into the extension's global storage,
+  and a name is looked up as the gateway spells it and then without its
+  region and provider prefixes (`global.openai.gpt-6-luna` →
+  `openai.gpt-6-luna`; `xai/grok-4.6` as is). The result line shows that
+  figure with `≈` when the gateway gave none, and the tooltip says the
+  reckoning; for the `hello` that Claude Code priced at ≈$0.594 as Opus
+  the Luna rate gives ≈$0.012. The gateway also puts the token's running
+  total on every response (`x-litellm-key-spend`, every use of the token
+  included, and not quite monotonic across the gateway's replicas); the
+  host keeps the last seen and the tooltip states it, since it is the
+  one figure that is the gateway's own. Observed on a gateway with routed names: a routed name sent trivial
+  and code prompts to one model and a proof to another, and a one-word
+  turn from Claude Code went to a third through a fallback. The agent is Claude Code; the
+  model is whatever answered, and the tab now says which.
+
+**The usage panel (2026-10-28).** The footer's reading is compact by
+design; the detail is a panel, the same control under both vendors, from
+note 401's proposal. The **usage** button and the reading both toggle it.
+It shows the backend, the plan as the vendor reports it (ChatGPT's plan
+name and credits; Anthropic's usage endpoint names no plan, so none is
+invented), each window with its level in words as well as colour and its
+reset time, the cost estimate under API / Bedrock marked as an estimate,
+the gateway's silence, a stale reading marked stale, and when the reading
+was made. Refresh and login are buttons in it rather than a click on the
+numbers; the account's usage page is a link. The Codex-only plan badge
+is gone. The page holds the panel's open state; the host acts on nothing
+until a button asks (`meterRefresh`, `meterLogin`, `openExternal`). One
+of the footer's three panels is open at a time, and Escape closes it
+before it reaches the composer.
+
+**The workflow phase (0.7.41; moved in 0.7.42; green in 0.7.43).** Under a Claude tab, on the right just before the session
+stats, a pill names the phase (Design, Plan, Build, Finish) of a skill-driven workflow the conversation is in;
+its hover card lists the four with the current one marked. The phase reads green. With no phase the pill reads `no workflow`, dimmed,
+and the card marks none and says how to start one (`Start one with /brainstorming.`, the plugin and command
+from Claude Code's command list) or that no workflow plugin is loaded. Codex tabs have no pill. Two settings serve an installer that prepares a machine:
+`perch.claude.defaultBackend` (`gateway` starts new Claude tabs on the gateway until a backend is chosen)
+and `perch.firstStart.openClaudeTab` (opens one Claude tab on the right at the next start, once, then
+writes itself back to `false`). [Note 203](203-workflow-phase-and-first-start.md).
+
+**No status bar items.** The gauge is the footer of each tab, where it
+follows the tab's vendor. An earlier version put AI Meter's two items in
+the status bar as well, standing down while that extension was installed;
+they showed Claude's figures under a Codex tab too, and were removed.
+
+### Codex
+
+After every turn Codex appends a `token_count` event to the session's
+rollout file under `~/.codex/sessions/YYYY/MM/DD/`. It carries the plan's
+limits:
+
+```json
+"rate_limits": {
+  "primary":   { "used_percent": 4.0, "window_minutes": 300,   "resets_at": 1790719106 },
+  "secondary": { "used_percent": 1.0, "window_minutes": 10080, "resets_at": 1791305906 },
+  "plan_type": "plus"
+}
+```
+
+perch reads the newest such event, from the last 256 KB of the newest
+files.
+
+- No request is made, so there is nothing to rate-limit.
+- The reading is as old as the last Codex turn on the machine, from any
+  client. The tooltip says when.
+- **A window whose reset has passed is shown as full.** Otherwise a
+  reading from yesterday would show a nearly empty window that has long
+  since reset.
+- perch re-reads after each Codex turn it runs.
+
+### A session's usage, thread by thread
+
+Built for Codex first (below), and given to Claude tabs on 2026-10-27, from Claude Code's own
+records: the session's file for the main thread, and for each sub-agent the file Claude Code 2.1
+keeps under `<session>/subagents/` (`agent-<id>.jsonl`, with `agent-<id>.meta.json` naming it and
+the Agent call that started it; the call's result in the parent's file says it finished). A response
+comes as one record per block, each with the response's usage so far, so it is counted once, at its
+largest figures; `input` counts every token sent, cached and written among them, as Codex's does; a
+turn is a prompt of the user's, attributed to the model that answered it. Priced at Anthropic's list
+rates from the same LiteLLM table; on a subscription the figures say where the work went. Read from
+this session's own files: 387 turns, 1.03 G input tokens of which 1.015 G from the cache, 3.4 M out,
+two models over its life, and one sub-agent.
+
+The plan's limits say how much is left, not where it went. A session that
+starts sub-agents spends in many threads at once: the user's own thread on
+2026-10-12 had 76 sub-agents, which together took 42 % of the session's
+cost. Under a Codex tab, the footer's **sub-agents** button opens a table
+of the whole session, one row per thread: the main thread first, then each
+sub-agent it started (and any those started, by path, `alpha/deep`), then
+the sub-agents' total and the session's. Each row has the model and effort
+(every model, with its turns, when the thread moved), turns, input with
+the cached part of it, output, the cost at list prices, and its share of
+the session. The sub-agents sort by any column; by cost until another is
+chosen.
+
+- **Read from the files, on demand.** The host reads the session's rollout
+  file and each sub-agent's own (`sessionStore.sessionUsage`): the threads
+  from the `SubAgentActivity` records, each thread's tally from its own
+  `turn_context` and `token_usage_record` records, whole. Nothing is kept
+  in perch's state. The table is read when opened, and again when a turn
+  ends while it is open. The user's thread (95 MB, 76 sub-agent files) reads
+  in under a second.
+- **A turn is counted once, by its id.** A turn records its context again
+  after a compaction: 21 of that thread's 205 turns did. Counting records
+  showed 226.
+- **A fork's copy of its parent's history is not its own.** A sub-agent
+  forked from the conversation has the parent's history copied into the top
+  of its file, contexts included: 390 copied against 161 of their own, in
+  those 74 files. The sub-agent's own `session_meta`, the file's first
+  line, names where its own records begin
+  (`subagent_history_start_ordinal`), and `UsageTally` skips the records
+  before it. Before this, every forked sub-agent showed a turn more than it
+  had, on its parent's model, in the foot's table and on its end line too.
+  Token records are never copied (none of the 2,121 in those files names
+  another thread), so the token figures were right.
+- **Priced per model, at list rates.** Each request's tokens go under the
+  model of the turn they are in, so a thread moved to another model is
+  priced at each one's rates: uncached input, input written to the cache,
+  cached input, and output, from LiteLLM's public price table, the same one
+  a gateway's turns are priced with. A thread with a model the table does
+  not price shows no cost, and says which model; shares are then of tokens.
+- **What the cost means.** On a ChatGPT plan nothing is billed per token:
+  turns count against the plan's limits, and the cost says where the work
+  went. On an API key it is what OpenAI's list prices charge; Bedrock bills
+  at its own rates. The tooltip says which.
+
+---
+
+<a id="n112"></a>
+
+## 112 — Dictation
+
+### The constraint that shapes it
+
+perch runs with the workspace. Under Remote-SSH that is another machine,
+and the microphone is not on it. A webview cannot open a microphone
+either. So dictation is two extensions:
+
+| Part | `extensionKind` | Runs on | Does |
+| --- | --- | --- | --- |
+| **perch-audio** | `ui` | the machine the user sits at | Records; transcribes when that machine is the one with the GPU |
+| **perch** | `workspace` | the machine with the workspace | Transcribes otherwise; decides which |
+
+OpenAI's Codex extension is built the same way, with a `codex-audio`
+companion, for the same reason.
+
+**Where the words are worked out** (`perch.voice.runOn`): both
+extensions carry the same engine (`src/voice.js` and `voice/`, copied
+into perch-audio by `make audio-engine`, so each package is whole). With
+no remote they are one machine and perch's own engine is used. Under
+Remote-SSH, `auto` asks perch-audio whether its machine has an NVIDIA
+GPU (`nvidia-smi -L`, once) and, if so, has it transcribe: a desktop
+with a GPU keeps its own audio, and a CPU-only container is spared the
+work; only the text crosses. Otherwise the audio crosses and perch
+transcribes, as before. `local` and `remote` force either. Each side
+sets up its own environment, in the same place
+(`~/.local/share/perch/voice`) so that on one machine the two share it.
+
+```mermaid
+sequenceDiagram
+  participant Pg as Page
+  participant H as perch (workspace)
+  participant A as perch-audio (UI)
+  participant W as Whisper server
+  Pg->>H: voiceStart
+  H->>A: _perch.audio.available
+  opt remote, runOn auto or local
+    H->>A: _perch.audio.engine (installed? GPU?)
+  end
+  H->>A: _perch.audio.start
+  alt words worked out by perch
+    H-->>W: start, load model
+  else by perch-audio
+    H->>A: _perch.audio.warm
+  end
+  loop every 120 ms
+    H->>A: _perch.audio.level
+    H->>Pg: voice: recording, level, seconds
+  end
+  Pg->>H: voiceStop
+  alt by perch
+    H->>A: _perch.audio.stop
+    A-->>H: PCM, base64
+    H->>W: transcribe
+    W-->>H: text
+  else by perch-audio
+    H->>A: _perch.audio.transcribe
+    A-->>H: text
+  end
+  H->>Pg: insert
+```
+
+The model starts loading when recording begins, so it is ready by the
+time the user stops speaking.
+
+### perch-audio
+
+Internal commands, prefixed with an underscore:
+
+| Command | Returns |
+| --- | --- |
+| `_perch.audio.available` | `{ ok, api, devices, states, device, busy }` |
+| `_perch.audio.start` | `{ ok, id, device, sampleRate, maxSeconds }` |
+| `_perch.audio.level(id)` | `{ level, seconds, ended, silent }` |
+| `_perch.audio.stop(id)` | `{ pcm, sampleRate, seconds, silent, ended }` |
+| `_perch.audio.cancel(id)` | `{ ok }` |
+| `_perch.audio.engine(opts)` | `{ ok, installed, gpu, home, host }` (api 2) |
+| `_perch.audio.setup(opts)` | `{ ok }` after the one-time setup there, with its progress shown there |
+| `_perch.audio.warm(opts)` | `{ ok }`; loads the model |
+| `_perch.audio.transcribe(id, { engine, language, prompt })` | `{ text, language, seconds, silent, ended }`: stops the recording and transcribes it there |
+| `_perch.audio.unload()` | `{ ok }` |
+
+`opts` are the engine settings (`model`, `device`, `python`, `idleMs`),
+sent with each request so that perch-audio needs no settings of its own.
+`api` is 2 with these; a perch-audio at 1 still records, and perch then
+transcribes, whatever `runOn` says short of `local`.
+
+Audio is 16 kHz, mono, 16-bit, carried as base64 because a command's
+arguments and results must be JSON to cross between machines. That is
+32 KB a second. Recording stops at `perchAudio.maxSeconds`, 180 by
+default, about 8 MB encoded.
+
+**Choosing a device.** Two traps, both found by testing on real
+hardware:
+
+1. **The system default cannot be trusted.** On Linux the first device
+   listed is often a *monitor* source, which records what the speakers
+   play. Devices named "Monitor of …" are passed over.
+2. **An analog input exists whether or not anything is plugged in.**
+   Recording an empty jack yields electrical noise. On Linux perch-audio
+   asks the sound server, `pactl -f json list sources`, for each port's
+   availability.
+
+| Every port reports | State | Treated as |
+| --- | --- | --- |
+| at least one `available` | connected | preferred |
+| all `not available` | unplugged | not a microphone |
+| anything else, or no ports | unknown | usable |
+
+USB and Bluetooth inputs have no jack to sense and report unknown, so
+they are never ruled out. A device the user has chosen by name is used
+whatever the system reports.
+
+**Bluetooth headsets.** In the A2DP profile a headset has no source at
+all, and PipeWire's own switch to the headset profile happens only for a
+stream on the default source, not for a recorder that opens a device by
+name. So perch-audio reads `pactl -f json list cards`, offers each
+`bluez_card` that has a headset profile with a source under its
+description (which is also the source's name once it exists), and
+around a recording from it runs `set-card-profile` to the headset
+profile (mSBC first, 16 kHz) and back to the previous one. It waits up
+to four seconds for the microphone to be listed. Verified with Galaxy
+Buds Live on 2026-09-30: the profile switch takes about a second and the
+source appears as "Galaxy Buds Live (0310)".
+
+### The engine
+
+Everything lives under `~/.local/share/perch/voice`, never in the system
+Python:
+
+| Path | Holds | Size |
+| --- | --- | --- |
+| `venv/` | faster-whisper, CTranslate2, NVIDIA's cuBLAS and cuDNN wheels | about 2.6 GB |
+| `models/` | the Whisper model | about 1.6 GB for `large-v3-turbo` |
+| `installed.json` | what was installed, from which requirements | |
+
+"Installed" means the environment exists, was built from the current
+`requirements.txt`, and this model has been fetched. A changed
+requirements file means a fresh install.
+
+The environment is `python3 -m venv`. Debian and Ubuntu ship `python3`
+without `ensurepip` until `python3-venv` is installed, and a container
+often has no `sudo` to add it: `venv` then lays the environment out and
+exits 1, and a second try finds a `python` with no `pip`. Setup takes
+such an environment as it is (`--without-pip`), and brings pip in:
+`ensurepip` if the interpreter has it, otherwise pip's own installer
+fetched from `bootstrap.pypa.io`, run once and deleted. Only when both
+fail does the user see a message, naming `python3-venv` and
+`perch.voice.python`. Seen on a JupyterHub container (Ubuntu 22.04 image, no
+`python3-venv`, no `sudo`) on 2026-09-30.
+
+**The server** speaks JSON lines over stdin and stdout:
+
+```
+-> {"id": 1, "op": "transcribe", "pcm": "<base64>", "sample_rate": 16000, "language": null}
+<- {"id": 1, "ok": true, "text": "...", "language": "en", "seconds": 3.2, "took_ms": 210}
+```
+
+| Behaviour | Reason |
+| --- | --- |
+| CUDA libraries are loaded by path at start | NVIDIA's wheels install them where the loader does not look |
+| The model is run once on silence at load | A GPU that loads a model can still fail on first use |
+| Falls back `cuda float16` to `cuda int8_float16` to `cpu int8` | Works without a GPU |
+| `--model auto` is `large-v3-turbo` on a GPU and `small` on a CPU | Measured on a 30-core container: turbo's encoder is 4 s a pass on the CPU, `small` under 1 s |
+| On a CPU, threads follow the cores allowed (affinity, cgroup quota; at most 16) | CTranslate2's default is 4 threads whatever the machine: 6.8 s a pass became 4.0 |
+| On a CPU, greedy decoding; a beam of 5 on a GPU | The beam is most of the CPU wait for a few words |
+| Voice-activity detection is on | A pause is not transcribed as words |
+| Stops after ten idle minutes | Frees about 2.5 GB of GPU memory for other work |
+| Asked to quit before being killed | It can exit cleanly |
+
+**Setup** is asked for once, in a modal that names the machine it will
+install on. That matters under Remote-SSH, where the install lands on
+the remote.
+
+### Alternatives considered
+
+| Option | Verdict |
+| --- | --- |
+| Local Whisper | **Chosen.** Private, free, works in both kinds of tab |
+| ChatGPT's own dictation | Rejected. It uploads to a private `/transcribe` endpoint on ChatGPT's backend with the user's login: undocumented, and unsanctioned for other tools |
+| Codex's recorder commands | Rejected. Private and undocumented. The same open-source library is used directly |
+| OpenAI transcription API | Not built. Needs a key, costs per minute, sends audio out |
+| Codex realtime voice | Not applicable. A spoken conversation, not dictation, and only through the app-server protocol |
+
+### The editors' and vendors' own dictation (checked 2026-11-02)
+
+Why Perch has a dictation of its own, against what is already there:
+
+| | Dictation | Speech recognised where | Types into |
+| --- | --- | --- | --- |
+| Claude Code (CLI, extension) | none — nothing voice-related in the binary, the extension's commands or its settings; Anthropic's voice mode is in the Claude desktop and mobile apps | — | — |
+| Codex (ChatGPT extension) | yes, with the **Codex Audio** companion (`openai.codex-audio`, "local microphone support for Codex dictation, including remote workspaces") | OpenAI's service: the `codex` binary speaks a realtime-session / `appendSpeech` protocol on the ChatGPT login; nothing stays on the machine | the ChatGPT extension's own panel |
+| VS Code | the built-in speech service (*Voice: Start Dictation in Editor*), inert until a provider extension registers | **VS Code Speech** (`ms-vscode.vscode-speech`): Microsoft's on-device models; 1.5 M installs, last release 2025-06 | the editor and Copilot Chat; not a webview |
+| Cursor | VS Code's, inherited by the fork; no voice feature or setting of its own (3.12.17) | no provider available: VS Code Speech is not on Open VSX, Cursor's registry, and its licence is for VS Code proper | — |
+| Perch | yes, Perch Audio on the local machine, the engine on whichever machine suits (`perch.voice.runOn`) | locally, faster-whisper on a GPU or a CPU (`small` by default on a CPU) | Perch's composer, Claude and Codex tabs alike |
+
+Platforms: run on Linux, where it was built and measured. macOS and Windows have the recorder's native libraries in the package and CPU wheels for the engine, and have not been run (note 116 lists what a first run there would exercise).
+
+Perch's composer is a webview, outside the editor's speech service, so VS Code's
+dictation cannot reach it even where it is installed; Codex's reaches only the
+ChatGPT extension's panel, and Perch runs the CLIs headless. Hence the engine of
+Perch's own, which also keeps the audio on the user's machines. Codex Audio and
+Perch Audio make the same split, microphone local and recognition elsewhere;
+the difference is where the recognition is.
+
+**Why VS Code's dictation could not be used by a Perch tab.** The speech
+service feeds the workbench's own surfaces only — the editor
+(`workbench.action.editorDictation.start`) and Copilot Chat
+(`workbench.action.chat.startVoiceChat`). What extensions get is the other
+direction: `speech.registerSpeechProvider`, to *supply* recognition to VS Code,
+and it is still a proposed API, closed to a Marketplace extension. There is no
+call that hands an extension the words. The only route would have been a
+composer that is a real text editor (an untitled document in the tab) rather
+than the webview's box: VS Code Speech would then dictate into it, with no
+Perch Audio and no Whisper install — at the cost of the vendor-styled composer
+and its tools, and under VS Code Speech's own limits (official VS Code and the
+Microsoft Marketplace only, so not code-server, VSCodium or Cursor; no model,
+language or placement choice). Not taken. Codex's panel is a webview too, which
+is why OpenAI built Codex Audio instead of using VS Code's.
+
+**Cursor's dictation is VS Code's, inherited by the fork, not an integration.**
+Its 3.12.17 build carries the `editorDictation` feature and the speech service
+unchanged, with no voice code of its own (no `cursor.*` voice or dictation
+setting, no "voice mode"), and no provider can be installed, since VS Code
+Speech is not on Open VSX, Cursor's registry: the menu entry exists and fails
+with "no speech provider is registered". Its agent panel is a webview as well,
+so a provider would not have reached it either.
+
+---
+
+<a id="n113"></a>
+
+## 113 — Security and privacy
+
+### The page
+
+| Measure | Detail |
+| --- | --- |
+| Content Security Policy | `default-src 'none'`. Scripts and styles by nonce. Images from the webview origin only |
+| Resource roots | perch's directory and the two vendor extensions' directories, for their icons |
+| No markup from data | Text from the host is set with `textContent`. `innerHTML` is used for static artwork only |
+| Escaping | Icon URIs are escaped for the stylesheet and the script. Tests inject hostile strings on every surface |
+
+### Credentials
+
+| Secret | Read by | Sent to |
+| --- | --- | --- |
+| Claude OAuth token | `src/meter.js` | `api.anthropic.com/api/oauth/usage` only |
+| Gateway token | `src/gateway.js`, from the user's env file into a gateway tab's process environment | the gateway, by Claude Code, through `src/relay.js`, which forwards the request's headers as they are and keeps nothing. The relay listens on `127.0.0.1` only, on a port of its own per process, and is gone with the process |
+| Codex login | the Codex binary | OpenAI, by Codex. perch does not read it |
+
+### Files perch writes outside its repository
+
+| File | When | Safeguards |
+| --- | --- | --- |
+| `~/.claude/settings.json` | The backend switch | One key. Atomic. Refuses unparseable files |
+| `~/.claude.json` | Terminal login fallback | Marks onboarding complete. Keeps an existing theme |
+| The gateway file, `~/.config/gateway-claude/env` by default | "Open the File", when there is none | From a template with empty values. Mode 600. Never over an existing file |
+| `~/.local/share/perch/voice/` | Voice setup | With consent |
+
+### What leaves the machine
+
+| Data | Destination |
+| --- | --- |
+| Conversations | Each vendor, through its own agent |
+| Each agent's own side traffic (feature flags, telemetry, error reports, update checks) | Its vendor, as the agent is configured. Perch changes that in one case: a Claude tab on the subscription, taken off a gateway the machine pins, runs without the gateway's switch-off of that traffic, because with the switch on Claude Code lists out-of-date models ([Backend-correct tabs, 5](114-quality-and-open-work.md#backend-correct-tabs-0655-subscription--gateway--api-first-class)). A switch the machine's own environment exports is kept |
+| Usage query | Anthropic |
+| Audio | Nowhere. From the UI machine to the workspace machine over VS Code's connection, and no further |
+| Codex usage, cost-mode figures | Nowhere |
+
+### Commands for other extensions
+
+`perch.insertText(text)` puts `text` at the end of the active tab's input box (after a space if the draft doesn't end in one; it replaces nothing already typed, unlike dictation, which inserts at the cursor) and shows that tab, without sending it; it returns `false` with no tab or no text. Not in the palette.
+
+`perch.notePrMerged(url)` tells the Claude Code session that made a GitHub PR that it was merged, and asks it for nothing; kestrel calls it after a merge. It takes only `https://github.com/{owner}/{repo}/pull/{n}` and finds the session in `~/.claude/projects/*/*.jsonl` written in the last 30 days (src/prSessions.js): the one where the URL came back from a Bash `gh pr create`, else the one that mentioned it first. Open in a tab (its session, or one of its periods): a note `{owner}/{repo}#{n} was merged (HH:MM)`, and `For the record: PR … was merged at HH:MM.` goes ahead of the next message the user sends there, which stays as typed; several join, they are saved with the tab, and they are let go once a turn that carried them ends. The tab is not shown or focused and nothing is sent now. Not open: `claude -p --resume <id> --model haiku --max-turns 1 --tools "" --strict-mcp-config --settings '{"disableAllHooks":true}'` runs once in the session's folder, with a plain Claude tab's program, environment and off-gateway settings and no hooks, one run at a time, stopped after 120 s; done, the status bar says so for 4 s; failed, the reason and stderr's tail go to the Perch output channel and nothing is shown. Each merge is noted once per machine: the first window to note it creates a claim file for that PR in `perch-noted-merges/`, next to Claude Code's projects folder, and any other window asked about it gets `duplicate` (kestrel tells every window when a PR merged on GitHub leaves the list). A background run that fails removes its claim, so a later ask can note it. Returns `{ result: 'tab' | 'background' | 'none' | 'failed' | 'duplicate', sessionId? }`. Not in the palette.
+
+`perch.findPrSession(url)` says which Claude Code session on this machine made a GitHub PR; kestrel asks it, in the background, for every PR it lists. It is the same search, and returns `{ session, cwd, transcript, host, created }` (`transcript` is the record's path, `host` is `os.hostname()`, `created` is true when the URL came back from `gh pr create`), or `null` for a URL that is no PR's, no session, or a failed search, which goes to the Perch output channel; it never throws. Answers are kept per URL for the life of the window, a `null` for 10 minutes, and one search runs at a time (notePrMerged's too), the others queued behind it. `perch.openPrSession({ url, session?, cwd?, transcript? })` opens that chat when the user clicks the PR's line: the session is `session` (the PR's own pr-origin record) when its record is on this machine (`transcript`, when that file exists and is named `<session>.jsonl`, else `<session>.jsonl` under `~/.claude/projects/*/`), else the one findPrSession finds. Open in a tab, or among a tab's periods: that tab is shown and focused, `'tab'`. Otherwise a new Claude tab resumes it and is focused, nothing sent, `'resumed'`; its process runs in the session's folder (`cwd`, else the one the record names), which Claude Code needs to find the session, and the tab keeps that folder as its own through reloads (`dir` in its saved state; it follows the window when the two are the same). A folder no longer on this machine: the window's, and the tab opens with `this chat ran in {cwd}, which isn't on this machine now`. Nothing on this machine: `'none'`, and nothing is done; kestrel opens GitHub. With `fill` (a reason link in kestrel, such as "changes requested"), the text goes at the end of that chat's box once it is shown or resumed, never sent; a fill that isn't text is ignored. Neither is in the palette.
+
+### Vendor icons
+
+perch ships no logos. Icons are read at runtime from the installed vendor
+extensions, so no trademarked artwork is redistributed and the icons
+track vendor updates. Without an extension, a tab shows a letter.
