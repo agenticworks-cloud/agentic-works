@@ -280,6 +280,22 @@ test('roost.contributes.json merges without a part switch and may not clash with
   assert.throws(() => buildManifest(odd), /roost\.contributes\.json.*grammars/);
 });
 
+// The parts' settings and palette titles were renamed (2026-11-23): perch.* → agents.*, chirp.* → teams.*, jay.* →
+// jira.*, kestrel.* → pullRequests.*; each part carries the user's old values over (src/settingsCarryOver.js).
+test('no setting has an old prefix, and no palette title an old name', () => {
+  const m = buildManifest(root);
+  const keys = m.contributes.configuration.flatMap((c) => Object.keys(c.properties));
+  assert.deepStrictEqual(keys.filter((k) => /^(perch|chirp|jay|kestrel)\./.test(k)), []);
+  const owner = { agents: 'agents.', teams: 'teams.', jira: 'jira.', pullRequests: 'pullRequests.' };
+  for (const p of readParts(root)) {
+    const c = JSON.parse(fs.readFileSync(path.join(p.dir, 'package.json'), 'utf8')).contributes.configuration;
+    const own = (Array.isArray(c) ? c : c ? [c] : []).flatMap((b) => Object.keys(b.properties || {}));
+    if (owner[p.id]) assert.deepStrictEqual(own.filter((k) => !k.startsWith(owner[p.id])), [], `${p.id}: every setting under ${owner[p.id]}`);
+  }
+  const titles = m.contributes.commands.map((c) => c.title);
+  assert.deepStrictEqual(titles.filter((t) => /^(Perch|chirp|jay|kestrel): /.test(t)), []);
+});
+
 test('checked-in manifest equals a fresh build', () => {
   const r = spawnSync(process.execPath, [script, '--check'], { cwd: root, encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr || r.stdout);
