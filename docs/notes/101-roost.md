@@ -23,7 +23,7 @@ seeing it work. The extension comes first either way: a fork would ship Roost bu
 - A part whose service the user does not use simply does not work for them (Teams with no Microsoft sign-in
   only offers the sign-in) and never gets in the way of the others. *(Sean)*
 - Still separate icons: Perch, Teams and Jira & Confluence in the activity bar, PRs as a panel tab. *(Sean)*
-- A public product, on the Marketplace in time; C3 engineers get the C3 installer on top. *(Sean)*
+- A public product, on the Marketplace in time; a company can layer its own installer on top. *(Sean)*
 
 ### Non-goals
 
@@ -37,7 +37,7 @@ seeing it work. The extension comes first either way: a fork would ship Roost bu
 ### Anti-goals
 
 - A part that fails to start, or a service that is down, taking the other parts with it.
-- Renaming settings, commands or views, which would break the user's existing settings and the C3 installer.
+- Renaming settings, commands or views, which would break the user's existing settings and any installer that sets them.
 - Losing any repo's history.
 
 ## What the four look like (recon, 2026-11-23)
@@ -106,7 +106,7 @@ the parts: it reads every `parts/*/part.json` and that part's `package.json`, an
 - the union of the parts' `contributes` blocks, with **every id kept**: `perch.*`, `chirp.*`, `jay.*`,
   `kestrel.*` settings and commands, the `perch`, `chirp` and `jay` activity-bar containers and the `kestrel`
   panel container, the webview types (`perch.session`, `chirp.conversation`, `jay.ticket`, `jay.page`). So the
-  user's settings keep working and the C3 installer's activity-bar layout (c3securitytools' note 802) does not
+  user's settings keep working and an installer's activity-bar layout (which hides and orders containers by id) does not
   change, plus Roost's own `roost.openSettings` from `roost.contributes.json`;
 - `when: config.roost.<id>.enabled && !roost.<id>.failed` added to each part's views, menu entries (the Command
   Palette's included) and keybindings, combined with any `when` the part already has (view containers take no
@@ -200,10 +200,10 @@ there *(Sean)*:
 The gear and the row belong to Roost, not to the Perch part, so they stay even if Perch's tabs are the only
 part switched on; if the Perch part is off, the same command is in the Command Palette as **Roost: Settings**.
 
-### The C3 installer
+### Installers that set up the four today
 
-c3securitytools' installer (note 802) installs the four standalone extensions today. Installing Roost beside them
-would make Roost's parts fail to start (the same command ids registered twice). So the installer switches from
+An installer that installs the four standalone extensions today must switch to Roost. Installing Roost beside them
+would make Roost's parts fail to start (the same command ids registered twice). So such an installer switches from
 the four to `seanahn.roost`, and uninstalls the four, in the same change in which Roost is first published to
 the Marketplace — not before. *(my call: release order)*
 
@@ -313,8 +313,13 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   since Roost's Claude and Codex tabs take its place, skips the Welcome page, and keeps the secondary sidebar
   closed (`"workbench.secondarySideBar.defaultVisibility": "hidden"`), where Claude Code's and ChatGPT's own chat
   views would otherwise open: those two extensions stay installed (Perch runs their `claude` and `codex`), but
-  Perch's tabs replace their views. Public, so nothing
-  company-specific; C3's installer (c3securitytools note 802) stays a separate layer on top.
+  Perch's tabs replace their views. It also sets the activity bar: on top
+  (`"workbench.activityBar.location": "top"`), showing Explorer, Search, Extensions, Perch, Teams and Jira &
+  Confluence, with Source Control, Run and Debug, Testing and the Claude Code and Codex icons hidden *(Sean,
+  2026-11-23)*. Which icons show is not a setting: it is VS Code's UI state (`workbench.activity.pinnedViewlets2`
+  in `User/globalStorage/state.vscdb`), which no extension can change for another, so the installer writes it
+  before VS Code first starts, hidden rather than removed. Public, so nothing company-specific; a company's
+  installer stays a separate layer on top.
 
 - **Stronger links** through shared services in `src/` (see *Links between parts, for now*).
 - **chirp: a company's own Microsoft app.** chirp signs in with its own built-in app (an unverified publisher),
