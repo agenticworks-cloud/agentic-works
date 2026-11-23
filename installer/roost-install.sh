@@ -62,6 +62,7 @@ CLASH=""  # why Roost can't go in beside the standalone four; when set, Roost fa
 VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
 INLINED_HELPER=""  # the released script's own copy of the helper, written to a private temp file at start
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
+SUDO_FAILED=0  # 1 when the up-front `sudo -v` failed: on a Mac, an account that isn't an administrator
 
 # ---- the checklist -------------------------------------------------------------------------------------------
 
@@ -265,7 +266,7 @@ brew_bin() {  # where Homebrew's brew is, or would be after the install
 SUDO_KEEPALIVE=""  # the pid of the loop keeping sudo's timestamp fresh while Homebrew installs
 
 sudo_keepalive_start() {  # Homebrew's installer runs sudo itself, and can take longer than sudo's 5-minute timestamp
-  [ -n "$SUDO" ] && [ "$DRY_RUN" != 1 ] || return 0
+  [ -n "$SUDO" ] && [ "$DRY_RUN" != 1 ] && [ "$SUDO_FAILED" = 0 ] || return 0
   # shellcheck disable=SC2016
   ( s=""
     trap 'kill "$s" 2> /dev/null; exit 0' TERM
@@ -298,6 +299,10 @@ ensure_homebrew() {  # macOS: Homebrew, from its own installer (which needs an a
     HOMEBREW_STATE=failed
     return 1
   fi
+}
+
+homebrew_failure() {  # why ensure_homebrew failed, for a step's line
+  if [ "$SUDO_FAILED" = 1 ]; then echo "needs an administrator account"; else echo "couldn't be installed"; fi
 }
 
 deb_arch() {
@@ -406,7 +411,7 @@ ensure_vscode() {
   case $OS in
     macos)
       if ! ensure_homebrew; then
-        step_end failed "Homebrew couldn't be installed; see $LOG, or download VS Code from $DOWNLOAD_URL"
+        step_end failed "Homebrew $(homebrew_failure); see $LOG, or download VS Code from $DOWNLOAD_URL"
         return 0
       fi
       run "$(brew_bin)" install --cask visual-studio-code ;;
@@ -786,7 +791,11 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
   step_begin "GitHub"
   if ! have gh; then
     if ! install_gh; then
-      step_end failed "gh couldn't be installed; see $LOG"
+      if [ "$OS" = macos ] && [ "$HOMEBREW_STATE" = failed ]; then
+        step_end failed "gh comes through Homebrew, which $(homebrew_failure); see $LOG"
+      else
+        step_end failed "gh couldn't be installed; see $LOG"
+      fi
       return 0
     fi
     if [ "$DRY_RUN" != 1 ] && ! have gh; then
@@ -1007,7 +1016,10 @@ prepare_sudo() {  # one password prompt up front, only when something needs inst
   [ -n "$changes" ] || return 0
   printf 'Some installs need administrator rights; sudo may ask for your password. This run adds, system-wide:\n'
   while IFS= read -r item; do printf '  - %s\n' "$item"; done <<< "$changes"
-  sudo -v || printf 'sudo failed; the system installs below will fail too.\n'
+  if ! sudo -v; then
+    SUDO_FAILED=1
+    printf 'sudo failed; the system installs below will fail too.\n'
+  fi
 }
 
 open_tty() {  # fd 3 = the terminal the answers come from; TTY_OPEN=1 when there is one

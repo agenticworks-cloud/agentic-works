@@ -115,8 +115,10 @@ repository, installed gh; …)`. Homebrew's installer runs `sudo` itself and can
 so while it runs a background `sudo -n -v` loop keeps it fresh; the loop ends as soon as the install does (or the
 run is stopped).
 
-**On a Mac without admin rights,** Homebrew cannot be installed: the VS Code step is `✗` with the official download
-link, and the run continues with an existing `code` if there is one.
+**On a Mac without admin rights,** Homebrew cannot be installed: the VS Code step is `✗ VS Code: Homebrew needs an
+administrator account; …` with the official download link, and the run continues with an existing `code` if there
+is one; a missing `gh` is then `✗ GitHub: gh comes through Homebrew, which needs an administrator account; …`. (The
+account counts as not an administrator when the up-front `sudo -v` fails.)
 
 ## How it is built
 

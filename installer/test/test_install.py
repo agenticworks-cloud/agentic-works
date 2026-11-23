@@ -323,19 +323,42 @@ class TestVSCode(_Installer):
                 self.assertEqual(rc, 0, out)
                 self.assertEqual(self.logged("libssl"), [], out)
 
+    def no_admin(self, env: dict[str, str]) -> dict[str, str]:
+        """sudo -v fails, as it does for a Mac account that isn't an administrator."""
+        (Path(env["PATH"].split(":")[0]) / "sudo").write_text('#!/bin/sh\n[ "$1" = -v ] && exit 1\nexit 0\n')
+        return env
+
     def test_mac_without_admin(self) -> None:
         """Homebrew can't be installed: VS Code is ✗ with the download page, the run goes on, exit 1."""
-        env = self.env("macos", ("curl", "sudo"), CURL_FAIL_ON="Homebrew")
+        env = self.no_admin(self.env("macos", ("curl", "sudo"), CURL_FAIL_ON="Homebrew"))
         rc, out = self.run_pipe(env, "--skip", "github")
         self.assertEqual(rc, 1, out)
         failed = [line for line in out.splitlines() if line.startswith("  ✗ VS Code: ")]
         self.assertEqual(len(failed), 1, out)
+        self.assertTrue(failed[0].startswith("  ✗ VS Code: Homebrew needs an administrator account; see "), failed)
         self.assertIn(DOWNLOAD, failed[0])
         self.assertNotIn("brew install", "\n".join(self.stub_log()))
         lines = out.splitlines()
         self.assertGreater(_index(lines, "code on the PATH"), _index(lines, "  ✗ VS Code: "), out)  # went on
         self.assertRegex(out, r"\nDone: \d+ ✓  \d+ –  1 ✗\n")
         self.assertIn("Details of what failed: ", out)
+
+    def test_mac_without_admin_vscode_there(self) -> None:
+        """VS Code installed, gh missing, no administrator account: the GitHub line says why, as VS Code's would."""
+        env = self.no_admin(self.env("macos", ("curl", "sudo", "code"), CURL_BODY="exit 1"))
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("  ✓ VS Code (already)", out)
+        failed = [mark for mark in self.marks(out) if mark.startswith("✗ GitHub: ")]
+        self.assertEqual(len(failed), 1, out)
+        self.assertTrue(failed[0].startswith("✗ GitHub: gh comes through Homebrew, which needs an administrator "
+                                             "account; see "), failed)
+
+        # With administrator rights, but a Homebrew install that fails: no word of administrators.
+        rc, out = self.run_pipe(self.env("macos", ("curl", "sudo", "code"), CURL_BODY="exit 1"))
+        failed = [mark for mark in self.marks(out) if mark.startswith("✗ GitHub: ")]
+        self.assertTrue(failed[0].startswith("✗ GitHub: gh comes through Homebrew, which couldn't be installed; see "),
+                        failed)
 
     def test_homebrew_script_failure(self) -> None:
         """The downloaded Homebrew installer exits 1: the line says so and points at the log, not at admin rights."""
