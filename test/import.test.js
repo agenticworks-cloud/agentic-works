@@ -7,7 +7,6 @@ const { execFileSync } = require('node:child_process');
 const root = path.join(__dirname, '..');
 const read = (p) => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
-const lines = (s) => (s ? s.split('\n').length : 0);
 
 const parts = {
   perch: { id: 'perch', title: 'Perch', branch: 'main', file: 'src/extension.js' },
@@ -25,11 +24,14 @@ for (const [dir, want] of Object.entries(parts)) {
   assert.strictEqual(part.entry, 'src/extension.js');
   assert.deepStrictEqual(part.needs, []);
 
-  // History kept: file log in Roost has every commit of the source repo's (and those made in Roost since).
-  const mine = lines(git(root, 'log', '--oneline', '--', `parts/${dir}/${want.file}`));
-  const orig = lines(git(`/git/${dir}`, 'log', '--oneline', want.branch, '--', want.file));
-  assert.ok(orig > 1, `${dir}: source history exists`);
-  assert.ok(mine >= orig, `${dir}/${want.file}: ${mine} commits in Roost, ${orig} in source`);
+  // History kept: every commit of the source repo that touched the file (author date and subject) is in Roost's log of
+  // it; commits made in Roost since are allowed.
+  const log = (cwd, ...args) => git(cwd, 'log', '--format=%at %s', ...args).split('\n').filter(Boolean);
+  const mine = new Set(log(root, '--', `parts/${dir}/${want.file}`));
+  const orig = log(`/git/${dir}`, want.branch, '--', want.file);
+  assert.ok(orig.length > 1, `${dir}: source history exists`);
+  const missing = orig.filter((c) => !mine.has(c));
+  assert.deepStrictEqual(missing, [], `${dir}/${want.file}: source commits missing from Roost`);
 }
 
 // Blame reaches back before the import.
