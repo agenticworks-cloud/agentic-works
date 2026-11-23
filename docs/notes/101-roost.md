@@ -302,7 +302,7 @@ The import:
 - `make deps / test / test-live / manifest / install / package`; the `.vsix` carries the root `node_modules`
   only; perch-audio is still built and published from `parts/perch/audio` as its own package.
 
-Built: branch `feat/roost-0.1`; the plan's last commit: <this commit>. The plan
+Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
 (`docs/superpowers/plans/2026-11-23-roost.md`) is deleted; this note is the record.
 
 ## Follow-ups (after this project)
