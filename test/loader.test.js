@@ -65,8 +65,16 @@ function setup(config = {}) {
   return { ui, extension, root, base };
 }
 
+// Roost's activate returns before its parts have started; `ready` settles once every enabled part's start has.
+async function activate(extension, base) {
+  const roost = await extension.activate(base);
+  await roost.ready;
+  return roost;
+}
 const activated = () => fake.calls.filter((c) => c[0] === 'activate').map((c) => c[1]);
 const tick = () => new Promise((r) => setImmediate(r));
+/** `p`, or 'timed out' if it has not settled within `ms`. */
+const within = (p, ms = 1000) => Promise.race([p, new Promise((r) => setTimeout(() => r('timed out'), ms))]);
 // Fires a change of roost.<id>.enabled and lets the start or stop it causes finish.
 async function setEnabled(ui, id, on) {
   ui.config[`roost.${id}.enabled`] = on;
@@ -76,7 +84,7 @@ async function setEnabled(ui, id, on) {
 
 test('enabled parts start, disabled do not', async () => {
   const { ui, extension, base } = setup({ 'roost.teams.enabled': false });
-  const roost = await extension.activate(base);
+  const roost = await activate(extension, base);
   assert.deepStrictEqual(activated(), ['jira', 'prs', 'perch']);
   assert.ok(fake.calls.every((c) => c[0] !== 'activate' || c[2] === undefined), 'no deps passed');
   assert.deepStrictEqual(ui.contexts, {
@@ -94,7 +102,7 @@ test('every context key is set before any part starts', async () => {
   const { ui, extension, base } = setup({ 'roost.prs.enabled': false });
   let seen = null;
   fake.parts.teams = { activate: () => { seen = { ...ui.contexts }; } };
-  await extension.activate(base);
+  await activate(extension, base);
   assert.deepStrictEqual(seen, {
     'roost.teams.enabled': false,
     'roost.jira.enabled': false,
@@ -116,10 +124,15 @@ test('readParts lists parts in folder order', async () => {
 
 test('part context points at the part folder', async () => {
   const { extension, root, base } = setup();
+  // a remote window's extension URI: the part's keeps its scheme and authority
+  base.extensionUri = { scheme: 'vscode-remote', authority: 'ssh-remote+box', path: root, fsPath: root };
   let got = null;
   fake.parts.jira = { activate: (c) => { got = c; } };
-  await extension.activate(base);
+  await activate(extension, base);
   const dir = path.join(root, 'parts', 'jay');
+  assert.strictEqual(got.extensionUri.scheme, 'vscode-remote');
+  assert.strictEqual(got.extensionUri.authority, 'ssh-remote+box');
+  assert.strictEqual(got.extensionUri.path, `${root}/parts/jay`);
   assert.strictEqual(got.extensionUri.fsPath, dir);
   assert.strictEqual(got.extensionPath, dir);
   assert.strictEqual(got.asAbsolutePath('media/x.svg'), path.join(dir, 'media/x.svg'));
@@ -150,7 +163,7 @@ test('a throwing part leaves the others running', async () => {
   const { ui, extension, base } = setup();
   let fail = true;
   fake.parts.jira = { activate: async () => { if (fail) throw new Error('boom'); } };
-  const roost = await extension.activate(base);
+  const roost = await activate(extension, base);
   assert.deepStrictEqual(activated(), ['teams', 'jira', 'prs', 'perch']);
   assert.strictEqual(roost.state('jira'), 'failed');
   for (const id of ['teams', 'prs', 'perch']) assert.strictEqual(roost.state(id), 'on', id);
@@ -173,7 +186,7 @@ test('"Show Log" shows the Roost output channel', async () => {
   const { ui, extension, base } = setup();
   ui.errorChoice = 'Show Log';
   fake.parts.prs = { activate: () => { throw new Error('nope'); } };
-  await extension.activate(base);
+  await activate(extension, base);
   await tick();
   assert.strictEqual(ui.shown, 1);
   await extension.deactivate();
@@ -193,7 +206,7 @@ test('off then on registers cleanly and leaves no timer', async () => {
         c.subscriptions.push({ dispose: () => clearInterval(t) });
       },
     };
-    const roost = await extension.activate(base);
+    const roost = await activate(extension, base);
     assert.ok(ui.commands['chirp.refresh']);
     assert.strictEqual(live.size, 1);
 
@@ -227,7 +240,7 @@ test('stop survives a throwing dispose', async () => {
     },
     deactivate: () => { throw new Error('bad deactivate'); },
   };
-  const roost = await extension.activate(base);
+  const roost = await activate(extension, base);
   await roost.stop('prs');
   assert.strictEqual(roost.state('prs'), 'off');
   assert.deepStrictEqual(disposed.sort(), ['a', 'c']);
@@ -236,6 +249,40 @@ test('stop survives a throwing dispose', async () => {
   await roost.start('prs');
   assert.strictEqual(roost.state('prs'), 'on');
   await extension.deactivate();
+});
+
+test('a part whose activate never ends blocks neither Roost nor the others', async () => {
+  const { extension, base } = setup();
+  fake.parts.teams = { activate: () => new Promise(() => {}) };
+  const roost = await within(extension.activate(base));
+  assert.notStrictEqual(roost, 'timed out', "Roost's activate returned");
+  for (let i = 0; i < 10; i++) await tick();
+  assert.deepStrictEqual(activated(), ['teams', 'jira', 'prs', 'perch']);
+  for (const id of ['jira', 'prs', 'perch']) assert.strictEqual(roost.state(id), 'on', id);
+});
+
+test('a failed start or stop does not block later ones', async () => {
+  const { ui, extension, base } = setup();
+  const unhandled = [];
+  const onUnhandled = (e) => unhandled.push(e);
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const roost = await activate(extension, base);
+    ui.failSetContext = 1;
+    await setEnabled(ui, 'prs', false);               // its stop rejects: the context key cannot be set
+    assert.ok(ui.out.some((l) => l.includes('setContext failed')), 'the failure is in the Roost output channel');
+    await setEnabled(ui, 'prs', true);
+    await setEnabled(ui, 'prs', false);               // and the next stop still runs
+    assert.strictEqual(roost.state('prs'), 'off');
+    assert.strictEqual(ui.contexts['roost.prs.enabled'], false);
+    await setEnabled(ui, 'prs', true);
+    assert.strictEqual(roost.state('prs'), 'on');
+    await tick();
+    assert.deepStrictEqual(unhandled, [], 'no unhandled rejection');
+    await extension.deactivate();
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
 });
 
 (async () => {

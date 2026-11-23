@@ -12,12 +12,16 @@ class Emitter {
 }
 
 function install() {
-  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined };
+  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0 };
   const configChange = new Emitter();
   ui.changeConfig = (keys) => configChange.fire({ affectsConfiguration: (s) => keys.some((k) => k === s || k.startsWith(s + '.')) });
   const Uri = {
     file: (p) => ({ fsPath: p, path: p, scheme: 'file', toString: () => 'file://' + p }),
-    joinPath: (u, ...parts) => Uri.file(path.join(u.fsPath, ...parts)),
+    // keeps the scheme and authority of `u`, as the real one does (a remote window's extension URI is no file: URI)
+    joinPath: (u, ...parts) => {
+      const p = path.posix.join(u.path, ...parts);
+      return { ...u, path: p, fsPath: path.join(u.fsPath, ...parts), toString: () => `${u.scheme}://${u.authority || ''}${p}` };
+    },
   };
   const vscode = {
     Uri, EventEmitter: Emitter,
@@ -32,7 +36,11 @@ function install() {
         return { dispose() { if (ui.commands[id] === fn) delete ui.commands[id]; } };
       },
       executeCommand: async (id, ...a) => {
-        if (id === 'setContext') { ui.contexts[a[0]] = a[1]; return undefined; }
+        if (id === 'setContext') {
+          if (ui.failSetContext > 0) { ui.failSetContext--; throw new Error('setContext failed'); }
+          ui.contexts[a[0]] = a[1];
+          return undefined;
+        }
         if (!ui.commands[id]) throw new Error(`command '${id}' not found`);
         return ui.commands[id](...a);
       },

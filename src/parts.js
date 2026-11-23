@@ -27,7 +27,8 @@ function partContext(base, part) {
   const ctx = Object.create(base);
   Object.defineProperties(ctx, {
     subscriptions: { value: [], enumerable: true },
-    extensionUri: { value: vscode.Uri.file(part.dir), enumerable: true },
+    // joined onto Roost's URI, which keeps its scheme in a remote window; extensionPath stays a filesystem path
+    extensionUri: { value: vscode.Uri.joinPath(base.extensionUri, 'parts', path.basename(part.dir)), enumerable: true },
     extensionPath: { value: part.dir, enumerable: true },
     asAbsolutePath: { value: (rel) => path.join(part.dir, rel), enumerable: true },
   });

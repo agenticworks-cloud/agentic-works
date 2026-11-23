@@ -25,11 +25,13 @@ class Roost {
     return e;
   }
 
-  // Starts and stops of one part run one after another, in the order asked.
+  // Starts and stops of one part run one after another, in the order asked; one that fails is logged and does not
+  // hold up the next.
   queue(id, op) {
     const e = this.entry(id);
-    e.queue = e.queue.then(() => op(e));
-    return e.queue;
+    const p = e.queue.then(() => op(e));
+    e.queue = p.catch((err) => this.log(`${e.part.title}: a start or stop failed: ${errorText(err)}`));
+    return p;
   }
 
   log(line) { this.output.appendLine(line); }
@@ -87,17 +89,18 @@ class Roost {
 
   setKey(id, on) { return vscode.commands.executeCommand('setContext', contextKey(id), on); }
 
+  // Every key false first, so nothing shows for a part that is off or fails; each turns true as its part starts.
+  // The parts start side by side: one whose activate never ends holds up none of the others.
   async startAll() {
-    // Every key false first, so nothing shows for a part that is off or fails; each turns true as its part starts.
     for (const id of this.parts.keys()) await this.setKey(id, false);
-    for (const id of this.parts.keys()) if (isEnabled(id)) await this.start(id);
+    await Promise.allSettled([...this.parts.keys()].filter(isEnabled).map((id) => this.start(id)));
   }
 
   onConfigChange(event) {
     for (const id of this.parts.keys()) {
       if (!event.affectsConfiguration(contextKey(id))) continue;
-      if (isEnabled(id)) this.start(id);
-      else this.stop(id);
+      // a failure is already in the output channel (queue)
+      (isEnabled(id) ? this.start(id) : this.stop(id)).catch(() => {});
     }
   }
 
@@ -108,13 +111,15 @@ class Roost {
 
 let roost = null;
 
-async function activate(context) {
+function activate(context) {
   const output = vscode.window.createOutputChannel('Roost');
   context.subscriptions.push(output);
   roost = new Roost(context, readParts(context.extensionPath), output);
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => roost.onConfigChange(e)));
-  await roost.startAll();
-  return roost;
+  // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
+  const r = roost;
+  r.ready = r.startAll().catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
+  return r;
 }
 
 async function deactivate() {
