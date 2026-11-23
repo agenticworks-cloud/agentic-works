@@ -61,36 +61,66 @@ through files in `~/.chirp` and `~/.jay`.
 ### The repo
 
 `/git/roost`, pushed to `github.com/seanahn/roost` (public, like Perch). Each repo is imported once with
-`git subtree add` from its `main` (kestrel's `master`), keeping full history, under its own folder:
+`git subtree add` from its `main` (kestrel's `master`), keeping full history, under `parts/<name>/`. The layout
+is built so that **a future part is one more folder** under `parts/`, with nothing else edited by hand *(Sean)*:
 
 ```
 roost/
-  package.json          the one manifest: every contribution of the four, merged; extensionPack from Perch
-  src/extension.js      Roost's activate: starts the enabled parts, starts/stops them on setting changes
-  perch/  chirp/  jay/  kestrel/      the four, as imported (src/, media/, test/, docs/)
-  docs/notes/           Roost's own notes (this is 101); Perch's come along in perch/docs/notes
-  Makefile              test = each part's tests; install / package / publish for seanahn.roost
+  package.json            GENERATED from the parts (checked in); never edited by hand
+  src/                    Roost itself: the part loader, the on/off switches, shared services between parts
+  parts/
+    perch/    part.json  package.json  src/  media/  test/  docs/     (as imported, plus part.json)
+    chirp/    part.json  …
+    jay/      part.json  …
+    kestrel/  part.json  …
+  scripts/build-manifest.js
+  docs/notes/             Roost's own notes (this is 101); each part's notes stay in parts/<name>/docs
+  Makefile                manifest, test (Roost + every part), install / package / publish for seanahn.roost
 ```
+
+**`parts/<name>/part.json`** describes a part to Roost:
+
+```json
+{ "id": "teams", "title": "Teams", "entry": "src/extension.js", "needs": [] }
+```
+
+`id` names its switch (`roost.<id>.enabled`) and context key; `title` is what settings and messages call it;
+`entry` exports the part's `activate` (and `deactivate`); `needs` lists parts it cannot work without (none
+today: every existing link already tolerates the other part being absent). The part keeps its own
+`package.json` for its `contributes` block (and, for Perch, its npm dependencies), as today.
 
 After the import, development happens in Roost; nothing is synced back. *(Sean: the four are retired eventually.)*
 **Before the import:** Perch's `feat/phase-green` and chirp's `attachment-note` land on their `main`. *(Sean)*
 Perch's stale `fix/gateway-opus-thinking-effort` (2026-10-23) stays behind.
 
-### One manifest, ids unchanged
+### One manifest, generated, ids unchanged
 
-Roost's `package.json` holds the union of the four `contributes` blocks with **every id kept**: `perch.*`,
-`chirp.*`, `jay.*`, `kestrel.*` settings and commands, the `perch`, `chirp` and `jay` activity-bar containers and
-the `kestrel` panel container, the webview types (`perch.session`, `chirp.conversation`, `jay.ticket`,
-`jay.page`). So the user's settings keep working and the C3 installer's activity-bar layout (c3securitytools'
-note 802) does not change. Activation events are the union. Perch's npm dependencies (the Claude Agent SDK and the Codex SDK) move into Roost's `package.json` and
-`.vsix`; Perch's code finds them from `perch/` through Node's normal lookup. Perch's `extensionPack` (perch-audio, Claude Code,
-ChatGPT) carries over: perch-audio stays a separate companion, since it must run on the user's own machine
-when VS Code is attached to a remote. *(my call)*
+VS Code reads only a static root `package.json`, so `scripts/build-manifest.js` (`make manifest`) builds it from
+the parts: it reads every `parts/*/part.json` and that part's `package.json`, and writes the root manifest with
+
+- the union of the parts' `contributes` blocks, with **every id kept**: `perch.*`, `chirp.*`, `jay.*`,
+  `kestrel.*` settings and commands, the `perch`, `chirp` and `jay` activity-bar containers and the `kestrel`
+  panel container, the webview types (`perch.session`, `chirp.conversation`, `jay.ticket`, `jay.page`). So the
+  user's settings keep working and the C3 installer's activity-bar layout (c3securitytools' note 802) does not
+  change;
+- `when: roost.<id>.enabled` added to each part's views, view containers and menu entries (combined with any
+  `when` the part already has);
+- one `roost.<id>.enabled` setting per part, `true` by default, titled from `part.json`;
+- the union of activation events and of npm dependencies (Perch's Claude Agent SDK and Codex SDK), which move
+  into Roost's `package.json` and `.vsix`; Perch's code finds them through Node's normal lookup from `parts/perch/`;
+- Perch's `extensionPack` (perch-audio, Claude Code, ChatGPT). perch-audio stays a separate companion, since it
+  must run on the user's own machine when VS Code is attached to a remote. *(my call)*
+
+It **fails** on any id two parts both contribute, on a part without `part.json`, and on a `needs` that names no
+part. A test checks that the checked-in manifest equals a fresh build, so a part's change without `make
+manifest` fails the tests rather than shipping a stale manifest. Roost's own identity (name, version,
+publisher, icon) lives in a small `roost.json` the script starts from. *(my call)*
 
 ### Parts, and switching them
 
-Four settings, all `true` by default: `roost.perch.enabled`, `roost.teams.enabled`, `roost.jira.enabled`,
-`roost.prs.enabled`. *(names: my call)*
+One setting per part, all `true` by default: today `roost.perch.enabled`, `roost.teams.enabled`,
+`roost.jira.enabled`, `roost.prs.enabled` *(ids: my call)*. Roost's loader finds the parts by reading the
+same `part.json` files at runtime, so it has no list of parts to edit either.
 
 - Roost's `activate` starts each enabled part by calling that part's own `activate` with a **context of its own**:
   the real `ExtensionContext`'s fields, but its own `subscriptions` array. Stopping a part disposes that array
@@ -124,7 +154,10 @@ Four settings, all `true` by default: `roost.perch.enabled`, `roost.teams.enable
 The existing links keep working unchanged, because the commands and files keep their names. Where a part calls
 another's command and that part is off, the call already fails softly today (the other extension may not be
 installed); that behaviour is kept. Turning those calls into direct in-process calls is the first follow-up,
-not part of this project.
+not part of this project: **shared services** in Roost's `src/` ("the ticket or page in front", "open or find a
+PR session", "insert text into an agent's message box"), which a part provides and others use through Roost
+rather than by another part's command names. That is where the stronger links grow. *(Sean: stronger links
+later; the place for them: my call)*
 
 ### The C3 installer
 
@@ -144,8 +177,9 @@ migration code.)*
 ### Tests and packaging
 
 `make test` runs each part's existing suite from its folder (Perch's `make test-offline` and `make test`,
-the others' `make test`), plus Roost's own tests: the merged manifest (no duplicate ids; every view and menu of
-a part carries its `when`), starting and stopping parts, and isolation. `make package` builds one
+the others' `make test`), plus Roost's own tests: the manifest (a fresh build equals the checked-in one; no
+duplicate ids; every view and menu of a part carries its `when`), starting and stopping parts, and isolation.
+Adding a part: its folder with `part.json` under `parts/`, then `make manifest` and `make test`. `make package` builds one
 `.vsix`; `make install` symlinks Roost into the extension folders as `seanahn.roost-<version>`, the pattern
 Perch uses. Roost starts at version 0.1.0.
 
@@ -181,9 +215,9 @@ The import:
 ```
  /git/perch, chirp, jay, kestrel            /git/roost                        github seanahn/roost
     | [phase-green, attachment-note landed on main]   |                              |
-    |-- git subtree add --prefix=perch main --------->|                              |
-    |-- … chirp, jay, kestrel (master) -------------->|                              |
-    |                                                 |-- merge manifests (+ Perch's npm deps), Roost src, Makefile
+    |-- git subtree add --prefix=parts/perch main --->|                              |
+    |-- … parts/chirp, parts/jay, parts/kestrel ----->|                              |
+    |                                                 |-- part.json ×4; Roost src; make manifest (+ npm deps)
     |                                                 |-- npm install; make test (all parts, local)
     |                                                 |   [a test fails: fix in Roost before the first push]
     |                                                 |-- push ----------------------------->|
@@ -191,7 +225,6 @@ The import:
 
 ## Left to the builder
 
-- How the merged `package.json` is produced (by hand once, or a script that checks it against the four).
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of
   `extensionUri`/`asAbsolutePath` across chirp, jay and kestrel).
 - Whether each part's `vscodeStub.js` / `test/stubs.js` stays separate or is shared.
@@ -203,4 +236,6 @@ The import:
 - Turning each part off hides its icon or tab and its commands at once, and stops its polling; turning it on
   brings it back without a reload.
 - A part made to throw at start leaves the other three working, with one notification.
-- `git log -- perch/src/extension.js` in Roost shows Perch's full history.
+- `git log -- parts/perch/src/extension.js` in Roost shows Perch's full history.
+- A throwaway fifth part (a folder with `part.json` and one view) appears with its own switch after `make
+  manifest`, with no other file edited.
