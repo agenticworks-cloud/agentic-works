@@ -10,7 +10,7 @@ const assert = require('assert');
 const { install, fakeView, created, engines, flush, CATALOGS, CODEX_LIMITS, knobs } = require('./stubs');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const vals = (list) => list.map((o) => o.value);
-// Claude's Log In, as typed into a terminal, for a window whose perch.claude.executable is /opt/claude (never run here)
+// Claude's Log In, as typed into a terminal, for a window whose agents.claude.executable is /opt/claude (never run here)
 const CLAUDE_LOGIN = `/opt/claude --settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}' auth login`;
 const OFF_BEDROCK = '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}';
 /** `p`, or 'timed out' if it has not settled within `ms`: a wait that never ends must fail the test, not end it unseen */
@@ -383,7 +383,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     const typed = [`'/opt/claude code/claude' --settings '${OFF_BEDROCK}' auth login`];
     v.fire({ type: 'meterLogin' }); await flush();
     const [t1] = m.ui.terminals;
-    assert.deepStrictEqual([m.ui.terminals.length, t1.o.name, t1.o.env, t1.o.shellPath, t1.sent, t1.shows], [1, 'Claude login', { CLAUDE_CODE_USE_BEDROCK: '0' }, undefined, typed, 1], 'perch.claude.executable, as the tabs run it, typed into the user\'s shell, a space and all');
+    assert.deepStrictEqual([m.ui.terminals.length, t1.o.name, t1.o.env, t1.o.shellPath, t1.sent, t1.shows], [1, 'Claude login', { CLAUDE_CODE_USE_BEDROCK: '0' }, undefined, typed, 1], 'agents.claude.executable, as the tabs run it, typed into the user\'s shell, a space and all');
     // pressed again while it waits, from the footer or the command: the same terminal, brought back, and said so
     v.fire({ type: 'meterLogin' }); await m.commands['perch.meter.login'](); await flush();
     assert.deepStrictEqual([m.ui.terminals.length, t1.shows, m.ui.infos.filter((x) => x === 'Perch: a Claude login is already waiting for you, in the Claude login terminal.').length], [1, 3, 2], 'one sign-in at a time');
@@ -426,7 +426,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.ui.executed.length = 0; const n2 = m.ui.terminals.length;
     assert.deepStrictEqual([await mh.login(), m.ui.executed, m.ui.terminals.length, mh.signIn], [true, ['claude-vscode.editor.openLast'], n2, null], 'the panel, when nothing can be run');
     m.changeExtensions({ 'anthropic.claude-code': null });
-    assert.deepStrictEqual([await mh.login(), m.ui.executed.length, m.ui.terminals.length, m.ui.errors.pop()], [false, 1, n2, 'Perch: found no claude program to log in with, here or on PATH. Install the Claude Code extension, or set perch.claude.executable to a claude program, then log in.']);
+    assert.deepStrictEqual([await mh.login(), m.ui.executed.length, m.ui.terminals.length, m.ui.errors.pop()], [false, 1, n2, 'Perch: found no claude program to log in with, here or on PATH. Install the Claude Code extension, or set agents.claude.executable to a claude program, then log in.']);
     delete mh.loginProgram;
     // a held message's Log In, then its note's, twice, while that waits: one sign-in, and said once when the login lands
     m.box.login = false; m.ui.infos.length = 0; const n3 = m.ui.terminals.length;
@@ -1373,7 +1373,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     // an older Perch Audio records but cannot transcribe: local is refused outright, auto goes back to here
     L.changeConfig({ 'voice.runOn': 'local' }); L.abox.available = Object.assign({}, A2, { api: 1 }); L.abox.calls.length = 0;
     lv.fire({ type: 'voiceStart', sid: lx }); await flush(); await flush();
-    assert.deepStrictEqual([last(lv.events(lx).filter((e) => e.kind === 'error')).text, ops()], ['Voice input: Perch Audio on this computer is too old to transcribe there. Update it, or set perch.voice.runOn to remote.', ['available']]);
+    assert.deepStrictEqual([last(lv.events(lx).filter((e) => e.kind === 'error')).text, ops()], ['Voice input: Perch Audio on this computer is too old to transcribe there. Update it, or set agents.voice.runOn to remote.', ['available']]);
     L.changeConfig({ 'voice.runOn': 'auto' }); L.abox.calls.length = 0; await dictate();
     assert.deepStrictEqual([ops(), L.vbox.requests.length], [['available', 'start', 'stop'], 3]);
     // and one newer than this perch
@@ -1610,7 +1610,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.perch.dispose();
   }
 
-  // ---- Perch: Open, the way back in: the tab last used, or the sessions list with a new tab at the top
+  // ---- Agents: Open, the way back in: the tab last used, or the sessions list with a new tab at the top
   {
     const m = install(); await flush();
     const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
@@ -1646,7 +1646,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     r.perch.dispose();
   }
 
-  // ---- perch.claude.defaultBackend: where new Claude tabs start while nothing is remembered
+  // ---- agents.claude.defaultBackend: where new Claude tabs start while nothing is remembered
   {
     const m = install(undefined, { config: { 'claude.defaultBackend': 'gateway' } }); await flush();
     const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
@@ -1663,7 +1663,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     r.perch.dispose();
   }
 
-  // ---- perch.firstStart.openClaudeTab: one Claude tab on the right, once; false is written first, at the scope that held true
+  // ---- agents.firstStart.openClaudeTab: one Claude tab on the right, once; false is written first, at the scope that held true
   {
     const KEY = 'firstStart.openClaudeTab', settle = async () => { await wait(150); await flush(); };
     // what the window held when the tab was opened: the setting's writes so far, and the column asked for
@@ -1737,7 +1737,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     {
       const m = fresh({ config: { [KEY]: true } }); m.ui.failConfigUpdate = 'Unable to write to User Settings: a policy sets it'; await settle();
       assert.deepStrictEqual([m.perch.sessions.length, m.ui.panels.length, m.ui.errors.length, m.ui.warnings.length], [0, 0, 0, 0], 'no tab, no message');
-      assert(m.ui.traces.some((l) => l.includes('perch.firstStart.openClaudeTab could not be set back to false') && l.includes('a policy sets it')), 'said in Perch\'s output');
+      assert(m.ui.traces.some((l) => l.includes('agents.firstStart.openClaudeTab could not be set back to false') && l.includes('a policy sets it')), 'said in Perch\'s output');
       m.perch.dispose();
     }
 
@@ -2015,7 +2015,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     v.fire({ type: 'send', sid: x, text: 'what branch am i on?' }); await flush();
     const a = created[created.length - 1];
     a.emit({ kind: 'tool_use', id: 'c1', name: 'shell', input: { command: 'git status' } }); a.emit({ kind: 'tool_result', id: 'c1', text: BWRAP, isError: true }); await flush(); await flush();
-    assert.strictEqual(m.ui.warnings.pop(), `Codex's sandbox cannot start on ${HOST}: the kernel forbids the user namespaces it needs, and Codex has no other sandbox on Linux. Codex can run here without one, as you, with approvals as perch.codex.approvalPolicy says.`);
+    assert.strictEqual(m.ui.warnings.pop(), `Codex's sandbox cannot start on ${HOST}: the kernel forbids the user namespaces it needs, and Codex has no other sandbox on Linux. Codex can run here without one, as you, with approvals as agents.codex.approvalPolicy says.`);
     assert.deepStrictEqual([v.lastTabs().tabs.find((t) => t.id === x).mode, a.modes], ['workspace-write', []], 'declined: nothing changes');
     a.emit({ kind: 'tool_result', id: 'c2', text: BWRAP, isError: true }); await flush();
     assert.strictEqual(m.ui.warnings.length, 0, 'asked once per tab');
@@ -2504,7 +2504,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.changeConfig({ lockGroup: false });
     ({ A, B } = fresh()); p1 = perchIn(A, 'Claude 1'); fileIn(A, '/w/a.js');
     leave(m, p1); await settle();
-    assert.deepStrictEqual(unlocked(m), [], 'perch.lockGroup off: Perch neither locks nor unlocks');
+    assert.deepStrictEqual(unlocked(m), [], 'agents.lockGroup off: Perch neither locks nor unlocks');
     m.changeConfig({ lockGroup: true });
 
     // the window closing takes the tabs with it: nothing is unlocked on the way out
@@ -3623,12 +3623,12 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
   }
 
   // a setting cannot be both a value and the parent of another: VS Code's settings tree drops the child ("Ignoring
-  // perch.secretCheck.ignore as perch.secretCheck is true"). So no contributed setting's name is a prefix of another's.
+  // agents.secretCheck.ignore as agents.secretCheck is true"). So no contributed setting's name is a prefix of another's.
   {
     const props = Object.keys(require('../package.json').contributes.configuration.properties);
     const clash = props.filter((a) => props.some((b) => b.startsWith(a + '.')));
     assert.deepStrictEqual(clash, [], 'no setting is the parent of another: ' + clash.join(', '));
-    assert(props.includes('perch.secretCheck.enabled') && props.includes('perch.secretCheck.ignore'), 'the secret check\'s two settings');
+    assert(props.includes('agents.secretCheck.enabled') && props.includes('agents.secretCheck.ignore'), 'the secret check\'s two settings');
   }
 
   // the composer's secret check (note 110): the settings and the remembered hashes go to every page; "Not a secret" is
@@ -3662,7 +3662,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     // the invalid expression: one note in the tab, not one per message
     const sid = p1.lastTabs().tabs[0].id;
     p1.fire({ type: 'send', sid, text: 'hello' }); await flush(); p1.fire({ type: 'send', sid, text: 'again' }); await flush();
-    const notes = () => p1.events(sid).filter((e) => e.kind === 'note' && /perch\.secretCheck\.ignore/.test(e.text));
+    const notes = () => p1.events(sid).filter((e) => e.kind === 'note' && /agents\.secretCheck\.ignore/.test(e.text));
     assert.strictEqual(notes().length, 1, 'one note for the invalid expression');
     assert(notes()[0].text.includes('(unclosed'), 'naming it: ' + notes()[0].text);
     // switched off, and the list changed: every page is told at once

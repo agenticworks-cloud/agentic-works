@@ -2,7 +2,7 @@
 // Dictation. Recording happens on the machine the user is sitting at, in the Perch Audio extension. Speech-to-text
 // happens either here, with the workspace, or there, in Perch Audio, which carries the same engine: under Remote-SSH
 // those are two machines, and what crosses between them, over VS Code's own connection, is the audio in the first
-// case and only the text in the second. perch.voice.runOn chooses; auto means "where the GPU is".
+// case and only the text in the second. agents.voice.runOn chooses; auto means "where the GPU is".
 const vscode = require('vscode');
 const os = require('os');
 const path = require('path');
@@ -26,7 +26,7 @@ class VoiceHost {
     this.busy = false;         // a start or stop is in flight
   }
 
-  cfg(k) { return vscode.workspace.getConfiguration('perch').get('voice.' + k); }
+  cfg(k) { return vscode.workspace.getConfiguration('agents').get('voice.' + k); }
 
   /** The engine's settings: for the engine here, and sent along to the one in Perch Audio. */
   engineOpts() { return { model: this.cfg('model') || 'auto', device: this.cfg('device') || 'auto', python: this.cfg('python') || undefined, idleMs: Math.max(0, Number(this.cfg('idleMinutes') === undefined || this.cfg('idleMinutes') === '' ? 10 : this.cfg('idleMinutes')) || 0) * 60000 }; }
@@ -63,7 +63,7 @@ class VoiceHost {
   async where(a) {
     const want = this.cfg('runOn') || 'auto';
     if (!vscode.env.remoteName || want === 'remote') return { where: 'remote' };
-    const tooOld = 'Perch Audio on this computer is too old to transcribe there. Update it, or set perch.voice.runOn to remote.';
+    const tooOld = 'Perch Audio on this computer is too old to transcribe there. Update it, or set agents.voice.runOn to remote.';
     if (!(a.api >= 2)) return want === 'local' ? { where: 'local', error: tooOld } : { where: 'remote' };
     const st = await this.audio('engine', this.engineOpts());
     if (!st || !st.ok) return want === 'local' ? { where: 'local', error: (st && st.error) || tooOld } : { where: 'remote' };

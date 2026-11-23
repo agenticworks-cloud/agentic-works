@@ -47,7 +47,7 @@ class MeterHost {
     this.disposables = [];
   }
 
-  cfg(key) { return vscode.workspace.getConfiguration('perch').get('meter.' + key); }
+  cfg(key) { return vscode.workspace.getConfiguration('agents').get('meter.' + key); }
   num(key, fallback) { const v = Number(this.cfg(key)); return Number.isFinite(v) && v > 0 ? v : fallback; }
 
   resolveMode() {
@@ -93,7 +93,7 @@ class MeterHost {
   codexApiKey() { return this.codexKey || process.env.OPENAI_API_KEY || null; }
   codexBackend() { const v = this.context.globalState.get(CODEX_BACKEND_KEY); return v === 'api' && this.codexApiKey() ? 'api' : v === 'bedrock' ? 'bedrock' : 'chatgpt'; }
   /** How Codex reaches Bedrock: perch's settings, else the AWS region and profile of the environment and of Claude Code's settings. */
-  codexBedrock() { return CodexBedrock.bedrockSettings({ cfg: (k) => vscode.workspace.getConfiguration('perch').get(k), env: process.env, claudeEnv: this.meter.settingsEnv ? this.meter.settingsEnv() : {} }); }
+  codexBedrock() { return CodexBedrock.bedrockSettings({ cfg: (k) => vscode.workspace.getConfiguration('agents').get(k), env: process.env, claudeEnv: this.meter.settingsEnv ? this.meter.settingsEnv() : {} }); }
   /** Take down the API key prompt if one is waiting. */
   cancelKeyPrompt() { const c = this.keyPrompt; this.keyPrompt = null; if (c) { try { c.cancel(); c.dispose(); } catch (_) { /* gone already */ } } }
   /** The backend the user chose in the footer's menu. The API key is asked for first when there is none; false if that was declined. */
@@ -149,7 +149,7 @@ class MeterHost {
       }));
     } catch (_) { /* ~/.claude missing, or fs.watch unsupported: polling still covers it */ }
     this.disposables.push(
-      vscode.workspace.onDidChangeConfiguration((e) => { if (!e.affectsConfiguration('perch.meter')) return; this.schedule(); this.poll('config'); }),
+      vscode.workspace.onDidChangeConfiguration((e) => { if (!e.affectsConfiguration('agents.meter')) return; this.schedule(); this.poll('config'); }),
     );
   }
 
@@ -257,7 +257,7 @@ class MeterHost {
   }
 
   /**
-   * The claude to log in with: the one the tabs run (perch.claude.executable, else the SDK's own, else the Claude Code
+   * The claude to log in with: the one the tabs run (agents.claude.executable, else the SDK's own, else the Claude Code
    * extension's), else one on PATH. '' when there is none.
    */
   loginProgram() {
@@ -297,7 +297,7 @@ class MeterHost {
         try { await vscode.commands.executeCommand(cmd); return true; } catch (_) { /* try the next */ }
       }
     }
-    vscode.window.showErrorMessage('Perch: found no claude program to log in with, here or on PATH. Install the Claude Code extension, or set perch.claude.executable to a claude program, then log in.');
+    vscode.window.showErrorMessage('Perch: found no claude program to log in with, here or on PATH. Install the Claude Code extension, or set agents.claude.executable to a claude program, then log in.');
     return false;
   }
 

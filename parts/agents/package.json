@@ -52,155 +52,155 @@
     "commands": [
       {
         "command": "perch.open",
-        "title": "Perch: Open",
+        "title": "Agents: Open",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "perch.newClaude",
-        "title": "Perch: New Claude Tab",
+        "title": "Agents: New Claude Tab",
         "icon": "$(add)"
       },
       {
         "command": "perch.newClaudeGateway",
-        "title": "Perch: New Claude Tab on the Gateway",
+        "title": "Agents: New Claude Tab on the Gateway",
         "icon": "$(add)"
       },
       {
         "command": "perch.newCodex",
-        "title": "Perch: New Codex Tab",
+        "title": "Agents: New Codex Tab",
         "icon": "$(add)"
       },
       {
         "command": "perch.stop",
-        "title": "Perch: Stop Active Tab",
+        "title": "Agents: Stop Active Tab",
         "icon": "$(debug-stop)"
       },
       {
         "command": "perch.closeTab",
-        "title": "Perch: Close Active Tab",
+        "title": "Agents: Close Active Tab",
         "icon": "$(close)"
       },
       {
         "command": "perch.handoff",
-        "title": "Perch: Hand Off Last Answer to Another Tab…",
+        "title": "Agents: Hand Off Last Answer to Another Tab…",
         "icon": "$(arrow-swap)"
       },
       {
         "command": "perch.insertText",
-        "title": "Perch: Insert Text into the Active Tab"
+        "title": "Agents: Insert Text into the Active Tab"
       },
       {
         "command": "perch.notePrMerged",
-        "title": "Perch: Note a Merged Pull Request in the Session That Made It"
+        "title": "Agents: Note a Merged Pull Request in the Session That Made It"
       },
       {
         "command": "perch.findPrSession",
-        "title": "Perch: Find the Session That Made a Pull Request"
+        "title": "Agents: Find the Session That Made a Pull Request"
       },
       {
         "command": "perch.openPrSession",
-        "title": "Perch: Open the Session That Made a Pull Request"
+        "title": "Agents: Open the Session That Made a Pull Request"
       },
       {
         "command": "perch.continueInCodex",
-        "title": "Perch: Continue This Tab in Codex…",
+        "title": "Agents: Continue This Tab in Codex…",
         "icon": "$(arrow-swap)"
       },
       {
         "command": "perch.continueInClaude",
-        "title": "Perch: Continue This Tab in Claude…",
+        "title": "Agents: Continue This Tab in Claude…",
         "icon": "$(arrow-swap)"
       },
       {
         "command": "perch.sessions",
-        "title": "Perch: Sessions…",
+        "title": "Agents: Sessions…",
         "icon": "$(history)"
       },
       {
         "command": "perch.renameTab",
-        "title": "Perch: Rename Active Tab…",
+        "title": "Agents: Rename Active Tab…",
         "icon": "$(edit)"
       },
       {
         "command": "perch.refreshModels",
-        "title": "Perch: Refresh Model Lists",
+        "title": "Agents: Refresh Model Lists",
         "icon": "$(refresh)"
       },
       {
         "command": "perch.meter.refresh",
-        "title": "Perch: Refresh Claude Usage"
+        "title": "Agents: Refresh Claude Usage"
       },
       {
         "command": "perch.meter.toggleBackend",
-        "title": "Perch: Switch Claude Backend (Subscription / API)"
+        "title": "Agents: Switch Claude Backend (Subscription / API)"
       },
       {
         "command": "perch.meter.login",
-        "title": "Perch: Log in to Claude (subscription)"
+        "title": "Agents: Log in to Claude (subscription)"
       },
       {
         "command": "perch.new",
-        "title": "Perch: New Tab…",
+        "title": "Agents: New Tab…",
         "icon": "$(add)"
       },
       {
         "command": "perch.moveToEditor",
-        "title": "Perch: Move Tab to the Editor Area",
+        "title": "Agents: Move Tab to the Editor Area",
         "icon": "$(open-preview)"
       },
       {
         "command": "perch.moveToSidebar",
-        "title": "Perch: Move Tab to the Sidebar",
+        "title": "Agents: Move Tab to the Sidebar",
         "icon": "$(layout-sidebar-right)"
       },
       {
         "command": "perch.moveAllToEditor",
-        "title": "Perch: Move All Tabs to the Editor Area"
+        "title": "Agents: Move All Tabs to the Editor Area"
       },
       {
         "command": "perch.moveAllToSidebar",
-        "title": "Perch: Move All Tabs to the Sidebar"
+        "title": "Agents: Move All Tabs to the Sidebar"
       },
       {
         "command": "perch.codebaseIndex.toggle",
-        "title": "Perch: Toggle Codebase Search"
+        "title": "Agents: Toggle Codebase Search"
       },
       {
         "command": "perch.codebaseIndex.install",
-        "title": "Perch: Install Codebase Search by Meaning"
+        "title": "Agents: Install Codebase Search by Meaning"
       },
       {
         "command": "perch.clearSecretExceptions",
-        "title": "Perch: Clear Secret-Check Exceptions"
+        "title": "Agents: Clear Secret-Check Exceptions"
       },
       {
         "command": "perch.voice.setup",
-        "title": "Perch: Set Up Voice Input"
+        "title": "Agents: Set Up Voice Input"
       },
       {
         "command": "perch.voice.toggle",
-        "title": "Perch: Start or Finish Dictation",
+        "title": "Agents: Start or Finish Dictation",
         "icon": "$(mic)"
       },
       {
         "command": "perch.voice.cancel",
-        "title": "Perch: Discard Dictation"
+        "title": "Agents: Discard Dictation"
       },
       {
         "command": "perch.voice.unload",
-        "title": "Perch: Unload the Speech Model (frees its memory)"
+        "title": "Agents: Unload the Speech Model (frees its memory)"
       },
       {
         "command": "perch.codex.toggleBackend",
-        "title": "Perch: Switch Codex Backend (ChatGPT / API key)"
+        "title": "Agents: Switch Codex Backend (ChatGPT / API key)"
       },
       {
         "command": "perch.codex.setApiKey",
-        "title": "Perch: Set OpenAI API Key for Codex…"
+        "title": "Agents: Set OpenAI API Key for Codex…"
       },
       {
         "command": "perch.codex.clearApiKey",
-        "title": "Perch: Forget the OpenAI API Key for Codex"
+        "title": "Agents: Forget the OpenAI API Key for Codex"
       }
     ],
     "menus": {
@@ -375,12 +375,12 @@
     "configuration": {
       "title": "Perch",
       "properties": {
-        "perch.lockGroup": {
+        "agents.lockGroup": {
           "type": "boolean",
           "default": true,
           "description": "Lock an editor group that holds only Perch tabs, so files opened from the Explorer go to your other editor group and not in among the sessions. The lock comes off once the group's last Perch tab has gone and other tabs are left in it (VS Code 1.92 or later)."
         },
-        "perch.newTabs": {
+        "agents.newTabs": {
           "type": "string",
           "enum": [
             "editor",
@@ -393,7 +393,7 @@
           ],
           "description": "Where Perch opens new tabs. Tabs saved before this setting existed follow it too."
         },
-        "perch.claude.permissionMode": {
+        "agents.claude.permissionMode": {
           "type": "string",
           "enum": [
             "default",
@@ -405,53 +405,53 @@
           "default": "default",
           "description": "Claude Code permission mode for new tabs. bypassPermissions skips all prompts."
         },
-        "perch.claude.model": {
+        "agents.claude.model": {
           "type": "string",
           "default": "",
           "description": "Claude model for new tabs, for example opus, sonnet, or a full model id. Empty uses Claude Code's default. Each tab can change it live."
         },
-        "perch.claude.effort": {
+        "agents.claude.effort": {
           "type": "string",
           "default": "",
           "description": "Claude reasoning effort for new tabs, for example high. Empty uses the model's default. Ignored if the tab's model does not accept it. Each tab can change it live."
         },
-        "perch.claude.executable": {
+        "agents.claude.executable": {
           "type": "string",
           "default": "",
           "description": "Path to a claude program to run. Empty uses the one that comes with the Claude Code extension."
         },
-        "perch.claude.gatewayEnv": {
+        "agents.claude.gatewayEnv": {
           "type": "string",
           "default": "~/.config/gateway-claude/env",
           "description": "A file describing a gateway Claude Code can be run through: export KEY=VALUE lines, as a shell reads them, with ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY, and any model names. A Claude tab opened on the gateway runs with these added to its environment; nothing is written to Claude Code's settings. When the file exists, + offers a tab on the gateway."
         },
-        "perch.claude.defaultBackend": {
+        "agents.claude.defaultBackend": {
           "type": "string",
           "enum": ["remembered", "gateway"],
           "default": "remembered",
           "description": "Where new Claude tabs start before you have chosen a backend for any tab. After you choose one in a tab's backend menu, new tabs follow your choice."
         },
-        "perch.codex.executable": {
+        "agents.codex.executable": {
           "type": "string",
           "default": "",
           "description": "Path to a codex program to run. Empty uses the one that comes with the ChatGPT extension."
         },
-        "perch.firstStart.openClaudeTab": {
+        "agents.firstStart.openClaudeTab": {
           "type": "boolean",
           "default": false,
           "description": "Open one Claude tab on the right the next time Perch starts, then set this back to false. For installers."
         },
-        "perch.ideContext": {
+        "agents.ideContext": {
           "type": "boolean",
           "default": true,
           "description": "New tabs attach the active file and, if there is one, the selection to each message, as the vendors' own panels do. Each tab can turn it on or off; the choice is kept with the tab."
         },
-        "perch.secretCheck.enabled": {
+        "agents.secretCheck.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Before a message is sent, look in it for something that looks like a password or key (a GitHub token, an AWS key, a password in a URL, a long random string…). If one is found the message waits, and you choose: Send anyway, Not a secret, or Edit. The check runs in the page, on the text alone."
         },
-        "perch.secretCheck.ignore": {
+        "agents.secretCheck.ignore": {
           "type": "array",
           "items": {
             "type": "string"
@@ -459,18 +459,18 @@
           "default": [],
           "description": "Regular expressions for values the secret check never flags, such as a trace-id or build-id format. A value is let through when one of them matches it in full. An invalid expression is skipped, with a note in the tab."
         },
-        "perch.codebaseIndex.enabled": {
+        "agents.codebaseIndex.enabled": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Give Claude and Codex tabs a `codebase_search` tool: search the workspace by keywords, and by meaning once that is installed (`Perch: Install Codebase Search by Meaning`). Off by default: on a well-documented repository the agents found their answers as fast by grep, and the tool cost them steps; turn it on, for every workspace or for one, where the names in the code are not what you would ask for. Every folder of a multi-root workspace is covered, an index each; a folder's own `.vscode/settings.json` decides for that folder. Indexes are kept in `~/.cache/codebase-index/`, on the machine the workspace is on. A change applies to each tab from its next message.",
+          "markdownDescription": "Give Claude and Codex tabs a `codebase_search` tool: search the workspace by keywords, and by meaning once that is installed (`Agents: Install Codebase Search by Meaning`). Off by default: on a well-documented repository the agents found their answers as fast by grep, and the tool cost them steps; turn it on, for every workspace or for one, where the names in the code are not what you would ask for. Every folder of a multi-root workspace is covered, an index each; a folder's own `.vscode/settings.json` decides for that folder. Indexes are kept in `~/.cache/codebase-index/`, on the machine the workspace is on. A change applies to each tab from its next message.",
           "scope": "resource"
         },
-        "perch.codebaseIndex.python": {
+        "agents.codebaseIndex.python": {
           "type": "string",
           "default": "",
           "description": "The Python that codebase search runs on, and that makes its private environment: 3.8 or newer, with SQLite FTS5. Empty uses python3."
         },
-        "perch.codex.approvalPolicy": {
+        "agents.codex.approvalPolicy": {
           "type": "string",
           "enum": [
             "never",
@@ -481,7 +481,7 @@
           "default": "on-failure",
           "description": "Codex approval policy. The Codex SDK runs non-interactively, so approvals resolve by policy, not by prompt."
         },
-        "perch.codex.sandboxMode": {
+        "agents.codex.sandboxMode": {
           "type": "string",
           "enum": [
             "read-only",
@@ -491,12 +491,12 @@
           "default": "workspace-write",
           "description": "Codex sandbox mode for new tabs."
         },
-        "perch.codex.model": {
+        "agents.codex.model": {
           "type": "string",
           "default": "",
           "description": "Codex model for new tabs, for example gpt-6-sol. Empty uses the model in ~/.codex/config.toml. Set per tab before its first message."
         },
-        "perch.codex.bedrock.endpoint": {
+        "agents.codex.bedrock.endpoint": {
           "type": "string",
           "enum": [
             "runtime",
@@ -505,22 +505,22 @@
           "default": "runtime",
           "description": "How Codex reaches Amazon Bedrock when that backend is chosen: runtime (bedrock-runtime.<region>.amazonaws.com, the bedrock:* actions Claude on Bedrock uses, models as us.openai.<name>) or mantle (bedrock-mantle.<region>.api.aws, its own IAM action bedrock-mantle:CreateInference, not in every region, models as openai.<name>)."
         },
-        "perch.codex.bedrock.region": {
+        "agents.codex.bedrock.region": {
           "type": "string",
           "default": "",
           "description": "The AWS region for Codex on Bedrock. Empty: AWS_REGION from the environment or from the env block of ~/.claude/settings.json (us-east-1 if none); for Mantle, us-east-1."
         },
-        "perch.codex.bedrock.profile": {
+        "agents.codex.bedrock.profile": {
           "type": "string",
           "default": "",
           "description": "The AWS profile for Codex on Bedrock. Empty: AWS_PROFILE from the environment or from the env block of ~/.claude/settings.json, else the default credential chain."
         },
-        "perch.codex.reasoningEffort": {
+        "agents.codex.reasoningEffort": {
           "type": "string",
           "default": "",
           "description": "Codex reasoning effort for new tabs, for example high. Empty uses ~/.codex/config.toml or the model's default. Ignored if the tab's model does not accept it."
         },
-        "perch.meter.mode": {
+        "agents.meter.mode": {
           "type": "string",
           "enum": [
             "auto",
@@ -535,13 +535,13 @@
           ],
           "description": "What the Claude usage gauge shows."
         },
-        "perch.meter.pollMinutes": {
+        "agents.meter.pollMinutes": {
           "type": "number",
           "default": 5,
           "minimum": 1,
           "description": "How often the Claude usage gauge refreshes, in minutes."
         },
-        "perch.meter.display": {
+        "agents.meter.display": {
           "type": "string",
           "enum": [
             "remaining",
@@ -550,27 +550,27 @@
           "default": "remaining",
           "description": "Show percent remaining, fuel-tank style, or percent used."
         },
-        "perch.meter.showModelWeekly": {
+        "agents.meter.showModelWeekly": {
           "type": "boolean",
           "default": true,
           "description": "Also show model-scoped weekly limits when reported."
         },
-        "perch.meter.warnBelow": {
+        "agents.meter.warnBelow": {
           "type": "number",
           "default": 25,
           "description": "Warning colour when any limit has less than this percent remaining."
         },
-        "perch.meter.errorBelow": {
+        "agents.meter.errorBelow": {
           "type": "number",
           "default": 10,
           "description": "Error colour when any limit has less than this percent remaining."
         },
-        "perch.voice.model": {
+        "agents.voice.model": {
           "type": "string",
           "default": "auto",
           "description": "The Whisper model for dictation. auto picks by device: large-v3-turbo on a GPU, small on a CPU. Any faster-whisper model name can be given (large-v3-turbo, medium, small, base). Changing it fetches the new model on next use."
         },
-        "perch.voice.runOn": {
+        "agents.voice.runOn": {
           "type": "string",
           "enum": [
             "auto",
@@ -585,7 +585,7 @@
           ],
           "description": "Where speech-to-text runs when the workspace is remote. The microphone is always on the computer you sit at; the words can be worked out there, and only the text sent to the workspace, or the audio can be sent to the workspace machine. With no remote, both are the same machine."
         },
-        "perch.voice.device": {
+        "agents.voice.device": {
           "type": "string",
           "enum": [
             "auto",
@@ -598,25 +598,25 @@
             "The NVIDIA GPU only.",
             "The CPU only."
           ],
-          "description": "The processor for speech-to-text, on whichever machine runs it (perch.voice.runOn)."
+          "description": "The processor for speech-to-text, on whichever machine runs it (agents.voice.runOn)."
         },
-        "perch.voice.language": {
+        "agents.voice.language": {
           "type": "string",
           "default": "",
           "description": "The language you dictate in, as a code such as en or ko. Empty detects it each time, which on a CPU costs as much again as the transcription."
         },
-        "perch.voice.vocabulary": {
+        "agents.voice.vocabulary": {
           "type": "string",
           "default": "",
           "description": "Words and names to expect, such as project or product names, to help them be spelled right. A short phrase or list."
         },
-        "perch.voice.idleMinutes": {
+        "agents.voice.idleMinutes": {
           "type": "number",
           "default": 10,
           "minimum": 0,
           "description": "Unload the speech model after this many minutes without dictation, freeing its memory (about 2.5 GB on a GPU). 0 keeps it loaded."
         },
-        "perch.voice.python": {
+        "agents.voice.python": {
           "type": "string",
           "default": "",
           "description": "The Python interpreter used to create the private environment. Empty uses python3."
@@ -639,7 +639,7 @@
     "check": "for f in src/*.js test/*.js audio/src/*.js audio/test/*.js; do node --check \"$f\" || exit 1; done && python3 -m py_compile voice/server.py codeindex/indexer.py codeindex/server.py test/codeindex_test.py",
     "test": "npm run -s test:offline && node test/harness.mjs",
     "package": "vsce package",
-    "test:offline": "node test/meter.test.js && node test/explorer.test.js && node test/claudeAgent.test.js && node test/gateway.test.js && node test/relay.test.js && node test/prices.test.js && node test/codexMeter.test.js && node test/models.test.js && node test/binaries.test.js && node test/codeIndex.test.js && python3 test/codeindex_test.py && node test/codexAuth.test.js && node test/codexBedrock.test.js && node test/codexWatch.test.js && node test/markdown.test.js && node test/secretCheck.test.js && node test/sessionStore.test.js && node test/handoff.test.js && node test/prSessions.test.js && node test/voice.test.js && node audio/test/recorder.test.js && node audio/test/engine.test.js && node test/host.test.js && node test/page.test.js"
+    "test:offline": "node test/meter.test.js && node test/explorer.test.js && node test/claudeAgent.test.js && node test/gateway.test.js && node test/relay.test.js && node test/prices.test.js && node test/codexMeter.test.js && node test/models.test.js && node test/binaries.test.js && node test/codeIndex.test.js && python3 test/codeindex_test.py && node test/codexAuth.test.js && node test/codexBedrock.test.js && node test/codexWatch.test.js && node test/markdown.test.js && node test/secretCheck.test.js && node test/settingsCarryOver.test.js && node test/sessionStore.test.js && node test/handoff.test.js && node test/prSessions.test.js && node test/voice.test.js && node audio/test/recorder.test.js && node audio/test/engine.test.js && node test/host.test.js && node test/page.test.js"
   },
   "devDependencies": {
     "jsdom": "^25.0.0"

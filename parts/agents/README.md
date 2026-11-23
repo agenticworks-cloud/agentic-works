@@ -137,7 +137,7 @@ so those two must be installed as well.
 
 ## Where tabs live
 
-`perch.newTabs` decides where a new tab opens.
+`agents.newTabs` decides where a new tab opens.
 
 **`editor`** (the default): each session is a native editor tab, like a
 file. The tab row is the first line: there is no container icon row and no
@@ -180,8 +180,8 @@ Each row says where it comes from; hover for what it is and its file;
 click to open the file, at its entry where the file can say. The tab you
 chose is kept.
 
-Both can be used at once. `Perch: Move Tab to the Editor Area` and
-`Perch: Move Tab to the Sidebar` move the active tab; the session, its
+Both can be used at once. `Agents: Move Tab to the Editor Area` and
+`Agents: Move Tab to the Sidebar` move the active tab; the session, its
 agent, and its transcript are untouched. There are `Move All` versions of
 both. Tabs saved before this setting existed follow it on the next reload.
 
@@ -189,7 +189,7 @@ An editor group that holds only Perch tabs is locked, the way a terminal's
 is, so a file opened from the Explorer goes to the group beside it and not
 in among the sessions. When the last Perch tab leaves a group that still
 has other tabs, Perch takes the lock off again, so files open there as
-anywhere else (VS Code 1.92 or later). `perch.lockGroup` turns both off.
+anywhere else (VS Code 1.92 or later). `agents.lockGroup` turns both off.
 
 After a window reload VS Code brings the editor tabs back where they were,
 and each resumes its session.
@@ -239,9 +239,9 @@ reasoning left out.
 ## Names and past sessions
 
 A tab is named from its first message until you name it yourself: run
-`Perch: Rename Active Tab…`, or double-click a tab's name in the sidebar.
+`Agents: Rename Active Tab…`, or double-click a tab's name in the sidebar.
 
-`Perch: Sessions…` (the clock icon in the title bar) lists the past
+`Agents: Sessions…` (the clock icon in the title bar) lists the past
 sessions of the workspace folder, Claude's and Codex's together, newest
 first. Type to search. Choose one to open a tab on it, or go to the tab
 already open on it. The pencil on a row renames that session, open or not.
@@ -259,7 +259,7 @@ is where Claude Code's own `/rename` writes; for Codex, as a line added to
 name here, and the reverse. A tab named before its first message has no
 record yet; its name is written when its first turn ends.
 
-Tabs do not share history. **Hand off** (`Perch: Hand Off Last Answer to
+Tabs do not share history. **Hand off** (`Agents: Hand Off Last Answer to
 Another Tab…`, in the `…` menu of the title bar and in the command
 palette) pastes the active tab's
 last answer into another tab's input box, or into a new tab. That is the
@@ -361,9 +361,9 @@ Step by step, from a bare VS Code to the working layout and a login for
 each vendor and backend: [note 901](docs/notes/901-setup.md).
 
 Reload the window, then press **Ctrl+Alt+P** (Cmd+Alt+P on a Mac):
-`Perch: Open` brings back the tab you last used, or, with none open, the
+`Agents: Open` brings back the tab you last used, or, with none open, the
 sessions list, which starts a new tab of either kind at the top. The same
-is behind the Perch icon in the activity bar and `Perch: New Tab…` in the
+is behind the Perch icon in the activity bar and `Agents: New Tab…` in the
 command palette.
 
 ## Logins
@@ -375,7 +375,7 @@ is copied from elsewhere, so a fresh remote has neither.
 - **Claude, on a subscription**: the first message to a Claude tab on a
   machine with no login is held back, the text put back in the box, and
   **Log In** offered: `claude auth login` in a terminal, run with the
-  `claude` the tabs run (`perch.claude.executable` when it is set), and
+  `claude` the tabs run (`agents.claude.executable` when it is set), and
   off Bedrock even when `~/.claude/settings.json` sets
   `CLAUDE_CODE_USE_BEDROCK=1` (the Claude Code panel only when no
   program is found). Perch notices when a new login lands and says so;
@@ -396,7 +396,7 @@ is copied from elsewhere, so a fresh remote has neither.
   Anthropic-compatible endpoint reached with `ANTHROPIC_BASE_URL` and a
   token, as a company's LLM proxy is. The variables live in a file of
   yours, `~/.config/gateway-claude/env` by default
-  (`perch.claude.gatewayEnv`), written as a shell reads it: `export
+  (`agents.claude.gatewayEnv`), written as a shell reads it: `export
   ANTHROPIC_BASE_URL=…`, `export ANTHROPIC_AUTH_TOKEN=…` (or
   `ANTHROPIC_API_KEY`), and any model names (`ANTHROPIC_MODEL`,
   `ANTHROPIC_DEFAULT_OPUS_MODEL`, …). The same file can drive a terminal
@@ -406,7 +406,7 @@ is copied from elsewhere, so a fresh remote has neither.
   Perch's, and the session, its record, your `CLAUDE.md`, memory, and MCP
   servers are the same as any other tab's. Put a tab on it from the
   footer's backend menu under any Claude tab, where the entry reads
-  **LLM gateway** (or with `Perch: New Claude Tab on the Gateway`);
+  **LLM gateway** (or with `Agents: New Claude Tab on the Gateway`);
   once chosen, new Claude tabs start there until a tab is put back on the
   subscription or API / Bedrock. The template also sets
   `ENABLE_PROMPT_CACHING_1H=1`: on a token Claude Code would keep the
@@ -489,11 +489,11 @@ Deny, like Skip on a question Claude asks, ends the turn and hands it
 back to you, as No does in Claude Code's terminal; answering a question,
 with No or anything else, lets Claude carry on.
 The default mode for new tabs is a setting
-(`perch.claude.permissionMode`) and each tab can switch live.
+(`agents.claude.permissionMode`) and each tab can switch live.
 
 Codex: the SDK runs `codex exec`, which is non-interactive. Approvals
-resolve by policy (`perch.codex.approvalPolicy`) and the sandbox
-(`perch.codex.sandboxMode`). There is no per-command prompt.
+resolve by policy (`agents.codex.approvalPolicy`) and the sandbox
+(`agents.codex.sandboxMode`). There is no per-command prompt.
 
 Codex's sandbox on Linux is bubblewrap, which needs unprivileged user
 namespaces; a container that forbids them (a JupyterHub pod, say) fails
@@ -582,7 +582,7 @@ what a search was only when it ends, so until then the card reads
 `web search …` and the foot of the transcript *Searching the web*.
 
 **IDE context**, on both kinds of tab, is on by default for new tabs
-(`perch.ideContext`) and remembered per tab. The toggle is green when on
+(`agents.ideContext`) and remembered per tab. The toggle is green when on
 and grey when off. When on, each message carries
 the active file and, if there is one, the selection with its line numbers,
 as the vendors' own panels do. The transcript shows your message with a
@@ -613,9 +613,9 @@ like, or a long random string. If it finds one the message stays in the
 box, the value is selected, and a strip above the composer names the
 rule and offers **Send anyway** (this text, in this tab), **Not a
 secret** (never flagged again anywhere; Perch keeps only its SHA-256
-hash), **Edit** and **Why?**. `perch.secretCheck.enabled` turns it off;
-`perch.secretCheck.ignore` lists regular expressions for values never to
-flag, matched in full; `Perch: Clear Secret-Check Exceptions` forgets
+hash), **Edit** and **Why?**. `agents.secretCheck.enabled` turns it off;
+`agents.secretCheck.ignore` lists regular expressions for values never to
+flag, matched in full; `Agents: Clear Secret-Check Exceptions` forgets
 every "Not a secret". The rules are in note 110.
 
 Not included: Codex's microphone. A webview cannot open the microphone;
@@ -637,7 +637,7 @@ The lists come from the agents themselves, so they match your account:
 
 The effort list follows the selected model. A model with no effort
 control says so in the menu, and an effort the new model does not accept
-resets to default. `Perch: Refresh Model Lists` re-reads both.
+resets to default. `Agents: Refresh Model Lists` re-reads both.
 
 Claude: model, effort, and mode all change live, from the next message.
 Hover the model selector to see the model actually running.
@@ -670,11 +670,11 @@ A model chosen by its id rather than from the list, Bedrock's
 catalog names the same model (`Fable 5.1 (1M)`), offers that model's
 efforts, and is sent under the name the tab's backend knows it by.
 
-Defaults for new tabs: `perch.claude.model`, `perch.claude.effort`,
-`perch.claude.permissionMode`, `perch.codex.model`,
-`perch.codex.reasoningEffort`, `perch.codex.sandboxMode`.
-`perch.claude.defaultBackend` (`gateway` starts new Claude tabs on the
-gateway until a backend has been chosen) and `perch.firstStart.openClaudeTab`
+Defaults for new tabs: `agents.claude.model`, `agents.claude.effort`,
+`agents.claude.permissionMode`, `agents.codex.model`,
+`agents.codex.reasoningEffort`, `agents.codex.sandboxMode`.
+`agents.claude.defaultBackend` (`gateway` starts new Claude tabs on the
+gateway until a backend has been chosen) and `agents.firstStart.openClaudeTab`
 (opens one Claude tab on the right at the next start, once) are for an
 installer that sets a machine up. A pill in a Claude tab's footer names the
 phase of a skill-driven workflow (Design, Plan, Build, Finish); see
@@ -689,8 +689,8 @@ the agent calls, so results come after the cached prompt, never into it.
 The design and the measurements are in
 [note 201](docs/notes/201-codebase-indexing.md).
 
-- **Off by default.** `perch.codebaseIndex.enabled` turns it on, for
-  every workspace or for one; `Perch: Toggle Codebase Search` flips it.
+- **Off by default.** `agents.codebaseIndex.enabled` turns it on, for
+  every workspace or for one; `Agents: Toggle Codebase Search` flips it.
   A change reaches each tab from its next message: a Claude tab
   restarts, after its turn if one is running (its tool list is part of
   its cached prompt, so the cache starts over once); a Codex tab's next
@@ -699,7 +699,7 @@ The design and the measurements are in
   needs only the machine's `python3`, 3.8 or newer with SQLite FTS5.
   Search by meaning needs an embedding model, MiniLM, in a private
   environment of about 300 MB under `~/.local/share/perch/codeindex`:
-  Perch offers it once, as the first tab starts, and `Perch: Install
+  Perch offers it once, as the first tab starts, and `Agents: Install
   Codebase Search by Meaning` installs it later. A tab's search server
   moves onto it by itself, without a restart.
 - **Every folder of the workspace,** in the Explorer's order, each with
@@ -729,7 +729,7 @@ The design and the measurements are in
 - **In a terminal too.** The server is Perch's `codeindex/server.py`;
   `claude mcp add -s user codebase -- python3 <it>` or `codex mcp add
   codebase -- python3 <it>` gives the CLIs the same tool outside Perch.
-- `perch.codebaseIndex.python` names the Python to run it on, if not
+- `agents.codebaseIndex.python` names the Python to run it on, if not
   `python3`.
 - **Its switches and its state, in the footer.** Under a tab, the
   **index** button next to **sub-agents** opens a table of the
@@ -762,18 +762,18 @@ environment, per turn, so open tabs move on their next message with
 nothing restarted. Bedrock uses Codex's own Bedrock provider with the AWS
 credentials on the machine (a profile, `AWS_*` variables, or
 `AWS_BEARER_TOKEN_BEDROCK`); the region and profile come from
-`perch.codex.bedrock.region` and `.profile`, else from the environment or
+`agents.codex.bedrock.region` and `.profile`, else from the environment or
 the env block of `~/.claude/settings.json`, where a machine set up for
 Claude on Bedrock has them. By default Codex goes through the Bedrock
 runtime's OpenAI-compatible endpoint in your region, with models named
 `us.openai.<model>` and the same `bedrock:*` permissions Claude uses;
-`perch.codex.bedrock.endpoint: mantle` uses Bedrock Mantle instead
+`agents.codex.bedrock.endpoint: mantle` uses Bedrock Mantle instead
 (us-east-1 by default, `openai.<model>`, its own IAM action). The ChatGPT
 connector apps are off on Bedrock, where they cannot work; left on, their
 schemas cost about 25 K tokens a request. The model menu stays Codex's;
 each name is sent in Bedrock's form. On the key or on Bedrock there is no plan and no limit to show,
 only per-token billing on that account.
-`Perch: Set OpenAI API Key for Codex…` and `Perch: Forget the OpenAI API
+`Agents: Set OpenAI API Key for Codex…` and `Agents: Forget the OpenAI API
 Key for Codex` manage the key. Codex records these in its session files after every turn, so
 perch reads them from `~/.codex/sessions/` and makes no request. The
 figure is as of the last Codex turn on this machine, from any Codex client,
@@ -790,7 +790,7 @@ is shown as full again. perch re-reads after each Codex turn it runs.
   different backends side by side and nothing is written to the file.
   The window's default — what a tab that has not chosen runs on, and what
   `claude` in a terminal gets — is `env.CLAUDE_CODE_USE_BEDROCK` in that
-  file, switched by `Perch: Toggle Claude Backend`; tabs that follow it
+  file, switched by `Agents: Toggle Claude Backend`; tabs that follow it
   come along with the switch, tabs with a choice of their own stay put.
   Either way a tab's process ends (after its current turn, if one is
   running) and the next message resumes the same conversation on the new
@@ -841,7 +841,7 @@ marks it stale in the tooltip, and leaves the endpoint alone for at least a
 minute, doubling up to half an hour. Clicking refresh during that pause
 makes no request.
 
-Settings: `perch.meter.mode`, `pollMinutes`, `display`, `showModelWeekly`,
+Settings: `agents.meter.mode`, `pollMinutes`, `display`, `showModelWeekly`,
 `warnBelow`, `errorBelow`.
 
 ## Dictation
@@ -866,7 +866,7 @@ microphone is:
 | From a computer with an NVIDIA GPU, over Remote-SSH | that computer (it comes with Perch) | that computer, in Perch Audio; only the text goes to the remote |
 | From a laptop with no GPU, over Remote-SSH | the laptop | the remote machine; the audio goes there |
 
-`perch.voice.runOn` overrides the choice (`local` or `remote`). Perch Audio
+`agents.voice.runOn` overrides the choice (`local` or `remote`). Perch Audio
 carries the same engine as Perch, so a GPU under your desk is used even
 when the workspace is a CPU-only container far away.
 
@@ -882,9 +882,9 @@ A plugged-in microphone is preferred when there is one; pick the headset
 by name to dictate into it regardless.
 
 The model follows the machine: `large-v3-turbo` on an NVIDIA GPU, `small`
-on a CPU (`perch.voice.model` names one instead). On a CPU the turbo
+on a CPU (`agents.voice.model` names one instead). On a CPU the turbo
 model's encoder alone takes seconds; `small` returns a sentence in about
-one, at a little less accuracy. Setting `perch.voice.language` (`en`,
+one, at a little less accuracy. Setting `agents.voice.language` (`en`,
 `ko`, …) halves the wait again, because detecting the language is a
 second pass over the audio.
 
@@ -912,7 +912,7 @@ the programs inside the Claude Code and ChatGPT extensions, so those two
 extensions must be installed where Perch is: they are in Perch's
 `extensionPack`, so the marketplace installs them with it, on the
 workspace side, and either can be removed if only one vendor is wanted.
-`perch.claude.executable` and `perch.codex.executable` name a program of
+`agents.claude.executable` and `agents.codex.executable` name a program of
 your own instead. In this checkout, installed from npm, the SDKs bring
 their own programs and those are used.
 

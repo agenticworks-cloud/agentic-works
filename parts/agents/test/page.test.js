@@ -1347,8 +1347,8 @@ window.close();
     assert.deepStrictEqual([what(), rows(), hsw().textContent, hsw().getAttribute('aria-pressed'), hsw().disabled, /not installed/.test(box().querySelector('.hint').textContent)],
       ['Codebase search is off for this workspace · 1 of 2 folders on · by keywords · 300 files' + asOf, [['fennets', 'off', '1,908', '12,000', '—', '—', 'off'], ['tools', 'on', '300', '900', '—', 'keywords', 'indexing files']], 'off', 'false', false, true],
       'off for the workspace, one folder on by its own setting; keywords only: no vector counts, and how to add search by meaning');
-    p9.host({ type: 'indexStatus', sid: 'c', at: AT, on: true, usable: false, why: 'No Python here can run codebase search (3.8 or newer, with SQLite FTS5): set perch.codebaseIndex.python.', folders: [{ name: 'fennets', root: '/w/fennets', on: true }] });
-    assert.deepStrictEqual([what(), rows(), box().querySelector('.hint')], ['Codebase search is on for this workspace · 1 folder · No Python here can run codebase search (3.8 or newer, with SQLite FTS5): set perch.codebaseIndex.python.' + asOf, [['fennets', 'on', '—', '—', '—', '—', '']], null], 'no Python: said in the header, the switches still there');
+    p9.host({ type: 'indexStatus', sid: 'c', at: AT, on: true, usable: false, why: 'No Python here can run codebase search (3.8 or newer, with SQLite FTS5): set agents.codebaseIndex.python.', folders: [{ name: 'fennets', root: '/w/fennets', on: true }] });
+    assert.deepStrictEqual([what(), rows(), box().querySelector('.hint')], ['Codebase search is on for this workspace · 1 folder · No Python here can run codebase search (3.8 or newer, with SQLite FTS5): set agents.codebaseIndex.python.' + asOf, [['fennets', 'on', '—', '—', '—', '—', '']], null], 'no Python: said in the header, the switches still there');
     out9.length = 0; p9.host({ type: 'event', sid: 'c', ev: { kind: 'result', ok: true, duration_ms: 5 } });
     assert.deepStrictEqual(out9.pop(), { type: 'indexStatus', sid: 'c' }, 'a turn ended while open: what its searches brought up to date');
     p9.host({ type: 'indexStatus', sid: 'c', at: AT, on: false, folders: [], why: 'No folder is open in this window: nothing to search.' });
@@ -1533,7 +1533,7 @@ window.close();
     typeIn('one more, edited'); assert(hideOf(strip()), 'typing closes the strip');
     ps.out.length = 0;
 
-    // with perch.secretCheck.enabled off, the message goes at once
+    // with agents.secretCheck.enabled off, the message goes at once
     ps.host({ type: 'secretCheck', enabled: false, ignore: [], allowed: [] });
     typeIn('fresh ' + ['ghu_', 'Z9y8X7w6V5u4T3s2R1q0', 'P9o8N7m6L5k4J3i2'].join('')); enter();
     assert.strictEqual(sends().length, 1, 'off: sent at once, with no wait');

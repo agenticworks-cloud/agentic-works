@@ -111,7 +111,7 @@ class CodeIndex {
       fs.writeFileSync(script, await this.fetch(GET_PIP_URL));
       await this.run(this.venvPython, [script, '--quiet']);
     } catch (e) {
-      throw new Error(`pip could not be installed into the codebase search environment (${e.message}). Install python3-venv, or set perch.codebaseIndex.python to a Python that has pip.`);
+      throw new Error(`pip could not be installed into the codebase search environment (${e.message}). Install python3-venv, or set agents.codebaseIndex.python to a Python that has pip.`);
     } finally { try { fs.unlinkSync(script); } catch (_) { /* never written */ } }
   }
 

@@ -78,7 +78,7 @@ const step = (x) => { if (process.env.TRACE) console.error('  ..', x); };
     const b = engine({ mode: 'fail-load' });
     await assert.rejects(b.e.install(), /CUDA out of memory/); assert.strictEqual(b.e.isInstalled(), false);
     const c = new VoiceEngine({ server: FAKE, requirements: '/nonexistent', home: mk(), python: '/nonexistent/python3' });
-    await assert.rejects(c.install(), /python3 was not found\. Install Python 3\.9 or newer, or set perch\.voice\.python/);
+    await assert.rejects(c.install(), /python3 was not found\. Install Python 3\.9 or newer, or set agents\.voice\.python/);
   }
   {
     step('python without ensurepip');
@@ -103,7 +103,7 @@ const step = (x) => { if (process.env.TRACE) console.error('  ..', x); };
     assert.deepStrictEqual(g.calls.slice(0, 4).map((c) => c.slice(0, 3).join(' ')), ['python3 -m venv', 'python -c import pip', 'python -m ensurepip', 'python -m pip']);
     // and when nothing works, a message that says what to do
     const h = engine({ noEnsurepip: true, noPip: true, engine: { fetch: async () => { throw new Error('https://bootstrap.pypa.io/get-pip.py could not be fetched: ENOTFOUND'); } } });
-    await assert.rejects(h.e.install(), /pip could not be installed into the voice environment \(https:\/\/bootstrap\.pypa\.io\/get-pip\.py could not be fetched: ENOTFOUND\)\. Install python3-venv, or set perch\.voice\.python/);
+    await assert.rejects(h.e.install(), /pip could not be installed into the voice environment \(https:\/\/bootstrap\.pypa\.io\/get-pip\.py could not be fetched: ENOTFOUND\)\. Install python3-venv, or set agents\.voice\.python/);
     assert.strictEqual(h.e.isInstalled(), false);
     for (const x of [d, g, h]) fs.rmSync(x.home, { recursive: true, force: true });
   }

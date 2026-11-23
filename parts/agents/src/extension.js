@@ -17,6 +17,7 @@ const { listSessions, renameSession, deleteSession, forkSession, loadTranscript,
 const Handoff = require('./handoff');
 const PrSessions = require('./prSessions');
 const { phaseOfSkill, skillOfSlash, resolveSkill, workflowOf } = require('./phase');
+const { carryOverSettings, settingKeys } = require('./settingsCarryOver');
 
 const VENDOR = { claude: 'Claude', codex: 'Codex' };
 const MODE_NAMES = { default: 'Ask', acceptEdits: 'Edits', plan: 'Plan', auto: 'Auto', bypassPermissions: 'Bypass', 'read-only': 'Read only', 'workspace-write': 'Workspace', 'danger-full-access': 'Full access' };
@@ -260,11 +261,11 @@ function whenClosed(term) {
   p.dispose = () => sub.dispose();
   return p;
 }
-const MISSING = { claude: 'Perch runs the claude program that comes with the Claude Code extension, which is not installed here. Install it, or set perch.claude.executable to a claude program.', codex: 'Perch runs the codex program that comes with the ChatGPT extension, which is not installed here. Install it, or set perch.codex.executable to a codex program.' };
+const MISSING = { claude: 'Perch runs the claude program that comes with the Claude Code extension, which is not installed here. Install it, or set agents.claude.executable to a claude program.', codex: 'Perch runs the codex program that comes with the ChatGPT extension, which is not installed here. Install it, or set agents.codex.executable to a codex program.' };
 const NOTE_TIMEOUT_MS = 120000;   // notePrMerged's headless run: stopped, and reported, if it has not ended by then
 const PR_NONE_TTL_MS = 10 * 60000;   // findPrSession: a PR no session was found for is looked for again after this long
 
-function cfg(key) { return vscode.workspace.getConfiguration('perch').get(key); }
+function cfg(key) { return vscode.workspace.getConfiguration('agents').get(key); }
 function defaultEffort(kind) { return String((kind === 'claude' ? cfg('claude.effort') : cfg('codex.reasoningEffort')) || ''); }
 function defaultModel(kind) { return String((kind === 'claude' ? cfg('claude.model') : cfg('codex.model')) || ''); }
 function defaultMode(kind) { return kind === 'claude' ? (cfg('claude.permissionMode') || 'default') : (cfg('codex.sandboxMode') || 'workspace-write'); }
@@ -1192,7 +1193,7 @@ class PerchView {
     this.closing = false;
     this.switchingOff = false;       // confirmStop said yes: the dispose that follows closes the editor tabs (closeTabs)
     this.graceTimer = null;
-    this.firstStartTimer = null;     // perch.firstStart.openClaudeTab's look, once the wait for restored tabs is over
+    this.firstStartTimer = null;     // agents.firstStart.openClaudeTab's look, once the wait for restored tabs is over
     this.leftGroups = new Set();     // editor groups a Perch tab has just left, looked at by unlockGroups
     this.unlockTimer = null;
     this.meter = new MeterHost(context, (state, why, codex) => this.onMeter(state, why, codex), { program: () => program('claude') });
@@ -1304,7 +1305,7 @@ class PerchView {
     for (const f of vscode.workspace.workspaceFolders || []) {
       if (out.some((o) => o.root === f.uri.fsPath)) continue;
       let on;
-      try { on = vscode.workspace.getConfiguration('perch', f.uri).get('codebaseIndex.enabled') === true; } catch (_) { on = cfg('codebaseIndex.enabled') === true; }
+      try { on = vscode.workspace.getConfiguration('agents', f.uri).get('codebaseIndex.enabled') === true; } catch (_) { on = cfg('codebaseIndex.enabled') === true; }
       out.push({ name: require('path').basename(f.uri.fsPath) || f.uri.fsPath, root: f.uri.fsPath, on });
     }
     for (const o of out) if (out.filter((x) => x.name === o.name).length > 1) o.name = o.root;
@@ -1349,12 +1350,12 @@ class PerchView {
    * folder with a setting of its own keeps it. Quiet from the footer's panel, which shows the new state itself.
    */
   async toggleSearch(quiet) {
-    const c = vscode.workspace.getConfiguration('perch'), i = (c.inspect && c.inspect('codebaseIndex.enabled')) || {};
+    const c = vscode.workspace.getConfiguration('agents'), i = (c.inspect && c.inspect('codebaseIndex.enabled')) || {};
     const was = c.get('codebaseIndex.enabled') === true;
     const target = i.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
     await c.update('codebaseIndex.enabled', !was, target);
     const usable = was || await this.probeSearch();   // turned on: the Python check runs now, and the word waits for it
-    if (!quiet) vscode.window.showInformationMessage(`Perch: codebase search is ${was ? 'off' : 'on'}${!was && !usable ? ', but no Python here can run it (3.8 or newer, with SQLite FTS5): set perch.codebaseIndex.python' : ''}. Each tab takes it up from its next message.`);
+    if (!quiet) vscode.window.showInformationMessage(`Perch: codebase search is ${was ? 'off' : 'on'}${!was && !usable ? ', but no Python here can run it (3.8 or newer, with SQLite FTS5): set agents.codebaseIndex.python' : ''}. Each tab takes it up from its next message.`);
     return !was;
   }
   /**
@@ -1364,7 +1365,7 @@ class PerchView {
   async searchFolder(s, root, on) {
     const f = (vscode.workspace.workspaceFolders || []).find((w) => w.uri.fsPath === root);
     if (f) {
-      try { await vscode.workspace.getConfiguration('perch', f.uri).update('codebaseIndex.enabled', !!on, vscode.ConfigurationTarget.WorkspaceFolder); }
+      try { await vscode.workspace.getConfiguration('agents', f.uri).update('codebaseIndex.enabled', !!on, vscode.ConfigurationTarget.WorkspaceFolder); }
       catch (err) { vscode.window.showErrorMessage(`Perch: the setting for ${require('path').basename(root)} could not be written: ${String((err && err.message) || err)}`); }
     }
     this.indexStatus(s);
@@ -1376,7 +1377,7 @@ class PerchView {
     const pick = await vscode.window.showInformationMessage('Perch: Claude and Codex tabs can search this workspace by keywords (codebase search). Install search by meaning as well? About 300 MB, once, in ~/.local/share/perch/codeindex; the code never leaves this machine.', 'Install', 'Not Now', 'Turn Off');
     if (pick) await this.context.globalState.update('perch.codebaseIndex.offered', true);
     if (pick === 'Install') await this.installSearch();
-    else if (pick === 'Turn Off') await vscode.workspace.getConfiguration('perch').update('codebaseIndex.enabled', false, vscode.ConfigurationTarget.Global);
+    else if (pick === 'Turn Off') await vscode.workspace.getConfiguration('agents').update('codebaseIndex.enabled', false, vscode.ConfigurationTarget.Global);
   }
   /** Install search by meaning, its progress in a notification. Running search servers move onto it by themselves. */
   async installSearch() {
@@ -1409,7 +1410,7 @@ class PerchView {
     this.sandboxOpen = true;
     try {
       const host = require('os').hostname();
-      const pick = await vscode.window.showWarningMessage(`Codex's sandbox cannot start on ${host}: the kernel forbids the user namespaces it needs, and Codex has no other sandbox on Linux. Codex can run here without one, as you, with approvals as perch.codex.approvalPolicy says.`, 'Full Access, This Tab', `Full Access on ${host}`);
+      const pick = await vscode.window.showWarningMessage(`Codex's sandbox cannot start on ${host}: the kernel forbids the user namespaces it needs, and Codex has no other sandbox on Linux. Codex can run here without one, as you, with approvals as agents.codex.approvalPolicy says.`, 'Full Access, This Tab', `Full Access on ${host}`);
       if (!pick) return;
       if (pick !== 'Full Access, This Tab') { const hosts = this.unsandboxedHosts(); hosts[host] = true; await this.context.globalState.update(UNSANDBOXED_KEY, hosts); }
       if (s.disposed) return;
@@ -1532,7 +1533,7 @@ class PerchView {
 
   /**
    * The backend of one Claude tab, from the footer's menu: each choice is the tab's own. The gateway as before; subscription
-   * and API / Bedrock go to the tab's next process as settings of its own, so the window's switch (Perch: Toggle Claude
+   * and API / Bedrock go to the tab's next process as settings of its own, so the window's switch (Agents: Toggle Claude
    * Backend, which writes ~/.claude/settings.json for tabs that have not chosen, and for claude in a terminal) is not
    * touched and other tabs are not moved.
    */
@@ -1936,7 +1937,7 @@ class PerchView {
   }
 
   /**
-   * perch.firstStart.openClaudeTab, set by an installer: one Claude tab, in an editor group on the right, once (note 203).
+   * agents.firstStart.openClaudeTab, set by an installer: one Claude tab, in an editor group on the right, once (note 203).
    * False is written first, at the scope that held true, and the key is kept: an installer that writes only missing keys
    * then leaves it alone. A write that fails opens nothing, rather than a tab on every start; so does any Perch tab
    * already open, in an editor or the sidebar, as one the window brought back. Called after the wait for restored tabs.
@@ -1944,13 +1945,13 @@ class PerchView {
   async firstStart() {
     const KEY = 'firstStart.openClaudeTab', T = vscode.ConfigurationTarget;
     const folder = (vscode.workspace.workspaceFolders || [])[0];
-    const c = vscode.workspace.getConfiguration('perch', folder && folder.uri), i = (c.inspect && c.inspect(KEY)) || {};
+    const c = vscode.workspace.getConfiguration('agents', folder && folder.uri), i = (c.inspect && c.inspect(KEY)) || {};
     // the value that holds is the most specific one set, and that is where false goes
     const [value, target] = i.workspaceFolderValue !== undefined ? [i.workspaceFolderValue, T.WorkspaceFolder]
       : i.workspaceValue !== undefined ? [i.workspaceValue, T.Workspace] : [i.globalValue, T.Global];
     if (value !== true) return;
-    try { await (target === T.WorkspaceFolder ? c : vscode.workspace.getConfiguration('perch')).update(KEY, false, target); }
-    catch (e) { this.trace(`perch.${KEY} could not be set back to false, so no tab is opened: ${(e && e.message) || e}`); return; }
+    try { await (target === T.WorkspaceFolder ? c : vscode.workspace.getConfiguration('agents')).update(KEY, false, target); }
+    catch (e) { this.trace(`agents.${KEY} could not be set back to false, so no tab is opened: ${(e && e.message) || e}`); return; }
     if (this.closing || this.sessions.length) return;
     const s = this.addSession('claude', { location: 'editor' });   // beside the active group: column() has no Perch tab to follow
     if (!s) return;
@@ -2101,12 +2102,12 @@ class PerchView {
     return { enabled: cfg('secretCheck.enabled') !== false, ignore, invalid, allowed: Array.isArray(allowed) ? allowed : [] };
   }
   secretMessage() { const c = this.secretConfig(); return { type: 'secretCheck', enabled: c.enabled, ignore: c.ignore, allowed: c.allowed }; }
-  /** An expression in perch.secretCheck.ignore that does not compile: said once in a tab, and again only if the list changes. */
+  /** An expression in agents.secretCheck.ignore that does not compile: said once in a tab, and again only if the list changes. */
   secretNote(s) {
     const { invalid } = this.secretConfig(), key = JSON.stringify(invalid);
     if (!invalid.length || s.secretNoted === key) return;
     s.secretNoted = key;
-    s.post({ kind: 'note', level: 'warn', text: `The secret check skips ${invalid.length === 1 ? 'an expression' : 'expressions'} in perch.secretCheck.ignore that ${invalid.length === 1 ? 'is' : 'are'} not valid: ${invalid.map((x) => JSON.stringify(x)).join(', ')}.` });
+    s.post({ kind: 'note', level: 'warn', text: `The secret check skips ${invalid.length === 1 ? 'an expression' : 'expressions'} in agents.secretCheck.ignore that ${invalid.length === 1 ? 'is' : 'are'} not valid: ${invalid.map((x) => JSON.stringify(x)).join(', ')}.` });
   }
   secretChanged() { this.raw(this.secretMessage()); for (const s of this.sessions) this.secretNote(s); }
   async secretAllow(hash) {
@@ -2281,7 +2282,7 @@ class PerchView {
     if (!folders.length) { say(Object.assign(base, { why: 'No folder is open in this window: nothing to search.' })); return; }
     if (!this.searchUsable) await this.probeSearch();
     base.usable = this.searchUsable;
-    if (!this.searchUsable) { say(Object.assign(base, { why: 'No Python here can run codebase search (3.8 or newer, with SQLite FTS5): set perch.codebaseIndex.python.' })); return; }
+    if (!this.searchUsable) { say(Object.assign(base, { why: 'No Python here can run codebase search (3.8 or newer, with SQLite FTS5): set agents.codebaseIndex.python.' })); return; }
     try {
       const st = await this.codeIndex.status(folders.map((f) => f.root)), by = new Map((st.folders || []).map((f) => [f.root, f]));
       say(Object.assign(base, { meaning: st.meaning, folders: folders.map((f) => Object.assign({}, by.get(f.root) || {}, f)) }));
@@ -2666,6 +2667,9 @@ class PerchView {
 function activate(context) {
   watchEditors(context);
   const perch = new PerchView(context);
+  // perch.* settings were renamed agents.* (Roost): the user's old values, once, at the scopes they were set at
+  carryOverSettings(vscode, context.globalState, { from: 'perch', to: 'agents', keys: settingKeys(require('../package.json'), 'agents'), log: (l) => perch.trace(l) })
+    .catch((e) => perch.trace(`settings: carry-over failed: ${(e && e.message) || e}`));
   perch.meter.start();
   const tg = vscode.window.tabGroups;
   if (tg && tg.onDidChangeTabs) context.subscriptions.push(tg.onDidChangeTabs((e) => perch.tabsChanged(e)));
@@ -2706,7 +2710,7 @@ function activate(context) {
     vscode.commands.registerCommand('perch.codebaseIndex.toggle', () => perch.toggleSearch()),
     vscode.commands.registerCommand('perch.codebaseIndex.install', () => perch.installSearch()),
     vscode.commands.registerCommand('perch.clearSecretExceptions', () => perch.clearSecretExceptions()),
-    vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('perch.codebaseIndex')) perch.searchChanged(); if (e.affectsConfiguration('perch.secretCheck')) perch.secretChanged(); }),
+    vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('agents.codebaseIndex')) perch.searchChanged(); if (e.affectsConfiguration('agents.secretCheck')) perch.secretChanged(); }),
     ...(vscode.workspace.onDidChangeWorkspaceFolders ? [vscode.workspace.onDidChangeWorkspaceFolders(() => perch.searchChanged())] : []),   // a folder added or removed: the search covers it, or not, from each tab's next process
     { dispose: () => perch.dispose() },
   );

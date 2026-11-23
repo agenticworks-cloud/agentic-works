@@ -75,7 +75,7 @@ class VoiceEngine {
       catch (e) { reject(new Error(`could not run ${cmd}: ${e.message}`)); return; }
       p.stdout.on('data', (d) => { out += d; if (onLine) for (const l of String(d).split('\n')) if (l.trim()) onLine(l.trim()); });
       p.stderr.on('data', (d) => { err = (err + d).slice(-4000); });
-      p.on('error', (e) => reject(new Error(e.code === 'ENOENT' ? `${cmd} was not found. Install Python 3.9 or newer, or set perch.voice.python.` : `could not run ${cmd}: ${e.message}`)));
+      p.on('error', (e) => reject(new Error(e.code === 'ENOENT' ? `${cmd} was not found. Install Python 3.9 or newer, or set agents.voice.python.` : `could not run ${cmd}: ${e.message}`)));
       p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error((err.trim().split('\n').slice(-3).join(' ') || `${cmd} exited with ${code}`).slice(0, 600)))));
     });
   }
@@ -90,7 +90,7 @@ class VoiceEngine {
       fs.writeFileSync(script, await this.fetch(GET_PIP_URL));
       await this.run(this.venvPython, [script, '--quiet']);
     } catch (e) {
-      throw new Error(`pip could not be installed into the voice environment (${e.message}). Install python3-venv, or set perch.voice.python to a Python that has pip.`);
+      throw new Error(`pip could not be installed into the voice environment (${e.message}). Install python3-venv, or set agents.voice.python to a Python that has pip.`);
     } finally { try { fs.unlinkSync(script); } catch (_) { /* never written */ } }
   }
 

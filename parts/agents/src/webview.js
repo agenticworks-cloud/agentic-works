@@ -829,7 +829,7 @@ ${glyphCss}
       + (u.at ? ' · as of ' + new Date(u.at).toLocaleTimeString() : '');
     what.title = 'Each folder of the workspace, with its own setting and its own index under ~/.cache/codebase-index/. Keywords are indexed within seconds; '
       + 'vectors, which search by meaning needs, take minutes the first time on a CPU and are made in the background, folder by folder. '
-      + (u.meaning ? 'Search by meaning is installed.' : u.meaning === false ? 'Search by meaning is not installed: Perch: Install Codebase Search by Meaning adds it, about 300 MB, once.' : '');
+      + (u.meaning ? 'Search by meaning is installed.' : u.meaning === false ? 'Search by meaning is not installed: Agents: Install Codebase Search by Meaning adds it, about 300 MB, once.' : '');
     const table = el('table'), hr = el('tr');
     for (const [k, label] of INDEX_COLS) hr.append(el('th', k === 'files' || k === 'sections' || k === 'vectors' ? 'n' : '', label));
     table.append(hr);
@@ -840,7 +840,7 @@ ${glyphCss}
       table.append(tr);
     }
     box.append(table);
-    if (u.meaning === false && on.length) box.append(el('div', 'hint', 'Search by meaning is not installed: keywords only. Perch: Install Codebase Search by Meaning adds it, about 300 MB, once.'));
+    if (u.meaning === false && on.length) box.append(el('div', 'hint', 'Search by meaning is not installed: keywords only. Agents: Install Codebase Search by Meaning adds it, about 300 MB, once.'));
   }
   const usageWhen = (ms) => (typeof ms === 'number' ? new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
   function usageWho(r) {
@@ -1299,7 +1299,7 @@ ${glyphCss}
       const lock = false;
       m.append(el('div', 'h', t.kind === 'claude' ? 'Permission mode' : 'Sandbox'));
       for (const v of (t.modes || [])) { const d = MODES[v] || [v, '']; m.append(item(d[0], { radio: true, checked: v === t.mode, disabled: lock, desc: d[1], pick: () => vscode.postMessage({ type: 'setMode', sid: t.id, value: v }) })); }
-      if (t.kind === 'codex') m.append(el('div', 'note', 'Approvals: ' + (t.approvals || 'default') + '. Set with perch.codex.approvalPolicy.'));
+      if (t.kind === 'codex') m.append(el('div', 'note', 'Approvals: ' + (t.approvals || 'default') + '. Set with agents.codex.approvalPolicy.'));
     });
   });
   function openSlash(filter, typed) {
@@ -1641,7 +1641,7 @@ ${glyphCss}
       const windowBackend = meter ? meter.backend : 'subscription', tabBackend = t.gateway ? 'gateway' : t.own || windowBackend;   // each choice is this tab's own
       const pick = (value) => () => vscode.postMessage({ type: 'setBackend', sid: t.id, value });
       m.append(el('div', 'h', 'Claude backend'));
-      m.append(item('subscription (login)', { radio: true, checked: tabBackend === 'subscription', desc: 'This tab' + (windowBackend === 'subscription' ? ', as the window is' : '; the window stays on API / Bedrock') + '. Perch: Toggle Claude Backend switches the window.', pick: pick('subscription') }));
+      m.append(item('subscription (login)', { radio: true, checked: tabBackend === 'subscription', desc: 'This tab' + (windowBackend === 'subscription' ? ', as the window is' : '; the window stays on API / Bedrock') + '. Agents: Toggle Claude Backend switches the window.', pick: pick('subscription') }));
       m.append(item('API / Bedrock', { radio: true, checked: tabBackend === 'api', desc: 'This tab, with credentials of Claude Code\\'s own' + (windowBackend === 'api' ? ', as the window is' : '; the window stays on the subscription') + '.', pick: pick('api') }));
       m.append(item('LLM gateway', { radio: true, checked: !!t.gateway, desc: 'This tab only: Claude Code runs with the variables in ' + (gatewayInfo.file || 'the gateway file') + (gatewayInfo.exists ? '' : ', which does not exist yet') + '.', pick: pick('gateway') }));
     });
