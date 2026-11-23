@@ -4,7 +4,9 @@
 #   bash roost-install.sh
 #
 # macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora. Installs VS Code if it
-# is missing and puts `code` on the PATH, printing a checklist, one line per step. Each step checks first, so a
+# is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay and kestrel (after asking),
+# which Roost replaces; installs this release's Roost .vsix (SHA-256 checked), its companion extensions and the
+# GitHub CLI, offering one GitHub sign-in. It prints a checklist, one line per step. Each step checks first, so a
 # rerun only fills in what is missing. A failed step is reported and the run goes on; the exit status is 1 when
 # any step failed. Design: docs/notes/102-roost-installer.md.
 #
@@ -17,9 +19,23 @@
 #   ROOST_INSTALL_FAKE_ARCH  test seam only: instead of `uname -m`
 #   ROOST_INSTALL_NO_MAIN    test seam only: 1 = define the functions and return, for tests that source this file
 #   ROOST_INSTALL_TTY        test seam only: the file answers are read from, one per line, instead of /dev/tty
+#   ROOST_INSTALL_VSIX_URL   test seam only: where Roost's .vsix is downloaded from, instead of this release
+#   ROOST_INSTALL_APT_DIR    test seam only: instead of /etc/apt, where existing apt sources are looked for
 set -u
 
-STEP_NAMES="vscode path standalone roost companions settings icons open"  # what --skip accepts, in run order
+# Roost's version and its .vsix's SHA-256: written in by `make release`. A copy without them refuses the Roost step.
+ROOST_VERSION="@ROOST_VERSION@"
+ROOST_SHA256="@ROOST_SHA256@"
+ROOST_ID="seanahn.roost"
+ROOST_VSIX_URL=${ROOST_INSTALL_VSIX_URL:-"https://github.com/seanahn/roost/releases/download/v$ROOST_VERSION/roost-$ROOST_VERSION.vsix"}
+LATEST_INSTALLER="https://github.com/seanahn/roost/releases/latest/download/roost-install.sh"
+STANDALONE="seanahn.perch seanahn.chirp seanahn.jay seanahn.kestrel-prs"  # the extensions Roost replaces
+COMPANIONS="anthropic.claude-code openai.chatgpt seanahn.perch-audio"  # Perch runs claude and codex through these
+GH_KEY="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+GH_RPM_REPO="https://cli.github.com/packages/rpm/gh-cli.repo"
+APT_DIR=${ROOST_INSTALL_APT_DIR:-/etc/apt}
+
+STEP_NAMES="vscode path standalone roost companions github settings icons open"  # what --skip accepts, in run order
 SUPPORTED="macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora"
 MAC_CODE="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
 DOWNLOAD_URL="https://code.visualstudio.com/download"
@@ -37,6 +53,8 @@ CODE="code"
 CODE_DATA=""  # as root on Linux: the --user-data-dir VS Code's CLI insists on (its default, ~/.config/Code)
 SUDO=""
 TTY_OPEN=0
+CLASH=""  # why Roost can't go in beside the standalone four; when set, Roost fails and the steps after it stay out
+HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
 
 # ---- the checklist -------------------------------------------------------------------------------------------
 
@@ -97,14 +115,15 @@ tally() {
   printf 'Done: %d ✓  %d –  %d ✗\n' "$N_OK" "$N_SKIP" "$N_FAIL"
 }
 
-skipped() {  # $1 = step name, $2 = label: true (and the step is marked skipped) when --skip named it
-  case $SKIPS in
-    *" $1 "*)
-      STEP_LABEL=$2
-      step_end skipped "skipped (--skip $1)"
-      return 0 ;;
-  esac
+skip_named() {  # $1 = step name: true when --skip named it
+  case $SKIPS in *" $1 "*) return 0 ;; esac
   return 1
+}
+
+skipped() {  # $1 = step name, $2 = label: true (and the step is marked skipped) when --skip named it
+  skip_named "$1" || return 1
+  STEP_LABEL=$2
+  step_end skipped "skipped (--skip $1)"
 }
 
 # ---- running commands ----------------------------------------------------------------------------------------
@@ -232,21 +251,37 @@ brew_bin() {  # where Homebrew's brew is, or would be after the install
 ensure_homebrew() {  # macOS: Homebrew, from its own installer (which needs an administrator account)
   local tmp rc
   find_brew && return 0
+  case $HOMEBREW_STATE in planned) return 0 ;; failed) return 1 ;; esac
   step_say "Homebrew is missing; installing it first"
   tmp=$(mktemp "${TMPDIR:-/tmp}/roost-install-homebrew.XXXXXX") || return 1
   # Downloaded first, then run: a failed download stops here rather than running an empty script.
   run curl -fsSL -o "$tmp" "$HOMEBREW_INSTALLER" && run env NONINTERACTIVE=1 /bin/bash "$tmp"
   rc=$?
   rm -f "$tmp"
-  [ "$rc" = 0 ] || return 1
-  [ "$DRY_RUN" = 1 ] || find_brew
+  if [ "$DRY_RUN" = 1 ]; then
+    HOMEBREW_STATE=planned
+  elif [ "$rc" != 0 ] || ! find_brew; then
+    HOMEBREW_STATE=failed
+    return 1
+  fi
 }
 
 deb_arch() {
   if [ "$ARCH" = arm64 ]; then echo arm64; else echo amd64; fi
 }
 
-add_apt_repo() {  # $1 = armored key URL, $2 = keyring path, $3 = sources.list.d file, $4 = deb line
+apt_has_source() {  # $1 = a repository URL: true when an apt source, not commented out, already points at it
+  # As VS Code's own postinst checks: a second source for the same repository with another keyring makes every
+  # apt-get fail ("Conflicting values set for option Signed-By").
+  local file
+  for file in "$APT_DIR/sources.list" "$APT_DIR"/sources.list.d/*.list "$APT_DIR"/sources.list.d/*.sources; do
+    [ -f "$file" ] || continue
+    grep -v '^[[:space:]]*#' "$file" 2> /dev/null | grep -qF "$1" && return 0
+  done
+  return 1
+}
+
+add_apt_repo() {  # $1 = key URL, $2 = keyring path, $3 = sources.list.d file, $4 = deb line, $5 = armored|binary
   # The sources.list line is written only once the keyring is in place and non-empty: a line without its key
   # makes every later apt-get update fail, on every rerun.
   local tmp
@@ -255,30 +290,40 @@ add_apt_repo() {  # $1 = armored key URL, $2 = keyring path, $3 = sources.list.d
     rm -f "$tmp"
     return 1
   fi
-  if ! run gpg --batch --yes --dearmor -o "$tmp.gpg" "$tmp" || { [ "$DRY_RUN" != 1 ] && [ ! -s "$tmp.gpg" ]; }; then
-    rm -f "$tmp" "$tmp.gpg"
-    return 1
+  if [ "$5" = armored ]; then
+    if ! run gpg --batch --yes --dearmor -o "$tmp.gpg" "$tmp" || { [ "$DRY_RUN" != 1 ] && [ ! -s "$tmp.gpg" ]; }; then
+      rm -f "$tmp" "$tmp.gpg"
+      return 1
+    fi
+    [ "$DRY_RUN" = 1 ] || mv -f "$tmp.gpg" "$tmp"
   fi
-  [ "$DRY_RUN" = 1 ] || mv -f "$tmp.gpg" "$tmp"
   # shellcheck disable=SC2086
   run $SUDO install -m 644 "$tmp" "$2" || { rm -f "$tmp"; return 1; }
   rm -f "$tmp"
   run_sh "echo '$4' | $SUDO tee $3 > /dev/null"
 }
 
-install_vscode_apt() {  # Ubuntu and Debian-based: Microsoft's apt repository; curl and gnupg first when missing
-  local need=""
-  have curl || need="curl ca-certificates"
-  have gpg || need="${need:+$need }gnupg"  # neither is in a minimal Debian or Ubuntu
+apt_prereqs() {  # $* = commands needed: installs the missing ones' packages (curl, gpg)
+  local need="" tool
+  for tool in "$@"; do
+    have "$tool" && continue
+    case $tool in curl) need="${need:+$need }curl ca-certificates" ;; gpg) need="${need:+$need }gnupg" ;; esac
+  done
+  [ -n "$need" ] || return 0  # neither is in a minimal Debian or Ubuntu
   # shellcheck disable=SC2086
-  if [ -n "$need" ]; then
-    run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $need || return 1
+  run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $need
+}
+
+install_vscode_apt() {  # Ubuntu and Debian-based: Microsoft's apt repository (unless a source has it); curl, gnupg
+  # shellcheck disable=SC2086
+  if ! apt_has_source "packages.microsoft.com/repos/code"; then
+    apt_prereqs curl gpg &&
+      add_apt_repo "$MS_KEY" /usr/share/keyrings/microsoft.gpg /etc/apt/sources.list.d/vscode.list \
+        "deb [arch=$(deb_arch) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+        armored || return 1
   fi
   # shellcheck disable=SC2086
-  add_apt_repo "$MS_KEY" /usr/share/keyrings/microsoft.gpg /etc/apt/sources.list.d/vscode.list \
-    "deb [arch=$(deb_arch) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" &&
-    run $SUDO apt-get update &&
-    run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y code
+  run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y code
 }
 
 install_vscode_dnf() {  # RHEL/Rocky and Fedora: Microsoft's yum repository, with dnf
@@ -298,7 +343,7 @@ ensure_vscode() {
   case $OS in
     macos)
       if ! ensure_homebrew; then
-        step_end failed "Homebrew couldn't be installed (it needs an administrator account); download VS Code from $DOWNLOAD_URL"
+        step_end failed "Homebrew couldn't be installed; see $LOG, or download VS Code from $DOWNLOAD_URL"
         return 0
       fi
       run "$(brew_bin)" install --cask visual-studio-code ;;
@@ -368,13 +413,348 @@ ensure_path() {  # `code` on PATH for this run and, through one marked block in 
   fi
 }
 
+# ---- the extensions: the standalone four, Roost, its companions ---------------------------------------------
+
+code_cli() {  # argv for VS Code's CLI; as root on Linux, with the --user-data-dir it insists on
+  run "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} "$@"
+}
+
+installed_extensions() {  # the installed extensions, as lowercase id@version words
+  printf '$ %s --list-extensions --show-versions\n' "$CODE" >> "$LOG"
+  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --list-extensions --show-versions < /dev/null 2>> "$LOG" |
+    tr 'A-Z' 'a-z'
+}
+
+installed_version() {  # $1 = id, $2 = installed_extensions' words: prints its version; false when not installed
+  local word
+  for word in $2; do
+    case $word in "$1@"*) printf '%s' "${word#*@}"; return 0 ;; esac
+  done
+  return 1
+}
+
+version_cmp() {  # $1, $2 = versions (1.2.3): prints lt, eq or gt. Numeric by field; a suffix (-beta) is ignored
+  local a=$1 b=$2 x y
+  while [ -n "$a" ] || [ -n "$b" ]; do
+    x=${a%%.*} y=${b%%.*}
+    if [ "$x" = "$a" ]; then a=""; else a=${a#*.}; fi
+    if [ "$y" = "$b" ]; then b=""; else b=${b#*.}; fi
+    x=${x%%[!0-9]*} y=${y%%[!0-9]*}
+    x=$((10#${x:-0})) y=$((10#${y:-0}))
+    if [ "$x" -lt "$y" ]; then echo lt; return 0; fi
+    if [ "$x" -gt "$y" ]; then echo gt; return 0; fi
+  done
+  echo eq
+}
+
+extension_name() {  # $1 = id of one of the standalone four: its name
+  case $1 in
+    seanahn.perch) echo Perch ;;
+    seanahn.chirp) echo chirp ;;
+    seanahn.jay) echo jay ;;
+    seanahn.kestrel-prs) echo kestrel ;;
+    *) echo "$1" ;;
+  esac
+}
+
+names_of() {  # $* = ids: their names as "A", "A and B" or "A, B and C"
+  local id i=0 out=""
+  for id in "$@"; do
+    i=$((i + 1))
+    if [ "$i" = 1 ]; then
+      out=$(extension_name "$id")
+    elif [ "$i" = $# ]; then
+      out="$out and $(extension_name "$id")"
+    else
+      out="$out, $(extension_name "$id")"
+    fi
+  done
+  printf '%s' "$out"
+}
+
+commas() {  # $* = words: "a, b, c"
+  local text="$*"
+  printf '%s' "${text// /, }"
+}
+
+ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = no, 2 = no terminal or no answer
+  local answer=""
+  [ "$TTY_OPEN" = 1 ] || return 2
+  if [ "$LINE_OPEN" = 1 ]; then
+    printf '\n'
+    LINE_OPEN=0
+  fi
+  printf '      %s ' "$1"
+  if ! IFS= read -r answer <&3 && [ -z "$answer" ]; then  # end of input
+    printf '\n'
+    return 2
+  fi
+  [ -t 1 ] || printf '\n'  # on a terminal, its echo of Enter ends the line
+  answer=${answer%$'\r'}
+  case $answer in
+    ""|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+on_terminal() {  # $* = argv, run with the terminal (fd 3) as stdin and output on screen: a browser sign-in
+  printf '$ %s\n' "$*" >> "$LOG"
+  if [ "$TTY_OPEN" = 1 ]; then "$@" <&3; else "$@" < /dev/null; fi
+}
+
+check_standalone() {  # the standalone four would clash with Roost (the same command ids): uninstall them, or stop
+  local installed id found="" failed="" names rc
+  skipped standalone "Standalone extensions" && return 0
+  find_code || return 0  # no VS Code, no extensions
+  installed=$(installed_extensions)
+  for id in $STANDALONE; do
+    installed_version "$id" "$installed" > /dev/null && found="$found $id"
+  done
+  [ -n "$found" ] || return 0
+  # shellcheck disable=SC2086
+  names=$(names_of $found)
+  if [ "$DRY_RUN" = 1 ]; then
+    step_begin "Standalone extensions"
+    step_say "Roost replaces $names: asks to uninstall them (or --yes)"
+    for id in $found; do code_cli --uninstall-extension "$id"; done
+    step_end done "dry run"
+    return 0
+  fi
+  if [ "$YES" = 1 ]; then
+    rc=0
+  else
+    ask_yn "Roost replaces $names. Uninstall them and use Roost? [Y/n]"
+    rc=$?
+  fi
+  case $rc in
+    1) CLASH="stopped — Roost would clash with $names; uninstall them, or rerun and answer Y"; return 0 ;;
+    2) CLASH="$names would clash with Roost, and there is no terminal to ask on; rerun with --yes to uninstall them"
+       return 0 ;;
+  esac
+  for id in $found; do
+    code_cli --uninstall-extension "$id" || failed="$failed $id"
+  done
+  if [ -n "$failed" ]; then
+    # shellcheck disable=SC2086
+    CLASH="couldn't uninstall $(names_of $failed), and Roost would clash with it; see $LOG,"
+    CLASH="$CLASH uninstall it in VS Code, then rerun"
+    return 0
+  fi
+  step_begin "Standalone extensions"
+  step_end done "uninstalled $names"
+}
+
+roost_stamped() {  # true when make release wrote this script's Roost version and SHA-256 in
+  case $ROOST_VERSION$ROOST_SHA256 in *@*) return 1 ;; esac
+  [ -n "$ROOST_VERSION" ] && [ -n "$ROOST_SHA256" ]
+}
+
+file_sha256() {  # $1 = file: prints its SHA-256; false when neither sha256sum nor shasum is here
+  local out
+  if have sha256sum; then
+    out=$(sha256sum "$1" 2>> "$LOG") || return 1
+  elif have shasum; then
+    out=$(shasum -a 256 "$1" 2>> "$LOG") || return 1
+  else
+    return 1
+  fi
+  printf '%s' "${out%% *}"
+}
+
+install_roost_vsix() {  # $1 = temp dir: download this release's .vsix there, check it, install it; sets ROOST_ERROR
+  local vsix="$1/roost-$ROOST_VERSION.vsix" sum  # code installs a path only when it ends in .vsix
+  ROOST_ERROR=""
+  if [ "$DRY_RUN" != 1 ] && ! have curl; then
+    ROOST_ERROR="curl isn't installed, to download $ROOST_VSIX_URL"
+  elif ! run curl -fsSL -o "$vsix" "$ROOST_VSIX_URL"; then
+    ROOST_ERROR="couldn't download $ROOST_VSIX_URL; check the network, then run the installer again"
+  elif [ "$DRY_RUN" = 1 ]; then
+    code_cli --install-extension "$vsix"
+  elif ! sum=$(file_sha256 "$vsix"); then
+    ROOST_ERROR="no sha256sum or shasum to check the download with"
+  elif [ "$sum" != "$ROOST_SHA256" ]; then
+    ROOST_ERROR="the download did not match its checksum — run the installer again"
+  elif ! code_cli --install-extension "$vsix"; then
+    ROOST_ERROR="VS Code couldn't install it; see $LOG"
+  fi
+  [ -z "$ROOST_ERROR" ]
+}
+
+ensure_roost() {  # this release's Roost: installed, upgraded over an older one, or a newer one left alone
+  local current="" detail="installed $ROOST_VERSION" dir
+  skipped roost "Roost" && return 0
+  step_begin "Roost"
+  if [ -n "$CLASH" ]; then
+    step_end failed "$CLASH"
+    return 0
+  fi
+  if ! roost_stamped; then
+    step_end failed "this copy of the installer has no Roost release in it; run a released installer: $LATEST_INSTALLER"
+    return 0
+  fi
+  if find_code; then
+    current=$(installed_version "$ROOST_ID" "$(installed_extensions)")
+  elif [ "$DRY_RUN" != 1 ]; then
+    step_end skipped "VS Code isn't installed"
+    return 0
+  fi
+  if [ -n "$current" ]; then
+    case $(version_cmp "$current" "$ROOST_VERSION") in
+      eq) step_end already; return 0 ;;
+      gt) step_end skipped "$current is newer than this installer's $ROOST_VERSION; left as is"; return 0 ;;
+    esac
+    detail="upgraded from $current to $ROOST_VERSION"
+  fi
+  if ! dir=$(mktemp -d "${TMPDIR:-/tmp}/roost-install-vsix.XXXXXX"); then
+    step_end failed "couldn't make a temp dir for the download"
+    return 0
+  fi
+  install_roost_vsix "$dir"
+  rm -rf "$dir"
+  if [ -n "$ROOST_ERROR" ]; then
+    step_end failed "$ROOST_ERROR"
+  elif [ "$DRY_RUN" = 1 ]; then
+    step_end done "dry run"
+  else
+    step_end done "$detail"
+  fi
+}
+
+ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and codex) and Perch's audio, by id
+  local installed="" id missing="" failed="" agents=""
+  [ -n "$CLASH" ] && return 0
+  skipped companions "Companions" && return 0
+  step_begin "Companions"
+  if find_code; then
+    installed=$(installed_extensions)
+  elif [ "$DRY_RUN" != 1 ]; then
+    step_end skipped "VS Code isn't installed"
+    return 0
+  fi
+  for id in $COMPANIONS; do
+    installed_version "$id" "$installed" > /dev/null || missing="$missing $id"
+  done
+  if [ -z "$missing" ]; then
+    step_end already
+    return 0
+  fi
+  for id in $missing; do
+    code_cli --install-extension "$id" || failed="$failed $id"
+  done
+  case $failed in
+    *anthropic.claude-code*|*openai.chatgpt*)
+      agents="; Roost works, but Perch's tabs need Claude Code or ChatGPT to run an agent" ;;
+  esac
+  # shellcheck disable=SC2086
+  if [ "$DRY_RUN" = 1 ]; then
+    step_end done "dry run"
+  elif [ -n "$failed" ]; then
+    step_end failed "$(commas $failed) didn't install (see $LOG)$agents"
+  else
+    step_end done "installed $(commas $missing)"
+  fi
+}
+
+# ---- GitHub, for kestrel's PRs panel -------------------------------------------------------------------------
+
+install_gh() {  # GitHub's CLI: Homebrew; GitHub's apt or rpm repository; Fedora's own repository
+  case $OS in
+    macos)
+      ensure_homebrew || return 1
+      run "$(brew_bin)" install gh ;;
+    ubuntu|debian)
+      # shellcheck disable=SC2086
+      if ! apt_has_source "cli.github.com/packages"; then
+        apt_prereqs curl &&
+          add_apt_repo "$GH_KEY" /usr/share/keyrings/githubcli-archive-keyring.gpg \
+            /etc/apt/sources.list.d/github-cli.list \
+            "deb [arch=$(deb_arch) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            binary || return 1
+      fi
+      # shellcheck disable=SC2086
+      run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y gh ;;
+    rhel)
+      # shellcheck disable=SC2086
+      run $SUDO dnf install -y 'dnf-command(config-manager)' &&
+        run $SUDO dnf config-manager --add-repo "$GH_RPM_REPO" &&
+        run $SUDO dnf install -y gh --repo gh-cli ;;
+    fedora)
+      # shellcheck disable=SC2086
+      run $SUDO dnf install -y gh ;;
+  esac
+}
+
+github_user() {
+  gh api user --jq .login < /dev/null 2>> "$LOG"
+}
+
+gh_signed_in() {
+  printf '$ gh auth status\n' >> "$LOG"
+  gh auth status < /dev/null >> "$LOG" 2>&1
+}
+
+ensure_github() {  # gh, and one optional browser sign-in (never answered by --yes)
+  local installed="" user rc
+  skipped github "GitHub" && return 0
+  step_begin "GitHub"
+  if ! have gh; then
+    if ! install_gh; then
+      step_end failed "gh couldn't be installed; see $LOG"
+      return 0
+    fi
+    if [ "$DRY_RUN" != 1 ] && ! have gh; then
+      step_end failed "the install didn't give a 'gh' command; see $LOG"
+      return 0
+    fi
+    installed="installed gh; "
+  fi
+  if [ "$DRY_RUN" = 1 ]; then
+    if have gh && gh_signed_in; then
+      step_end already
+    else
+      run gh auth login --web --hostname github.com --git-protocol https
+      step_end done "dry run"
+    fi
+    return 0
+  fi
+  if gh_signed_in; then
+    user=$(github_user)
+    if [ -n "$installed" ]; then
+      step_end done "${installed}signed in${user:+ as $user}"
+    else
+      step_end already "signed in${user:+ as $user}"
+    fi
+    return 0
+  fi
+  ask_yn "Sign in to GitHub now, for the PRs panel? [Y/n]"
+  rc=$?
+  if [ "$rc" != 0 ]; then
+    step_end skipped "${installed}run \`gh auth login\` to see your pull requests"
+    return 0
+  fi
+  on_terminal gh auth login --web --hostname github.com --git-protocol https
+  if gh_signed_in; then
+    user=$(github_user)
+    step_end done "${installed}signed in${user:+ as $user}"
+  else
+    step_end failed "${installed}gh auth login didn't finish; run \`gh auth login\` to see your pull requests"
+  fi
+}
+
 # ---- sudo, the terminal, flags, main -------------------------------------------------------------------------
 
 needs_root() {  # true when a step that is going to run will install something system-wide
-  case $SKIPS in *" vscode "*) return 1 ;; esac
-  find_code && return 1
-  [ "$OS" != macos ] && return 0
-  ! find_brew  # Homebrew's installer needs administrator rights
+  # VS Code, then gh: on Linux from a system repository; on macOS through Homebrew, whose installer needs
+  # administrator rights.
+  if ! skip_named vscode && ! find_code; then
+    [ "$OS" != macos ] && return 0
+    find_brew || return 0
+  fi
+  if ! skip_named github && ! have gh; then
+    [ "$OS" != macos ] && return 0
+    find_brew || return 0
+  fi
+  return 1
 }
 
 prepare_sudo() {  # one password prompt up front, only when something needs installing
@@ -401,7 +781,8 @@ roost-install — VS Code with Roost, on macOS and Linux desktops ($SUPPORTED)
 Options:
   --dry-run      print each command instead of running it
   --skip <step>  leave a step out; repeatable. Steps: $STEP_NAMES
-  --yes          answer yes when asked to uninstall the standalone extensions Roost replaces (needed with no terminal)
+  --yes          answer yes when asked to uninstall the standalone extensions Roost replaces (needed with no
+                 terminal); never answers the GitHub sign-in
   --no-open      don't open VS Code at the end
   --help         this text
 
@@ -453,6 +834,10 @@ main() {  # the steps, in order
   open_tty
   ensure_vscode
   ensure_path
+  check_standalone
+  ensure_roost
+  ensure_companions
+  ensure_github
   finish
   [ "$N_FAIL" = 0 ]
 }
