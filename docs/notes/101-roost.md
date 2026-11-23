@@ -108,7 +108,7 @@ the parts: it reads every `parts/*/part.json` and that part's `package.json`, an
 - `when: config.roost.<id>.enabled && !roost.<id>.failed` added to each part's views, menu entries (the Command
   Palette's included) and keybindings, combined with any `when` the part already has (view containers take no
   `when`: VS Code hides one whose views are all hidden);
-- one `roost.<id>.enabled` setting per part, `true` by default, titled from `part.json`;
+- one `roost.<id>.enabled` setting per part, `true` by default, titled from `part.json`, collected in a first settings section titled Roost (switches in part order, so they list before everything else), followed by one settings section per part titled from `part.json`, holding that part's own settings;
 - the union of activation events and of npm dependencies (Perch's Claude Agent SDK and Codex SDK), which move
   into Roost's `package.json` and `.vsix`; Perch's code finds them through Node's normal lookup from `parts/perch/`;
 - Perch's `extensionPack` (perch-audio, Claude Code, ChatGPT). perch-audio stays a separate companion, since it

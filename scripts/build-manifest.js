@@ -104,12 +104,12 @@ function buildManifest(root) {
   const claim = idRegistry();
 
   const switches = {};
-  for (const { part } of parts) {
+  parts.forEach(({ part }, i) => {
     const key = `roost.${part.id}.enabled`;
     claim('configuration property', key, 'roost');
-    switches[key] = { type: 'boolean', default: true, description: `${part.title}: switch this part on or off.` };
-  }
-  const properties = { ...switches };
+    switches[key] = { type: 'boolean', default: true, order: i, description: `${part.title}: switch this part on or off.` };
+  });
+  const sections = [{ title: 'Roost', order: 0, properties: switches }];
   const contributes = {};
   const activationEvents = ['onStartupFinished'];
   const dependencies = {};
@@ -144,12 +144,14 @@ function buildManifest(root) {
     if (own.keybindings) own.keybindings = own.keybindings.map((k) => withSwitch(k, key));
     if (own.configuration !== undefined) {
       const blocks = Array.isArray(own.configuration) ? own.configuration : [own.configuration];
+      const properties = {};
       for (const block of blocks) {
         for (const [prop, schema] of Object.entries(block.properties || {})) {
           claim('configuration property', prop, name);
           properties[prop] = schema;
         }
       }
+      sections.push({ title: part.title, order: sections.length, properties });
       delete own.configuration;
     }
     merge(contributes, own, `parts/${name} contributes`);
@@ -177,7 +179,7 @@ function buildManifest(root) {
     for (const c of own.commands || []) claim('command', c.command, 'roost');
     merge(contributes, own, 'roost.contributes.json contributes');
   }
-  contributes.configuration = { title: 'Roost', properties };
+  contributes.configuration = sections;
 
   const manifest = { ...roost, main: './src/extension.js', activationEvents, contributes };
   const depNames = Object.keys(dependencies).sort();

@@ -113,18 +113,19 @@ test('every part command is gated in the Command Palette', () => {
   ]);
 });
 
-test('switch settings first, default true', () => {
+test('a Roost section with the switches first, then one section per part', () => {
   const m = buildManifest(fixture());
   const cfg = m.contributes.configuration;
-  assert.strictEqual(Array.isArray(cfg), false);
-  assert.strictEqual(cfg.title, 'Roost');
-  assert.deepStrictEqual(Object.keys(cfg.properties), ['roost.a.enabled', 'roost.b.enabled', 'a.size', 'b.one', 'b.two']);
-  assert.deepStrictEqual(cfg.properties['roost.a.enabled'], {
-    type: 'boolean',
-    default: true,
-    description: 'Part A: switch this part on or off.',
-  });
-  assert.deepStrictEqual(cfg.properties['b.one'], { type: 'string', default: '' });
+  assert.strictEqual(Array.isArray(cfg), true);
+  assert.deepStrictEqual(cfg.map((c) => c.title), ['Roost', 'Part A', 'Part B']);
+  assert.deepStrictEqual(cfg.map((c) => c.order), [0, 1, 2]);
+  assert.deepStrictEqual(Object.keys(cfg[0].properties), ['roost.a.enabled', 'roost.b.enabled']);
+  assert.deepStrictEqual(Object.values(cfg[0].properties).map((p) => p.order), [0, 1]);
+  const { order, ...sw } = cfg[0].properties['roost.a.enabled'];
+  assert.deepStrictEqual(sw, { type: 'boolean', default: true, description: 'Part A: switch this part on or off.' });
+  assert.deepStrictEqual(Object.keys(cfg[1].properties), ['a.size']);
+  assert.deepStrictEqual(Object.keys(cfg[2].properties), ['b.one', 'b.two']);
+  assert.deepStrictEqual(cfg[2].properties['b.one'], { type: 'string', default: '' });
 });
 
 test('paths rewritten relative to the root', () => {
@@ -202,8 +203,17 @@ test('real tree builds', () => {
   assert.deepStrictEqual(m.extensionPack, ['seanahn.perch-audio', 'anthropic.claude-code', 'openai.chatgpt']);
   // Every part has its switch, listed first and in part order.
   const parts = readParts(root);
-  const props = m.contributes.configuration.properties;
-  assert.deepStrictEqual(Object.keys(props).slice(0, parts.length), parts.map((p) => `roost.${p.id}.enabled`));
+  const cfg = m.contributes.configuration;
+  const props = cfg[0].properties;
+  assert.strictEqual(cfg[0].title, 'Roost');
+  assert.deepStrictEqual(Object.keys(props), parts.map((p) => `roost.${p.id}.enabled`));
+  assert.deepStrictEqual(Object.values(props).map((p) => p.order), parts.map((_, i) => i));
+  assert.deepStrictEqual(cfg.slice(1).map((c) => c.title), parts.map((p) => p.title));
+  const partProps = parts.reduce((n, p) => {
+    const c = JSON.parse(fs.readFileSync(path.join(p.dir, 'package.json'), 'utf8')).contributes.configuration;
+    return n + (Array.isArray(c) ? c : c ? [c] : []).reduce((k, b) => k + Object.keys(b.properties || {}).length, 0);
+  }, 0);
+  assert.strictEqual(cfg.reduce((n, c) => n + Object.keys(c.properties).length, 0), parts.length + partProps);
   for (const p of parts) {
     const sw = props[`roost.${p.id}.enabled`];
     assert.strictEqual(sw.type, 'boolean', p.id);
