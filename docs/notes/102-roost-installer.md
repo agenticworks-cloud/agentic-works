@@ -25,7 +25,9 @@ installer on top; C3's installer is rebuilt that way, as a layer that runs this 
 - Windows (later, or never). *(Sean)*
 - Linux servers reached over Remote-SSH (headless, no desktop VS Code): the next iteration. *(Sean)* Linux here means a
   desktop where VS Code runs on the machine.
-- Sign-ins (Claude, Codex, Teams, Jira): the user does them inside Roost, which already asks.
+- Sign-ins (Claude, Codex, Teams, Jira) and per-part questions: each part signs itself in inside Roost, with its own
+  UI, and all parts are on (switched in Roost: Settings). *(my call, Sean: "do as you wish")* The one exception is
+  GitHub, below.
 - Anything company-specific: gateways, MCP servers, company apps.
 - The Marketplace: Roost is not published there yet. *(Sean: GitHub for now)*
 - A graphical installer (`.pkg`, `.deb`): a `.sh` is fine on both systems. *(Sean)*
@@ -73,6 +75,11 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    `claude` and `codex`) and `seanahn.perch-audio`. *(my call: explicitly, rather than trusting a `.vsix`'s
    extension pack to pull them)* A companion that cannot be installed (the Marketplace blocked, say) is `✗` with its
    name; Roost still works, but Perch's tabs need Claude Code or ChatGPT to run an agent, which the line says.
+4b. **GitHub, for the PRs panel.** kestrel reads pull requests through the GitHub CLI and cannot sign in by itself, so:
+   install `gh` if missing (Homebrew; GitHub's apt / rpm repository, as the C3 installer does), then, if `gh auth
+   status` fails, ask "Sign in to GitHub now, for the PRs panel? [Y/n]" and run `gh auth login --web` on Y. No
+   terminal, or `n`: `– GitHub: run \`gh auth login\` to see your pull requests`. `--yes` does not answer this one
+   (a browser sign-in is never automatic). *(my call)*
 5. **The look** (note 101, *Follow-ups*), in the user settings file, each key only if not already set; a settings
    file with comments is never rewritten (the lines are printed instead):
    - `"chat.disableAIFeatures": true` — VS Code's built-in Copilot off; Roost's tabs take its place;
@@ -160,7 +167,7 @@ checksum — run the installer again`; the other steps still run, and the exit s
 - Files: `installer/roost-install.sh` (bash 3.2-safe) and `installer/roost-install-helper` (Python, stdlib only: the
   settings merge and `state.vscdb`), carved from the C3 installer's generic half; tests in `installer/test/` with
   Python's `unittest` (no extra dependency) and the C3 installer's stub-on-PATH harness.
-- Step names for `--skip`: `vscode path standalone roost companions settings icons open`.
+- Step names for `--skip`: `vscode path standalone roost companions github settings icons open`.
 - Release URL `https://github.com/seanahn/roost/releases/download/v<version>/roost-<version>.vsix`; the script
   carries `@ROOST_VERSION@` / `@ROOST_SHA256@`, stamped by `make release`; an unstamped script refuses the Roost step.
 - `make release` writes `dist/roost-<version>.vsix` and `dist/roost-install.sh` (the helper inlined as a
