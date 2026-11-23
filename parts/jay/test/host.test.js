@@ -1227,6 +1227,26 @@ test('a tab VS Code restores in the wait is not opened twice', async () => {
   assert.strictEqual(back.disposed, false);
 });
 
+// After a reload VS Code brings a tab back only as it is shown: one behind another sits in the tab groups with no page
+test('a reload with a tab not yet shown: no second tab; closed unshown, it is gone for good', async () => {
+  const ws = memento();
+  const h = start({ ws, restoreGraceMs: 20 }); await settle();
+  h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
+  ext.deactivate(); running.length = 0;
+  for (const p of ui.panels) p.dispose();              // the window closes
+
+  start({ ws, restoreGraceMs: 20, home: h.home });     // (start clears the tab groups)
+  const waiting = ui.openTab({ label: 'DEMO-1', viewType: 'mainThreadWebview-jay.ticket' });
+  await settle(80);
+  assert.deepStrictEqual(openTabs(), [], 'its tab is there, waiting to be shown');
+
+  ui.closeTab(waiting);                                // the user closes it without ever showing it
+  ext.deactivate(); running.length = 0;
+  start({ ws, restoreGraceMs: 20, home: h.home });
+  await settle(80);
+  assert.deepStrictEqual(openTabs(), [], 'not opened again');
+});
+
 test('a tab restored before sign-in says it is waiting, then loads once the session is there', async () => {
   const who = gate();
   const h = start({ world: { hold: { '/rest/api/3/myself': who.p } } });

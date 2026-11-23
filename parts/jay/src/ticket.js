@@ -346,7 +346,7 @@ function createTickets(o) {
     switchOff() { saved.switchOff(() => { for (const tab of [...tabs.values()]) tab.shell.dispose(); }); },
     /** The window is closing: the tabs are left to VS Code, and kept. */
     windowClosing() { saved.windowClosing(); },
-    dispose() { registration.dispose(); focusSub.dispose(); },
+    dispose() { registration.dispose(); focusSub.dispose(); saved.dispose(); },
   };
 }
 

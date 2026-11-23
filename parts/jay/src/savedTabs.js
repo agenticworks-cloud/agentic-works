@@ -17,15 +17,17 @@ const RESTORE_GRACE_MS = Number(process.env.JAY_RESTORE_GRACE_MS) > 0 ? Number(p
 function createSavedTabs(o) {
   const state = o.state;
   let entries = (state && Array.isArray(state.get(o.key)) && state.get(o.key)) || [];   // [{ id, data, title, paneled }]
-  let closing = false, timer = null;
+  let closing = false, timer = null, tabsSub = null;
   const save = () => { if (state) state.update(o.key, entries.length ? entries : undefined); };
   const find = (id) => entries.find((e) => e.id === id);
+
+  const ours = (t) => !!(t && t.input && typeof t.input.viewType === 'string' && t.input.viewType.endsWith(o.viewType));
 
   /** Tabs of this type in the editor groups that have no page yet: the ones VS Code will restore when shown. */
   function waitingTitles(openTitles) {
     const all = [];
     for (const g of (o.tabGroups && o.tabGroups.all) || []) {
-      for (const t of g.tabs || []) if (t.input && typeof t.input.viewType === 'string' && t.input.viewType.endsWith(o.viewType)) all.push(t.label);
+      for (const t of g.tabs || []) if (ours(t)) all.push(t.label);
     }
     const open = openTitles.slice();
     return all.filter((label) => { const i = open.indexOf(label); if (i < 0) return true; open.splice(i, 1); return false; });
@@ -56,12 +58,28 @@ function createSavedTabs(o) {
     },
     /** The window is closing: the tabs go with it, and are kept. */
     windowClosing() { clearTimeout(timer); closing = true; },
+    /** The part stops: no more watching the tabs. */
+    dispose() { clearTimeout(timer); if (tabsSub) tabsSub.dispose(); tabsSub = null; },
     /**
      * Called at activate. An entry with no tab to come back is opened at once; the others after the wait, unless their
      * page came back or a tab for them is still waiting to be shown.
      * @param r.isOpen(id), r.open(entry), r.openTitles()   the titles of the tabs that have a page
      */
     restore(r) {
+      // a tab VS Code brought back but never showed has no page, so no dispose of its own tells of its closing: the
+      // user closing it is seen here, by its title, and its entry goes
+      if (o.tabGroups && o.tabGroups.onDidChangeTabs && !tabsSub) {
+        tabsSub = o.tabGroups.onDidChangeTabs((ev) => {
+          if (closing) return;
+          let changed = false;
+          for (const t of (ev && ev.closed) || []) {
+            if (!ours(t)) continue;
+            const i = entries.findIndex((e) => e.title === t.label && !r.isOpen(e.id));
+            if (i >= 0) { entries.splice(i, 1); changed = true; }
+          }
+          if (changed) save();
+        });
+      }
       for (const e of entries.slice()) if (!e.paneled && !r.isOpen(e.id)) r.open(e);
       if (!entries.some((e) => e.paneled && !r.isOpen(e.id))) return;
       timer = setTimeout(() => {
