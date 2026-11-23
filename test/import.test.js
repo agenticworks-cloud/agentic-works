@@ -51,6 +51,8 @@ assert.deepStrictEqual(roost, {
   license: 'MIT',
   repository: 'https://github.com/seanahn/roost',
   icon: 'parts/perch/media/icon.png',
+  extensionKind: ['workspace'],
+  categories: ['AI', 'Chat'],
 });
 assert.ok(fs.existsSync(path.join(root, roost.icon)), 'icon exists');
 

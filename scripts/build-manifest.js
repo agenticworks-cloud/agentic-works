@@ -54,6 +54,11 @@ const isRelativePath = (s) => typeof s === 'string' && s !== '' && !s.startsWith
 
 // Settings and their defaults are values, not paths, so they are left alone.
 const NO_PATHS = new Set(['configuration', 'configurationDefaults']);
+// Contribution points this script knows how to merge, gate and rewrite. A part contributing another one
+// fails the build, so adding it here is a decision (does it need a `when`? does it carry paths?).
+const KNOWN_POINTS = new Set([...NO_PATHS, 'commands', 'keybindings', 'menus', 'views', 'viewsContainers']);
+// Fields the script generates; roost.json setting them would be overwritten silently.
+const GENERATED = ['main', 'activationEvents', 'contributes', 'dependencies', 'extensionPack'];
 
 function rewritePaths(value, prefix) {
   if (Array.isArray(value)) return value.map((v) => rewritePaths(v, prefix));
@@ -67,7 +72,10 @@ function rewritePaths(value, prefix) {
 
 function partContributes(contributes, prefix) {
   const out = {};
-  for (const [k, v] of Object.entries(contributes)) out[k] = NO_PATHS.has(k) ? clone(v) : rewritePaths(v, prefix);
+  for (const [k, v] of Object.entries(contributes)) {
+    if (!KNOWN_POINTS.has(k)) throw new Error(`${prefix} contributes ${k}, which build-manifest.js does not know`);
+    out[k] = NO_PATHS.has(k) ? clone(v) : rewritePaths(v, prefix);
+  }
   return out;
 }
 
@@ -86,6 +94,9 @@ function merge(into, from, where) {
 
 function buildManifest(root) {
   const roost = readJson(path.join(root, 'roost.json'));
+  for (const field of GENERATED) {
+    if (field in roost) throw new Error(`roost.json sets ${field}, which is generated from the parts`);
+  }
   const parts = readParts(root);
   const claim = idRegistry();
 
@@ -117,9 +128,17 @@ function buildManifest(root) {
     for (const containers of Object.values(own.viewsContainers || {})) {
       for (const c of containers) claim('view container', c.id, name);
     }
+    // A command shows in the Command Palette unless a commandPalette entry hides it, so each command
+    // without one gets an entry; then every menu entry is wrapped with the switch.
+    const palette = (own.menus || {}).commandPalette || [];
+    for (const { command } of own.commands || []) {
+      if (!palette.some((e) => e.command === command)) palette.push({ command });
+    }
+    if (palette.length) own.menus = { ...own.menus, commandPalette: palette };
     for (const [where, entries] of Object.entries(own.menus || {})) {
       own.menus[where] = entries.map((e) => withSwitch(e, key));
     }
+    if (own.keybindings) own.keybindings = own.keybindings.map((k) => withSwitch(k, key));
     if (own.configuration !== undefined) {
       const blocks = Array.isArray(own.configuration) ? own.configuration : [own.configuration];
       for (const block of blocks) {

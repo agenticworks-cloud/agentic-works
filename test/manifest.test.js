@@ -38,6 +38,10 @@ function fixture(edit = () => {}) {
           ],
         },
         configuration: { title: 'a', properties: { 'a.size': { type: 'number', default: 1 } } },
+        keybindings: [
+          { command: 'a.x', key: 'ctrl+alt+x' },
+          { command: 'a.x', key: 'ctrl+alt+y', when: 'editorFocus' },
+        ],
       },
     },
     'parts/b/part.json': { id: 'b', title: 'Part B', entry: 'src/extension.js', needs: ['a'] },
@@ -95,9 +99,17 @@ test('when added', () => {
     m.contributes.menus['view/title'].map((e) => e.when),
     ['roost.a.enabled && (view == a.view)', 'roost.a.enabled && (view == a.view)'],
   );
-  assert.strictEqual(m.contributes.menus.commandPalette[0].when, 'roost.b.enabled');
+  assert.deepStrictEqual(m.contributes.keybindings.map((k) => k.when), ['roost.a.enabled', 'roost.a.enabled && (editorFocus)']);
   // VS Code ignores `when` on view containers; they hide when all their views are hidden.
   assert.strictEqual(m.contributes.viewsContainers.panel[0].when, undefined);
+});
+
+test('every part command is gated in the Command Palette', () => {
+  const m = buildManifest(fixture());
+  assert.deepStrictEqual(m.contributes.menus.commandPalette, [
+    { command: 'a.x', when: 'roost.a.enabled' },
+    { command: 'b.y', when: 'roost.b.enabled' },
+  ]);
 });
 
 test('switch settings first, default true', () => {
@@ -157,7 +169,19 @@ test('unknown needs throws', () => {
 
 test('two parts with the same id throw', () => {
   const dir = fixture((t) => (t['parts/b/part.json'].id = 'a'));
-  assert.throws(() => buildManifest(dir), /same id|id a/);
+  assert.throws(() => buildManifest(dir), /parts\/a and parts\/b have the same id a/);
+});
+
+test('unknown contribution point throws', () => {
+  const dir = fixture((t) => (pkg(t, 'b').contributes.grammars = [{ language: 'x', path: 'syntaxes/x.json' }]));
+  assert.throws(() => buildManifest(dir), /parts\/b.*grammars/);
+});
+
+test('roost.json may not set generated fields', () => {
+  for (const field of ['main', 'activationEvents', 'contributes', 'dependencies', 'extensionPack']) {
+    const dir = fixture((t) => (t['roost.json'][field] = field === 'main' ? './x.js' : []));
+    assert.throws(() => buildManifest(dir), new RegExp(`roost\\.json.*${field}`), field);
+  }
 });
 
 test('dependency version conflict throws', () => {
@@ -187,9 +211,30 @@ test('real tree builds', () => {
   const switches = Object.values(ids).map((id) => `roost.${id}.enabled`);
   const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()];
   for (const e of entries) assert.ok(switches.some((s) => e.when.startsWith(s)), JSON.stringify(e));
-  for (const c of Object.values(m.contributes.viewsContainers).flat()) {
-    assert.ok(fs.existsSync(path.join(root, c.icon)), c.icon);
+  // Every command of a part is gated in the Command Palette by that part's switch.
+  const owner = { perch: 'perch', chirp: 'teams', jay: 'jira', kestrel: 'prs' };
+  for (const { command } of m.contributes.commands) {
+    const want = `roost.${owner[command.split('.')[0]]}.enabled`;
+    const entries = m.contributes.menus.commandPalette.filter((e) => e.command === command);
+    assert.ok(entries.length && entries.every((e) => e.when.startsWith(want)), `${command} gated by ${want}`);
   }
+  for (const k of m.contributes.keybindings) assert.ok(switches.some((s) => k.when.startsWith(s)), JSON.stringify(k));
+  // Every path in contributes points into a part and exists on disk.
+  const pathKeys = new Set(['icon', 'path', 'image', 'markdown', 'svg', 'light', 'dark']);
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (v === null || typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v)) {
+      if (pathKeys.has(k) && typeof x === 'string' && !x.startsWith('$(')) {
+        assert.ok(x.startsWith('parts/'), `${k}: ${x} is inside a part`);
+        assert.ok(fs.existsSync(path.join(root, x)), `${x} exists`);
+      } else walk(x);
+    }
+  };
+  const { configuration, configurationDefaults, ...withPaths } = m.contributes;
+  walk(withPaths);
+  assert.deepStrictEqual(m.extensionKind, ['workspace']);
+  assert.deepStrictEqual(m.categories, ['AI', 'Chat']);
 });
 
 test('checked-in manifest equals a fresh build', () => {

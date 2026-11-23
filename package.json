@@ -10,6 +10,13 @@
   "license": "MIT",
   "repository": "https://github.com/seanahn/roost",
   "icon": "parts/perch/media/icon.png",
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "AI",
+    "Chat"
+  ],
   "main": "./src/extension.js",
   "activationEvents": [
     "onStartupFinished",
@@ -335,6 +342,34 @@
           "when": "roost.teams.enabled && (false)"
         },
         {
+          "command": "chirp.refresh",
+          "when": "roost.teams.enabled"
+        },
+        {
+          "command": "chirp.focusFilter",
+          "when": "roost.teams.enabled"
+        },
+        {
+          "command": "chirp.signIn",
+          "when": "roost.teams.enabled"
+        },
+        {
+          "command": "chirp.signOut",
+          "when": "roost.teams.enabled"
+        },
+        {
+          "command": "chirp.enableChannels",
+          "when": "roost.teams.enabled"
+        },
+        {
+          "command": "chirp.cancelSignIn",
+          "when": "roost.teams.enabled"
+        },
+        {
+          "command": "chirp.copyAdminLink",
+          "when": "roost.teams.enabled"
+        },
+        {
           "command": "jay.activeIssueFile",
           "when": "roost.jira.enabled && (false)"
         },
@@ -359,8 +394,28 @@
           "when": "roost.jira.enabled && (false)"
         },
         {
+          "command": "jay.refresh",
+          "when": "roost.jira.enabled"
+        },
+        {
+          "command": "jay.signIn",
+          "when": "roost.jira.enabled"
+        },
+        {
+          "command": "jay.signOut",
+          "when": "roost.jira.enabled"
+        },
+        {
+          "command": "jay.focusSearch",
+          "when": "roost.jira.enabled"
+        },
+        {
           "command": "kestrel.watch",
           "when": "roost.prs.enabled && (false)"
+        },
+        {
+          "command": "kestrel.refresh",
+          "when": "roost.prs.enabled"
         },
         {
           "command": "perch.insertText",
@@ -377,6 +432,126 @@
         {
           "command": "perch.openPrSession",
           "when": "roost.perch.enabled && (false)"
+        },
+        {
+          "command": "perch.open",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.newClaude",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.newClaudeGateway",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.newCodex",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.stop",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.closeTab",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.handoff",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.continueInCodex",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.continueInClaude",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.sessions",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.renameTab",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.refreshModels",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.meter.refresh",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.meter.toggleBackend",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.meter.login",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.new",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.moveToEditor",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.moveToSidebar",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.moveAllToEditor",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.moveAllToSidebar",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.codebaseIndex.toggle",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.codebaseIndex.install",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.clearSecretExceptions",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.voice.setup",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.voice.toggle",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.voice.cancel",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.voice.unload",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.codex.toggleBackend",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.codex.setApiKey",
+          "when": "roost.perch.enabled"
+        },
+        {
+          "command": "perch.codex.clearApiKey",
+          "when": "roost.perch.enabled"
         }
       ],
       "view/title": [
@@ -568,7 +743,8 @@
       {
         "command": "perch.open",
         "key": "ctrl+alt+p",
-        "mac": "cmd+alt+p"
+        "mac": "cmd+alt+p",
+        "when": "roost.perch.enabled"
       }
     ],
     "configuration": {
