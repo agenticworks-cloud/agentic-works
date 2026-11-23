@@ -1,6 +1,7 @@
 # 102 — The Roost installer
 
-Proposal, 2026-11-23. Follows note [101](101-roost.md) (*Follow-ups*).
+Built, 2026-11-23. Follows note [101](101-roost.md) (*Follow-ups*). How to install: [README.md](../../README.md),
+*Install*.
 
 ## Intent
 
@@ -50,8 +51,9 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
   the script and the extension always match; a tampered or truncated download is refused)*
 - Updating Roost = downloading and running the newest installer; Roost does not update itself while it comes from
   GitHub.
-- `make release` builds the `.vsix`, writes its version and SHA-256 into a copy of the script, and creates the
-  GitHub release with both (`gh release create`). Publishing a release is Sean's action.
+- `make release` builds the `.vsix` and writes its version, its SHA-256 and the helper into a copy of the script,
+  in `dist/`. `make release-publish` creates the GitHub release with both (`gh release create`). Publishing a
+  release is Sean's action.
 
 ## What it does, in order
 
@@ -61,13 +63,14 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    extensions would otherwise go to root). Root itself (a container) runs as below.
 2. **VS Code.** If `code` is missing: macOS — Homebrew (`brew install --cask visual-studio-code`), installing
    Homebrew first if needed; Ubuntu/Debian — Microsoft's apt repository; RHEL/Rocky/Fedora — Microsoft's yum
-   repository. Then make sure `code` is on the PATH for this run and for new terminals (one marked block in the
+   repository; a repository already listed by any apt source (as VS Code's own package adds one) is not added
+   again. Then make sure `code` is on the PATH for this run and for new terminals (one marked block in the
    login profile, as the C3 installer does). An existing VS Code is used as it is.
 3. **The standalone four.** If any of `seanahn.perch`, `seanahn.chirp`, `seanahn.jay`, `seanahn.kestrel-prs` is
    installed, Roost's matching parts would fail to start (the same command ids twice). The installer lists them and
    asks: **Uninstall them and use Roost** (default) / **Stop**. Their settings, files under `~/.chirp` and `~/.jay`,
-   and agent sessions stay; only the extensions go. *(my call)* **Stop** skips steps 4–7 (Roost, the look, the
-   icons, opening VS Code) and exits 1; a VS Code installed in step 2 stays, which is harmless. With no terminal to
+   and agent sessions stay; only the extensions go. *(my call)* **Stop** skips steps 4–7 (Roost, GitHub, the look,
+   the icons, opening VS Code) and exits 1 — GitHub too, since its question is for Roost's PRs panel; a VS Code installed in step 2 stays, which is harmless. With no terminal to
    ask on (a pipe, a layer), the run stops the same way unless `--yes` was given, which answers Uninstall. If an
    uninstall fails, Roost is not installed (a clash is worse than no Roost) and the run says which one is left.
 4. **Roost.** If the same version is installed: `✓ (already)`. An older one: upgrade, then say "Reload any open VS
@@ -77,14 +80,17 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    not match is `✗`, the file deleted, nothing installed. Then install the
    companions by id from the Marketplace if missing: `anthropic.claude-code`, `openai.chatgpt` (Perch runs their
    `claude` and `codex`) and `seanahn.perch-audio`. *(my call: explicitly, rather than trusting a `.vsix`'s
-   extension pack to pull them)* A companion that cannot be installed (the Marketplace blocked, say) is `✗` with its
+   extension pack to pull them; in practice the `.vsix`'s extension pack has already installed them, so the line is
+   usually `✓ Companions (already)`)* A companion that cannot be installed (the Marketplace blocked, say) is `✗` with its
    name; Roost still works, but Perch's tabs need Claude Code or ChatGPT to run an agent, which the line says. With
    the Marketplace blocked, Roost's own install fails too (VS Code fetches its extension pack, the companions, as it
    installs the `.vsix`): `✗ Roost: VS Code couldn't install it; it also fetches Claude Code, ChatGPT and Perch's
    audio from the Marketplace, which may be unreachable from here — see <log>`, and the companions' line then
    leaves out "Roost still works".
 4b. **GitHub, for the PRs panel.** kestrel reads pull requests through the GitHub CLI and cannot sign in by itself, so:
-   install `gh` if missing (Homebrew; GitHub's apt / rpm repository, as the C3 installer does), then, if `gh auth
+   install `gh` if missing (Homebrew; GitHub's apt repository on Ubuntu/Debian; on RHEL/Rocky GitHub's rpm
+   repository, added and then `dnf install gh` without `--repo gh-cli`, which GitHub's page gives but which hides
+   the system repositories that gh's `git` comes from; on Fedora, Fedora's own `gh`), then, if `gh auth
    status` fails, ask "Sign in to GitHub now, so Roost can show your pull requests? [Y/n]" and run `gh auth login
    --web` on Y; after a sign-in, the line under it says `gh auth login` may have set git's credential helper in
    `~/.gitconfig`. No terminal, or `n`: `– GitHub: run \`gh auth login\` to see your pull requests`. `--yes` does not
@@ -109,6 +115,12 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
 Flags: `--dry-run` (print what would be done), `--skip <step>`, `--yes` (answer the standalone-four question with
 Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--help`. Exit status 0 when no
 step failed, else 1. *(my call)*
+
+**OpenSSL 3 on Fedora.** Fedora 45 ships OpenSSL 4, and VS Code's rpm does not depend on `libssl.so.3`, which its
+extension signature check (vsce-sign) needs: without it every `code --install-extension` fails with "Signature
+verification failed". So on Fedora the VS Code step checks `rpm -q --whatprovides 'libssl.so.3()(64bit)'` and, when
+nothing provides it, runs `dnf install -y 'libssl.so.3()(64bit)'` (openssl3-libs), after a fresh install and over an
+existing VS Code alike; a failure is `✗` and names `dnf install openssl3-libs`.
 
 **Administrator rights.** When a step that is going to run installs something system-wide, the run asks for the
 sudo password once, after the Platform line, and first lists exactly what this run adds system-wide, only the items
@@ -136,8 +148,15 @@ safety, bash 3.2 compatibility for macOS and stub-based tests. *(Sean: build on 
   without anything C3-specific.
 - `roost-install.sh` is **one file** when downloaded: the release step inlines the helper (as a here-document the
   script writes to a temp file and runs with the system `python3`). *(my call: one download, nothing else fetched
-  except the `.vsix`)* On a Mac without Python 3 (no Command Line Tools), the settings and icons steps are skipped
-  with a note, rather than triggering the Xcode install dialog. *(my call)*
+  except the `.vsix`)* The inlined copy is used before a `roost-install-helper` beside the script: run as
+  `curl | bash`, the script's own directory is unknown and that lookup would search the current directory, where a
+  planted file would run. A source-tree script uses the one beside it; `ROOST_INSTALL_HELPER` overrides both.
+- **Which Python.** Without a usable `python3`, the settings and icons steps are `–` with a note saying how to
+  install it. On macOS, only `/usr/bin/python3` needs Command Line Tools (`xcode-select -p`): that shim opens
+  Apple's install dialog when they are missing, so it is not run then; any other `python3` (Homebrew's) counts as
+  it is. The helper runs on Python 3.6 (stdlib only), so RHEL 8's `dnf install python3` is enough; and on RHEL with
+  no `python3` command at all, the installer uses `/usr/libexec/platform-python` (dnf's own 3.6), which every RHEL 8
+  has. No minimum version is checked.
 - **The C3 installer becomes a layer**: it downloads a pinned release's `roost-install.sh` and runs it with
   `--yes --no-open`, checks its exit status, then runs its own steps (gateway, MCP servers, sign-ins, token files)
   and opens VS Code itself. That is a separate change in c3securitytools, after this one ships, and note 802 is
@@ -161,9 +180,10 @@ A fresh Mac:
    |                    |-- download roost-x.vsix ---------------------->  |                      |
    |                    |<-- file; SHA-256 matches  |                      |                      |
    |                    |-- --install-extension roost, claude-code, chatgpt, perch-audio ------>  |
+   |                    |-- gh missing: install it; "Sign in to GitHub now…?" [Y] gh auth login --web  |
    |                    |-- settings: 4 keys (none set before)             |                      |
    |                    |-- state.vscdb absent: write the icon layout      |                      |
-   |<-- ✓ checklist (platform, VS Code, PATH, Roost, companions, settings, icons); Done: 7 ✓ 0 – 0 ✗  |
+   |<-- ✓ checklist (platform, VS Code, PATH, Roost, companions, GitHub, settings, icons); Done: 8 ✓ 0 – 0 ✗
    |                    |-- open VS Code ------------------------------------------------------> |
    |                    |                                    [Roost first start: PRs tab opens]   |
 ```
@@ -192,27 +212,62 @@ checksum — run the installer again`; the other steps still run, and the exit s
 - Release URL `https://github.com/seanahn/roost/releases/download/v<version>/roost-<version>.vsix`; the script
   carries `@ROOST_VERSION@` / `@ROOST_SHA256@`, stamped by `make release`; an unstamped script refuses the Roost step.
 - `make release` writes `dist/roost-<version>.vsix` and `dist/roost-install.sh` (the helper inlined as a
-  here-document written to a temp file at start); `make release-publish` creates the GitHub release with `gh`, tagged
-  at HEAD (`--target`), and refuses unless the tree is clean and HEAD is on origin — Sean's action, never run by the
-  build or the tests.
-- On macOS, `python3` counts only if Command Line Tools are present (`xcode-select -p`), so the settings and icons
-  steps never trigger Apple's install dialog.
+  here-document written to a temp file at start); `make release-test` runs the release tests on it, failing rather
+  than skipping without `dist/`. `make release-publish` creates the GitHub release with `gh`, tagged at HEAD
+  (`--target`); `release-publish-check` refuses unless the tree is clean and HEAD is on origin, and the publish
+  refuses a stale `dist/` (version, checksum or `.vsix` not matching) — Sean's action, never run by the build or the
+  tests.
+- On macOS, only `/usr/bin/python3` needs Command Line Tools (see *How it is built*, *Which Python*).
+- Package signing keys are fetched from the vendors' URLs and not pinned by fingerprint, as the vendors' own
+  instructions do (fingerprints rotate).
 - Fedora uses Microsoft's yum repository with `dnf`. As root (containers), `code` calls get `--user-data-dir` and
   VS Code is not opened, as in the C3 installer.
 - The icon layout also hides every activity-bar container of an installed `openai.chatgpt` (its Codex views).
 
-Implementation plan: `docs/superpowers/plans/2026-11-23-roost-installer.md` (deleted when the work merges).
+Built: branch feat/installer; the plan's last commit: <this commit>.
 
-## Left to the builder
+## Left to the builder (settled)
 
-- How the generic half is split out of `perch-install` (copy and trim, or a shared source both repos build from).
-- The release step's details (`make release`, the asset names, the inlining).
-- Exact repository setup commands per distribution (reuse the C3 installer's, which run in containers today).
+- The generic half was copied out of `perch-install` and trimmed; nothing is shared between the two repos.
+- The release step: `make release`, `installer/build-release.sh`, the assets `roost-install.sh` and
+  `roost-<version>.vsix`.
+- The repository setup commands are the C3 installer's, except gh on RHEL (no `--repo gh-cli`) and gh on Fedora
+  (Fedora's own package).
 
 ## Verification
 
-- Container runs: Ubuntu 22.04 and 24.04, Rocky 8 and 9, Fedora — twice each; the second run all `✓ (already)`.
-- A real Mac with no VS Code: one run gives the look described, the icons trimmed, Roost's PRs tab on first start.
-- A machine with VS Code already used: its settings and layout are unchanged; only missing keys added.
-- A machine with the standalone four: the question, both answers.
-- A tampered `.vsix` (one byte changed in the release copy): refused.
+**Containers** (`make release`, `dist/` served locally, `ROOST_INSTALL_VSIX_URL` pointed at it; each image ran
+`bash roost-install.sh --yes --no-open` twice, as root, with no terminal):
+
+| Image | Run 1 | Run 2 |
+|---|---|---|
+| ubuntu:22.04 | 7 ✓ 1 – 0 ✗, exit 0 | `✓ (already)` but GitHub, exit 0 |
+| ubuntu:24.04 | 7 ✓ 1 – 0 ✗, exit 0 | `✓ (already)` but GitHub, exit 0 |
+| rockylinux:8 | 7 ✓ 1 – 0 ✗, exit 0 | `✓ (already)` but GitHub, exit 0 |
+| rockylinux:9 | 7 ✓ 1 – 0 ✗, exit 0 | `✓ (already)` but GitHub, exit 0 |
+| fedora:latest (45) | 7 ✓ 1 – 0 ✗, exit 0 | `✓ (already)` but GitHub, exit 0 |
+
+The one `–` is `GitHub: run \`gh auth login\``, expected with no terminal. Afterwards every profile held
+seanahn.roost, anthropic.claude-code, openai.chatgpt and seanahn.perch-audio, settings.json the four keys, and
+state.vscdb the layout. The runs found three faults, fixed before these results: gh on Rocky (`--repo gh-cli`),
+OpenSSL 3 on Fedora 45, and Rocky 8's Python 3.6. The helper's tests also run in `python:3.6-slim`.
+
+**Left for a real Mac run** (Sean's):
+
+- A Mac with no VS Code: one run gives the look described, the icons trimmed, Roost's PRs tab on first start.
+- A Mac with a used VS Code: its settings and layout are unchanged; only missing keys added.
+- A Mac with the standalone four: the question, both answers.
+
+A `.vsix` that does not match its checksum is refused in the tests (`test_checksum_mismatch_refuses`); a release
+copy with one byte changed has not been tried by hand.
+
+## Parked
+
+- The sudo keep-alive loop survives a SIGKILL of the installer and keeps sudo's timestamp fresh every 50 s until
+  logout; every catchable exit kills it. Fix: `kill -0 $$` in the loop's condition.
+- The `release-publish-check` test picks up the user's global git config (commit signing, hooks), so it can fail on
+  such a machine.
+- After a failed `sudo -v` on Linux, later sudo calls may prompt again.
+- `--skip roost` with Roost installed drops "Roost works" from a companion's failure line.
+- Smaller: a relative `ROOST_VSCODE_USER_DIR` gives a traceback; `ID_LIKE` also accepts Amazon Linux, Oracle Linux
+  and old Mint; two `apt-get update`s; Flatpak VS Code on Fedora gets openssl3-libs it does not need; `dist/release-notes.md` is left in `dist/`.

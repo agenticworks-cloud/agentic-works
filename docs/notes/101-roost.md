@@ -204,8 +204,8 @@ part switched on; if the Perch part is off, the same command is in the Command P
 
 An installer that installs the four standalone extensions today must switch to Roost. Installing Roost beside them
 would make Roost's parts fail to start (the same command ids registered twice). So such an installer switches from
-the four to `seanahn.roost`, and uninstalls the four, in the same change in which Roost is first published to
-the Marketplace — not before. *(my call: release order)*
+the four to `seanahn.roost`, and uninstalls the four, when Roost's first GitHub release exists — not before (Roost
+ships through GitHub releases for now; note [102](102-roost-installer.md)). *(my call: release order)*
 
 ### State that does not carry over
 
@@ -308,7 +308,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
 
 ## Follow-ups (after this project)
 
-- **A Roost installer** *(Sean, 2026-11-23)*: one command for people anywhere that installs VS Code first (the
+- **A Roost installer** *(Sean, 2026-11-23)*. Built: note [102](102-roost-installer.md). One command for people anywhere that installs VS Code first (the
   OS's package manager or the official download), then the Roost extension, so someone who has never set up an
   editor gets Roost in one step. It turns VS Code's built-in Copilot off (`"chat.disableAIFeatures": true`),
   since Roost's Claude and Codex tabs take its place, skips the Welcome page, and keeps the secondary sidebar
