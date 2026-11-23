@@ -236,6 +236,25 @@ The import:
     |                                                 |-- push ----------------------------->|
 ```
 
+## Settled while planning (2026-11-23)
+
+- Part ids: `perch`, `teams` (chirp), `jira` (jay), `prs` (kestrel); parts are ordered by folder name everywhere.
+- A part's context is the real one with its own `subscriptions` and its folder as `extensionUri`, so each
+  part's media and webview resource roots resolve under `parts/<name>/`; `globalState`, `workspaceState` and
+  `secrets` are shared (every part already prefixes its keys).
+- A part may export `confirmStop()`; Roost calls it before stopping the part, and a `false` puts the switch
+  back on. Perch implements it (the modal question while a turn runs).
+- For a part that is off, Roost registers a serializer for each of its webview types (from its
+  `onWebviewPanel:` activation events) that closes restored panels, and removes it before starting the part.
+  Where stopping a part today clears its saved tab list (Perch's `dispose` closing the window), a stop keeps it.
+- Roost's own contributions (the `roost.openSettings` command and its gear on the Perch view's title) live in
+  `roost.contributes.json`, merged by the manifest build. The **Settings** row is in the Perch part's page and
+  runs the command; in a standalone Perch the row does nothing visible.
+- `make deps / test / test-live / manifest / install / package`; the `.vsix` carries the root `node_modules`
+  only; perch-audio is still built and published from `parts/perch/audio` as its own package.
+
+Plan: `docs/superpowers/plans/2026-11-23-roost.md` (deleted when the work merges).
+
 ## Follow-ups (after this project)
 
 - **Stronger links** through shared services in `src/` (see *Links between parts, for now*).
