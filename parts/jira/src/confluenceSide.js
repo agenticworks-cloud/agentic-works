@@ -379,8 +379,8 @@ function createConfluenceSide(o) {
       } else if (reload && c.available === false) { c.available = null; c.note = null; o.render(); probePoller.start(); } else probePoller.kick();
     },
     settings(e) {
-      if (e.affectsConfiguration('jay.agentFiles') && cfg('agentFiles', true) === false) pageMirror.clearFiles();
-      if (e.affectsConfiguration('jay.confluence')) {
+      if (e.affectsConfiguration('jira.agentFiles') && cfg('agentFiles', true) === false) pageMirror.clearFiles();
+      if (e.affectsConfiguration('jira.confluence')) {
         if (s.running && s.auth) { build(s.auth); if (s.writer && s.me) onSession(s.me); start(); } else { stop(); s.conf = null; }
         title(); o.render();
       }

@@ -44,46 +44,46 @@
     "commands": [
       {
         "command": "jay.refresh",
-        "title": "jay: Refresh",
+        "title": "Jira: Refresh",
         "icon": "$(refresh)"
       },
       {
         "command": "jay.signIn",
-        "title": "jay: Sign In",
+        "title": "Jira: Sign In",
         "icon": "$(sign-in)"
       },
       {
         "command": "jay.signOut",
-        "title": "jay: Sign Out",
+        "title": "Jira: Sign Out",
         "icon": "$(sign-out)"
       },
       {
         "command": "jay.focusSearch",
-        "title": "jay: Search Tickets"
+        "title": "Jira: Search Tickets"
       },
       {
         "command": "jay.activeIssueFile",
-        "title": "jay: Active Issue File"
+        "title": "Jira: Active Issue File"
       },
       {
         "command": "jay.openTicket",
-        "title": "jay: Open Ticket"
+        "title": "Jira: Open Ticket"
       },
       {
         "command": "jay.projectKeys",
-        "title": "jay: Project Keys"
+        "title": "Jira: Project Keys"
       },
       {
         "command": "jay.openPage",
-        "title": "jay: Open Confluence Page"
+        "title": "Jira: Open Confluence Page"
       },
       {
         "command": "jay.siteUrl",
-        "title": "jay: Site URL"
+        "title": "Jira: Site URL"
       },
       {
         "command": "jay.activePageFile",
-        "title": "jay: Active Page File"
+        "title": "Jira: Active Page File"
       }
     ],
     "menus": {
@@ -134,36 +134,36 @@
     "configuration": {
       "title": "jay",
       "properties": {
-        "jay.site": {
+        "jira.site": {
           "type": "string",
           "default": "",
           "description": "Your Jira Cloud site URL, for example https://example.atlassian.net. Used when you sign in with an API token."
         },
-        "jay.signIn.tokenFile": {
+        "jira.signIn.tokenFile": {
           "type": "string",
           "default": "",
           "description": "A token file another tool keeps: either an OAuth credentials JSON file, or a jira-mcp wrapper or env file with JIRA_URL, JIRA_USERNAME and JIRA_API_TOKEN lines (never run). When set, jay uses that login instead of signing in itself, and never writes the file."
         },
-        "jay.signIn.refreshCommand": {
+        "jira.signIn.refreshCommand": {
           "type": "string",
           "default": "",
           "description": "A command that refreshes the token file. jay runs it when the token has expired."
         },
-        "jay.period": {
+        "jira.period": {
           "type": "string",
           "enum": ["quarter", "sprint", "fixVersion"],
           "enumDescriptions": ["Quarters, matched on epics by the quarter patterns", "The project's sprints (Jira Software)", "The project's fix versions"],
           "default": "quarter",
           "description": "What the sidebar's second picker lists: quarters, sprints or fix versions."
         },
-        "jay.quarter.fiscalYearStart": {
+        "jira.quarter.fiscalYearStart": {
           "type": "integer",
           "minimum": 1,
           "maximum": 12,
           "default": 1,
           "description": "The month the fiscal year starts, 1 to 12. The default, 1, is the calendar year."
         },
-        "jay.quarter.patterns": {
+        "jira.quarter.patterns": {
           "type": "array",
           "items": {
             "type": "string"
@@ -175,7 +175,7 @@
           ],
           "description": "Templates that mark an epic as in a quarter. 'label:' templates match a label exactly; 'summary:' templates match part of the title. Use {YYYY}, {YY} and {Q}."
         },
-        "jay.placeholderAssignees": {
+        "jira.placeholderAssignees": {
           "type": "array",
           "items": {
             "type": "string"
@@ -183,7 +183,7 @@
           "default": [],
           "description": "Display names or account ids that count as unclaimed, so their tickets show under Unclaimed."
         },
-        "jay.columns": {
+        "jira.columns": {
           "type": "array",
           "items": {
             "type": "string",
@@ -192,19 +192,19 @@
           "default": ["key", "summary", "status"],
           "description": "The columns the sidebar shows on each row, in order. The summary is always shown."
         },
-        "jay.ticketView": {
+        "jira.ticketView": {
           "type": "string",
           "enum": ["atlassian", "jay"],
           "enumDescriptions": ["The issue page of Atlassian's own extension (atlassian.atlascode), falling back to jay's tab when it isn't installed or fails", "jay's own ticket tab"],
           "default": "atlassian",
           "description": "Which view a click on a ticket opens, in the tree, in Jira results and on \"Open KEY\"."
         },
-        "jay.agentFiles": {
+        "jira.agentFiles": {
           "type": "boolean",
           "default": true,
           "description": "Write each open ticket to ~/.jay as plain text (files readable only by you), so an AI agent beside jay knows which ticket is open. Off: no files, and jay.activeIssueFile returns nothing."
         },
-        "jay.confluence.enabled": {
+        "jira.confluence.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Show the Jira | Confluence switch and check Confluence for mentions."

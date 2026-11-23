@@ -74,7 +74,7 @@ function atomicWrite(dir, file, text) {
   fs.renameSync(tmp, file);
 }
 
-/** @param enabled() whether files are written at all (setting jay.agentFiles) */
+/** @param enabled() whether files are written at all (setting jira.agentFiles) */
 function createMirror({ dir, enabled = () => true, browseUrl }) {
   const issuesDir = path.join(dir, 'issues');
   const fileFor = (key) => path.join(issuesDir, `${safeKey(key)}.jira`);
@@ -102,7 +102,7 @@ function createMirror({ dir, enabled = () => true, browseUrl }) {
     atomic(path.join(dir, 'current.jira'), text);
   }
 
-  /** Removes the agent files only (jay.agentFiles turned off): issue files and current.jira. */
+  /** Removes the agent files only (jira.agentFiles turned off): issue files and current.jira. */
   function clearFiles() {
     let names = []; try { names = fs.readdirSync(issuesDir); } catch (_) { /* none */ }
     for (const n of names) if (n.endsWith('.jira') || n.endsWith('.tmp')) { try { fs.unlinkSync(path.join(issuesDir, n)); } catch (_) { /* gone */ } }

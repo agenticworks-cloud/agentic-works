@@ -46,7 +46,7 @@ function formatPage(view) {
   return out.join('\n') + '\n';
 }
 
-/** @param enabled() whether files are written at all (setting jay.agentFiles) */
+/** @param enabled() whether files are written at all (setting jira.agentFiles) */
 function createPageMirror({ dir, enabled = () => true }) {
   const pagesDir = path.join(dir, 'pages');
   const fileFor = (spaceKey, id) => path.join(pagesDir, `${safe(spaceKey)}-${safe(id)}.confluence`);
@@ -73,7 +73,7 @@ function createPageMirror({ dir, enabled = () => true }) {
     current = file;
     atomic(dir, currentFile, text);
   }
-  /** Removes the agent files only (jay.agentFiles turned off): page files and current.confluence. */
+  /** Removes the agent files only (jira.agentFiles turned off): page files and current.confluence. */
   function clearFiles() {
     let names = []; try { names = fs.readdirSync(pagesDir); } catch (_) { /* none */ }
     for (const n of names) if (n.endsWith('.confluence') || n.endsWith('.tmp')) { try { fs.unlinkSync(path.join(pagesDir, n)); } catch (_) { /* gone */ } }

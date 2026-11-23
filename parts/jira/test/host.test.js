@@ -134,8 +134,8 @@ function start(o = {}) {
   }, o.world);
   const fetch = jira(world);
   const sec = o.secrets || secrets();
-  if (!o.signedOut) { sec.m.set('jay.email', 'ann@example.com'); sec.m.set('jay.apiToken', 'tok-api'); ui.config['jay.site'] = SITE; }
-  if (!o.confluence) ui.config['jay.confluence.enabled'] = false;   // the Jira tests run without Confluence's pollers
+  if (!o.signedOut) { sec.m.set('jay.email', 'ann@example.com'); sec.m.set('jay.apiToken', 'tok-api'); ui.config['jira.site'] = SITE; }
+  if (!o.confluence) ui.config['jira.confluence.enabled'] = false;   // the Jira tests run without Confluence's pollers
   Object.assign(ui.config, o.config || {});
   const gs = o.gs || memento();
   const stored = Object.assign({ 'jay.project': 'DEMO', 'jay.quarter': 'any' }, o.stored);
@@ -161,7 +161,7 @@ function tokenFile(home, token = JWT({ sub: 'x' })) {
 }
 
 test('signed out shows Sign In; signIn stores secrets only after myself succeeds', async () => {
-  const h = start({ signedOut: true, config: { 'jay.site': SITE } });
+  const h = start({ signedOut: true, config: { 'jira.site': SITE } });
   await settle();
   assert.strictEqual(lastState(h.view).signedIn, false);
   assert.strictEqual(h.fetch.calls.length, 0, 'no requests while signed out');
@@ -169,22 +169,22 @@ test('signed out shows Sign In; signIn stores secrets only after myself succeeds
   h.world.reject = true;
   ui.inputs.push(SITE + '/', 'ann@example.com', 'bad-token');
   await ui.commands['jay.signIn']();
-  assert.strictEqual(ui.inputOptions[0].value, SITE, 'the site is prefilled from jay.site');
+  assert.strictEqual(ui.inputOptions[0].value, SITE, 'the site is prefilled from jira.site');
   assert.strictEqual(ui.inputOptions[2].password, true);
   assert.strictEqual(h.secrets.m.size, 0, 'nothing stored when myself fails');
   assert.ok(ui.out.some((l) => /^error: /.test(l)) && !ui.out.some((l) => l.includes('bad-token')), 'an error, never the token');
 
   h.world.reject = false;
-  ui.config['jay.site'] = undefined;
+  ui.config['jira.site'] = undefined;
   const before = h.fetch.calls.length;
   ui.inputs.push(SITE, 'ann@example.com', 'tok-good');
   await ui.commands['jay.signIn']();
   await settle();
   const myself = h.fetch.calls.slice(before).filter((c) => c.url.endsWith('/myself')).length;
-  assert.strictEqual(myself, 2, 'one check before storing, one for the session: writing jay.site does not restart again');
+  assert.strictEqual(myself, 2, 'one check before storing, one for the session: writing jira.site does not restart again');
   assert.strictEqual(h.secrets.m.get('jay.email'), 'ann@example.com');
   assert.strictEqual(h.secrets.m.get('jay.apiToken'), 'tok-good');
-  assert.strictEqual(ui.config['jay.site'], SITE);
+  assert.strictEqual(ui.config['jira.site'], SITE);
   const st = lastState(h.view);
   assert.strictEqual(st.signedIn, true);
   assert.strictEqual(st.account, 'Signed in as ann@example.com (API token)');
@@ -207,20 +207,20 @@ test('env token file: JIRA_USERNAME is the fallback email', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-env-'));
   const file = path.join(home, 'env');
   fs.writeFileSync(file, `JIRA_URL=${SITE}\nJIRA_USERNAME=env.ann@example.com\nJIRA_API_TOKEN=tok-env\n`, { mode: 0o600 });
-  const h = start({ config: { 'jay.signIn.tokenFile': file } });
+  const h = start({ config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.strictEqual(lastState(h.view).account, 'Signed in as env.ann@example.com (token file)');
 });
 
-test('jay.site, jay.signIn.tokenFile and jay.signIn.refreshCommand are read from user settings only', async () => {
+test('jira.site, jira.signIn.tokenFile and jira.signIn.refreshCommand are read from user settings only', async () => {
   // a repo's .vscode/settings.json points the token at another site: ignored
-  let h = start({ workspaceConfig: { 'jay.site': 'https://other.example.net' } });
+  let h = start({ workspaceConfig: { 'jira.site': 'https://other.example.net' } });
   await settle();
   assert.ok(h.fetch.calls.length > 0);
   for (const c of h.fetch.calls) assert.ok(c.url.startsWith(SITE + '/'), c.url);
   // ... or at a token file of its own: the API token stays in use and nothing is watched
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-ws-'));
-  h = start({ workspaceConfig: { 'jay.signIn.tokenFile': tokenFile(home) } });
+  h = start({ workspaceConfig: { 'jira.signIn.tokenFile': tokenFile(home) } });
   await settle();
   assert.strictEqual(lastState(h.view).account, 'Signed in as ann@example.com (API token)');
   assert.strictEqual(ui.watchers.length, 0);
@@ -228,12 +228,12 @@ test('jay.site, jay.signIn.tokenFile and jay.signIn.refreshCommand are read from
   // ... or chooses the refresh command for an expired token file: never run
   const ran = [];
   const file = tokenFile(home, JWT({ sub: 'x', exp: 1 }));
-  h = start({ config: { 'jay.signIn.tokenFile': file }, workspaceConfig: { 'jay.signIn.refreshCommand': 'touch /tmp/owned' },
+  h = start({ config: { 'jira.signIn.tokenFile': file }, workspaceConfig: { 'jira.signIn.refreshCommand': 'touch /tmp/owned' },
     run: async (cmd) => { ran.push(cmd); return { code: 1, timedOut: false, stderr: '' }; } });
   await settle();
   assert.deepStrictEqual(ran, []);
   // the user's own refresh command is the one run
-  h = start({ config: { 'jay.signIn.tokenFile': file, 'jay.signIn.refreshCommand': 'my-login --refresh' }, workspaceConfig: { 'jay.signIn.refreshCommand': 'touch /tmp/owned' },
+  h = start({ config: { 'jira.signIn.tokenFile': file, 'jira.signIn.refreshCommand': 'my-login --refresh' }, workspaceConfig: { 'jira.signIn.refreshCommand': 'touch /tmp/owned' },
     run: async (cmd) => { ran.push(cmd); return { code: 1, timedOut: false, stderr: '' }; } });
   await settle();
   assert.deepStrictEqual([...new Set(ran)], ['my-login --refresh']);
@@ -243,7 +243,7 @@ test('token file setting wins over secrets', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-tf-'));
   const token = JWT({ sub: 'tf' });
   const file = tokenFile(home, token);
-  const h = start({ config: { 'jay.signIn.tokenFile': file } });
+  const h = start({ config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.ok(h.fetch.calls.length > 0);
   for (const c of h.fetch.calls) {
@@ -257,7 +257,7 @@ test('token file setting wins over secrets', async () => {
 test('SignInNeeded stops polling and a token file change resumes', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-tf-'));
   const file = tokenFile(home);
-  const h = start({ config: { 'jay.signIn.tokenFile': '~/creds.json' }, world: { reject: true } });
+  const h = start({ config: { 'jira.signIn.tokenFile': '~/creds.json' }, world: { reject: true } });
   await settle();
   assert.strictEqual(lastState(h.view).error, 'Sign in again with the tool that writes the token file', 'a missing token file');
   // ~ expands to deps.home
@@ -293,7 +293,7 @@ function rewrite(file, token, bump = 5000) {   // another tool's atomic temp+ren
 test('expired token file, no refresh command: a renewed file is noticed by the 30 s check without a watcher event', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-tfm-'));
   const file = tokenFile(home, EXPIRED());
-  const h = start({ home, config: { 'jay.signIn.tokenFile': file } });
+  const h = start({ home, config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.strictEqual(lastState(h.view).signedIn, false);
   assert.strictEqual(lastState(h.view).error, 'Sign in again with the tool that writes the token file');
@@ -310,7 +310,7 @@ test('expired token file, no refresh command: a renewed file is noticed by the 3
 test('a token file that appears later is noticed by the 30 s check', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-tfa-'));
   const file = path.join(home, 'creds.json');
-  const h = start({ home, config: { 'jay.signIn.tokenFile': file } });
+  const h = start({ home, config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.strictEqual(lastState(h.view).signedIn, false);
   assert.deepStrictEqual(h.timers.delays(), [30000]);
@@ -322,21 +322,21 @@ test('a token file that appears later is noticed by the 30 s check', async () =>
 test('the token file check stops on Sign Out, on a token file setting change, and on dispose', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-tfs-'));
   const file = tokenFile(home, EXPIRED());
-  let h = start({ home, config: { 'jay.signIn.tokenFile': file } });
+  let h = start({ home, config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.deepStrictEqual(h.timers.delays(), [30000]);
   await ui.commands['jay.signOut']();
   assert.strictEqual(h.timers.pending.size, 0, 'Sign Out');
   ext.deactivate(); running.length = 0;
 
-  h = start({ home, config: { 'jay.signIn.tokenFile': file } });
+  h = start({ home, config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.deepStrictEqual(h.timers.delays(), [30000]);
-  ui.setConfig('jay.signIn.tokenFile', '');
+  ui.setConfig('jira.signIn.tokenFile', '');
   await settle();
   assert.strictEqual(h.timers.pending.size, 3, 'the setting changed away from the token file: only the pollers (API token sign-in)');
 
-  h = start({ home, config: { 'jay.signIn.tokenFile': file } });
+  h = start({ home, config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.deepStrictEqual(h.timers.delays(), [30000]);
   ext.deactivate(); running.length = 0;
@@ -346,7 +346,7 @@ test('the token file check stops on Sign Out, on a token file setting change, an
 test('API token rejected: the sidebar says to sign in again', async () => {
   const h = start({ world: { reject: true } });
   await settle();
-  assert.strictEqual(lastState(h.view).error, 'API token rejected: jay: Sign In again');
+  assert.strictEqual(lastState(h.view).error, 'API token rejected: Jira: Sign In again');
   assert.strictEqual(h.timers.pending.size, 0);
 });
 
@@ -354,7 +354,7 @@ test('default quarter recomputed on refresh', async () => {
   const label = (id) => [raw('DEMO-1', { epic: true, labels: [id] })];
   const h = start({
     t: new Date(2027, 0, 31, 12).getTime(), stored: { 'jay.quarter': undefined },
-    config: { 'jay.quarter.fiscalYearStart': 5 }, world: { epics: { DEMO: label('FY2027Q3') } },
+    config: { 'jira.quarter.fiscalYearStart': 5 }, world: { epics: { DEMO: label('FY2027Q3') } },
   });
   await settle();
   assert.strictEqual(lastState(h.view).quarter, 'FY2027Q3');
@@ -418,7 +418,7 @@ test('activeIssueFile returns the front tab\'s file; null with agentFiles false'
   const file = path.join(h.jayDir, 'issues', 'DEMO-1.jira');
   assert.strictEqual(await ui.commands['jay.activeIssueFile'](), file);
   assert.ok(fs.readFileSync(path.join(h.jayDir, 'current.jira'), 'utf8').includes('DEMO-1'));
-  ui.setConfig('jay.agentFiles', false);
+  ui.setConfig('jira.agentFiles', false);
   assert.strictEqual(await ui.commands['jay.activeIssueFile'](), null);
   assert.ok(!fs.existsSync(file), 'agent files removed');
   assert.ok(!fs.existsSync(path.join(h.jayDir, 'current.jira')));
@@ -449,7 +449,7 @@ test('Sign Out in one window signs out the others: secrets removed, or the flag 
 
   // a token-file sign-in has no secrets to remove: the signed-out flag is checked at the start of each poll
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-tf-'));
-  const c = start({ config: { 'jay.signIn.tokenFile': tokenFile(home) } });
+  const c = start({ config: { 'jira.signIn.tokenFile': tokenFile(home) } });
   await settle();
   const m = c.fetch.calls.length;
   await c.gs.update('jay.signedOut', true);
@@ -550,7 +550,7 @@ test('restart shows nothing of the last sign-in until it knows who this is', asy
   const h = start();
   await settle();
   assert.deepStrictEqual(keysOf(lastState(h.view)), ['DEMO-1']);
-  ui.setConfig('jay.site', SITE);   // a restart; the state below is what shows before myself() answers
+  ui.setConfig('jira.site', SITE);   // a restart; the state below is what shows before myself() answers
   const st = lastState(h.view);
   assert.deepStrictEqual(st.groups, []);
   assert.strictEqual(st.account, 'Signing in…');
@@ -607,12 +607,12 @@ test('signing in as someone else resets the view and events; the same account ke
   const events = h.api.state.events;
   const epicLoads = () => h.fetch.calls.filter((c) => c.jql && c.jql.includes('issuetype = Epic')).length;
   let loads = epicLoads();
-  ui.setConfig('jay.site', SITE); await settle();
+  ui.setConfig('jira.site', SITE); await settle();
   assert.strictEqual(h.api.state.events, events, 'same account: same events');
   assert.strictEqual(epicLoads(), loads + 1, 'every sign-in reloads the view in full');
   h.world.me = { accountId: 'acc-cy', displayName: 'Cy Other', emailAddress: 'cy@example.com' };
   loads = epicLoads();
-  ui.setConfig('jay.site', SITE); await settle();
+  ui.setConfig('jira.site', SITE); await settle();
   assert.notStrictEqual(h.api.state.events, events, 'another account: new events');
   assert.strictEqual(epicLoads(), loads + 1);
   assert.strictEqual(lastState(h.view).account, 'Signed in as cy@example.com (API token)');
@@ -648,7 +648,7 @@ function envFile(home, token = 'tok-env') {
 test('signing in from an env token file shows the tree with basic auth to JIRA_URL', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-env-'));
   const file = envFile(home);
-  const h = start({ config: { 'jay.signIn.tokenFile': file } });
+  const h = start({ config: { 'jira.signIn.tokenFile': file } });
   await settle();
   assert.ok(h.fetch.calls.length > 0);
   for (const c of h.fetch.calls) {
@@ -660,7 +660,7 @@ test('signing in from an env token file shows the tree with basic auth to JIRA_U
   assert.strictEqual(ui.watchers.length, 1, 'the env file is watched too');
 });
 test('a 401 from an env token file says to update the token in the file and stops polling', async () => {
-  const h = start({ config: { 'jay.signIn.tokenFile': '~/jira-mcp' }, world: { reject: true } });
+  const h = start({ config: { 'jira.signIn.tokenFile': '~/jira-mcp' }, world: { reject: true } });
   envFile(h.home, 'tok-secret-xyz');
   await settle();
   const st = lastState(h.view);
@@ -765,7 +765,7 @@ test('columns setting is validated and sent in the state; a change re-posts stat
   await settle();
   const cols = () => lastState(h.view).columns;
   assert.deepStrictEqual(cols(), ['key', 'summary', 'status'], 'default');
-  const set = (v) => { const n = h.view.webview.posted.length; ui.setConfig('jay.columns', v); assert.ok(h.view.webview.posted.length > n, 'state re-posted'); return cols(); };
+  const set = (v) => { const n = h.view.webview.posted.length; ui.setConfig('jira.columns', v); assert.ok(h.view.webview.posted.length > n, 'state re-posted'); return cols(); };
   assert.deepStrictEqual(set(['key', 'bogus', 'estimate', 'due', 'estimate', 'key']), ['key', 'summary', 'estimate', 'due'], 'unknown and duplicates dropped, summary forced after key');
   assert.deepStrictEqual(set(['priority', 'type']), ['summary', 'priority', 'type'], 'summary first when no key');
   assert.deepStrictEqual(set(['labels', 'key']), ['labels', 'key', 'summary']);
@@ -789,8 +789,8 @@ function sprintWorld(o = {}) {
 }
 const jqls = (h) => h.fetch.calls.filter((c) => c.jql).map((c) => c.jql);
 
-test('jay.period sprint: the picker lists sprints and the tree comes from the members; changing the setting swaps without a reload', async () => {
-  const h = start({ config: { 'jay.period': 'sprint' }, world: sprintWorld() });
+test('jira.period sprint: the picker lists sprints and the tree comes from the members; changing the setting swaps without a reload', async () => {
+  const h = start({ config: { 'jira.period': 'sprint' }, world: sprintWorld() });
   await settle();
   let st = lastState(h.view);
   assert.strictEqual(st.periodKind, 'sprint'); assert.strictEqual(st.periodNote, null);
@@ -802,13 +802,13 @@ test('jay.period sprint: the picker lists sprints and the tree comes from the me
   assert.deepStrictEqual(keysOf(st), ['DEMO-1', 'DEMO-5']);
   assert.ok(h.fetch.calls.some((c) => c.url.includes('/rest/agile/1.0/board?projectKeyOrId=DEMO')));
 
-  ui.setConfig('jay.period', 'quarter'); await settle();
+  ui.setConfig('jira.period', 'quarter'); await settle();
   st = lastState(h.view);
   assert.strictEqual(st.periodKind, 'quarter'); assert.strictEqual(st.quarter, 'any');
   assert.deepStrictEqual(keysOf(st), ['DEMO-1']); assert.deepStrictEqual(st.groups.map((g) => g.id), ['mine']);
   assert.ok(jqls(h).some((j) => j.includes('issuetype = Epic')));
 
-  ui.setConfig('jay.period', 'fixVersion'); await settle();
+  ui.setConfig('jira.period', 'fixVersion'); await settle();
   st = lastState(h.view);
   assert.strictEqual(st.periodKind, 'fixVersion');
   assert.deepStrictEqual(st.quarters.map((c) => c.id), ['10001', 'any']); assert.strictEqual(st.quarter, '10001');
@@ -821,14 +821,14 @@ test('jay.period sprint: the picker lists sprints and the tree comes from the me
 
 test('the Agile API refused: a picker note and the quarter view, the setting untouched, sign-in and pollers kept', async () => {
   for (const status of [401, 403, 404]) {
-    const h = start({ config: { 'jay.period': 'sprint' }, world: sprintWorld({ fail: (p) => (p.startsWith('/rest/agile/') ? new Response('{}', { status }) : null) }) });
+    const h = start({ config: { 'jira.period': 'sprint' }, world: sprintWorld({ fail: (p) => (p.startsWith('/rest/agile/') ? new Response('{}', { status }) : null) }) });
     await settle();
     const st = lastState(h.view);
     assert.strictEqual(st.signedIn, true, `${status}`); assert.strictEqual(st.error, null);
     assert.strictEqual(st.periodNote, 'Sprints not available with this sign-in');
     assert.strictEqual(st.periodKind, 'quarter'); assert.strictEqual(st.quarter, 'any');
     assert.deepStrictEqual(keysOf(st), ['DEMO-1']);
-    assert.strictEqual(ui.config['jay.period'], 'sprint', 'the setting is not changed');
+    assert.strictEqual(ui.config['jira.period'], 'sprint', 'the setting is not changed');
     assert.strictEqual(h.timers.pending.size, 3, 'all three pollers still scheduled');
     assert.strictEqual(h.api.state.running, true);
     assert.strictEqual(h.fetch.calls.filter((c) => c.url.includes('/rest/agile/')).length, 1, 'no refresh-and-retry on the refusal');
@@ -837,7 +837,7 @@ test('the Agile API refused: a picker note and the quarter view, the setting unt
 });
 
 test('each mode remembers its own choice; setPeriod is validated against the current choices; setQuarter still works', async () => {
-  const h = start({ config: { 'jay.period': 'sprint' }, world: sprintWorld() });
+  const h = start({ config: { 'jira.period': 'sprint' }, world: sprintWorld() });
   await settle();
   const r = (m) => h.view.webview._receive(m);
   r({ type: 'setPeriod', id: 'FY2027Q1' }); r({ type: 'setPeriod', id: 43 }); r({ type: 'setPeriod' });
@@ -849,21 +849,21 @@ test('each mode remembers its own choice; setPeriod is validated against the cur
   assert.deepStrictEqual(keysOf(lastState(h.view)), ['DEMO-6']);
   assert.strictEqual(h.gs.get('jay.quarter'), 'any', 'the quarter choice is its own');
 
-  ui.setConfig('jay.period', 'quarter'); await settle();
+  ui.setConfig('jira.period', 'quarter'); await settle();
   assert.strictEqual(lastState(h.view).quarter, 'any');
   r({ type: 'setQuarter', id: 'FY2027Q2' });
   assert.strictEqual(h.gs.get('jay.quarter'), 'FY2027Q2');
   r({ type: 'setPeriod', id: '43' });
   assert.strictEqual(h.gs.get('jay.quarter'), 'FY2027Q2', 'a sprint id is not a quarter choice');
 
-  ui.setConfig('jay.period', 'sprint'); await settle();
+  ui.setConfig('jira.period', 'sprint'); await settle();
   assert.strictEqual(lastState(h.view).quarter, '43', 'back to sprints: the remembered sprint');
   r({ type: 'setPeriod', id: '42' });
   assert.strictEqual(h.gs.get('jay.sprint'), 'current', 'the default follows the active sprint');
 });
 
 test('sprint mode: a ticket new to the period is bold and marked new, without the badge; the epic above it rolls up bold', async () => {
-  const h = start({ config: { 'jay.period': 'sprint' }, world: sprintWorld() });
+  const h = start({ config: { 'jira.period': 'sprint' }, world: sprintWorld() });
   await settle();
   assert.deepStrictEqual(lastState(h.view).events, {}, 'the first load is the baseline');
   h.clock.t += 120000;
@@ -885,7 +885,7 @@ test('sprint mode: a ticket new to the period is bold and marked new, without th
 });
 
 test('sign out forgets the cached sprint list (Jira data kept in globalState)', async () => {
-  const h = start({ config: { 'jay.period': 'sprint' }, world: sprintWorld() });
+  const h = start({ config: { 'jira.period': 'sprint' }, world: sprintWorld() });
   await settle();
   assert.ok(JSON.stringify(h.gs.get('jay.periodLists')).includes('Sprint 42'));
   await ui.commands['jay.signOut']();
@@ -895,17 +895,17 @@ test('sign out forgets the cached sprint list (Jira data kept in globalState)', 
 
 // ---- review fixes
 test('versions: a 401 that survives the refresh is a sign-in problem, not "not available"', async () => {
-  const h = start({ config: { 'jay.period': 'fixVersion' }, world: sprintWorld({ fail: (p) => (p.endsWith('/versions') ? new Response('{}', { status: 401 }) : null) }) });
+  const h = start({ config: { 'jira.period': 'fixVersion' }, world: sprintWorld({ fail: (p) => (p.endsWith('/versions') ? new Response('{}', { status: 401 }) : null) }) });
   await settle();
   const st = lastState(h.view);
-  assert.strictEqual(st.signedIn, false); assert.strictEqual(st.error, 'API token rejected: jay: Sign In again');
+  assert.strictEqual(st.signedIn, false); assert.strictEqual(st.error, 'API token rejected: Jira: Sign In again');
   assert.strictEqual(h.timers.pending.size, 0);
 });
 
 test('a project picked while the sprint list is loading loads that project without waiting for the next poll', async () => {
   const world = sprintWorld(); world.inPeriod['OTH|sprint = 42'] = [raw('OTH-3')];
   let release; world.agileGate = new Promise((r) => { release = r; });
-  const h = start({ config: { 'jay.period': 'sprint' }, world });
+  const h = start({ config: { 'jira.period': 'sprint' }, world });
   await settle();
   h.view.webview._receive({ type: 'setProject', key: 'OTH' });
   h.world.agileGate = null; release();
@@ -917,11 +917,11 @@ test('a project picked while the sprint list is loading loads that project witho
 });
 
 test('a restart fetches the period lists again: a refusal from the last sign-in does not stick', async () => {
-  const h = start({ config: { 'jay.period': 'sprint' }, world: sprintWorld({ fail: (p) => (p.startsWith('/rest/agile/') ? new Response('{}', { status: 403 }) : null) }) });
+  const h = start({ config: { 'jira.period': 'sprint' }, world: sprintWorld({ fail: (p) => (p.startsWith('/rest/agile/') ? new Response('{}', { status: 403 }) : null) }) });
   await settle();
   assert.strictEqual(lastState(h.view).periodNote, 'Sprints not available with this sign-in');
   h.world.fail = null;
-  ui.setConfig('jay.site', SITE); await settle();
+  ui.setConfig('jira.site', SITE); await settle();
   const st = lastState(h.view);
   assert.strictEqual(st.periodNote, null); assert.strictEqual(st.quarter, '42');
   assert.deepStrictEqual(keysOf(st), ['DEMO-1', 'DEMO-5']);
@@ -930,7 +930,7 @@ test('a restart fetches the period lists again: a refusal from the last sign-in 
 test('while the first sprint list loads the sidebar says it is loading', async () => {
   const world = sprintWorld();
   let release; world.agileGate = new Promise((r) => { release = r; });
-  const h = start({ config: { 'jay.period': 'sprint' }, world });
+  const h = start({ config: { 'jira.period': 'sprint' }, world });
   await settle();
   let st = lastState(h.view);
   assert.strictEqual(st.loading, true); assert.deepStrictEqual(st.groups, []);
@@ -938,7 +938,7 @@ test('while the first sprint list loads the sidebar says it is loading', async (
   await settle();
   st = lastState(h.view);
   assert.strictEqual(st.loading, false); assert.deepStrictEqual(keysOf(st), ['DEMO-1', 'DEMO-5']);
-  ui.setConfig('jay.period', 'quarter'); await settle();
+  ui.setConfig('jira.period', 'quarter'); await settle();
   assert.strictEqual(lastState(h.view).loading, false);
 });
 
@@ -1021,7 +1021,7 @@ test('an account change leaves the old account\'s other cache files unshown at t
   assert.deepStrictEqual(keysOf(lastState(h.view)), ['DEMO-1']);
   // restart, then pick OTH while its load is held: A's OTH cache must not show
   const search = gate(); h.world.hold = { '/rest/api/3/search/jql': search.p };
-  ui.setConfig('jay.site', SITE); await settle();
+  ui.setConfig('jira.site', SITE); await settle();
   assert.deepStrictEqual(keysOf(lastState(h.view)), ['DEMO-1'], 'B\'s own DEMO cache shows normally after the change');
   const n = statesOf(h.view).length;
   h.view.webview._receive({ type: 'setProject', key: 'OTH' }); await settle();
@@ -1039,7 +1039,7 @@ test('a restart to another sign-in shows no projects from before; remembered pro
   const projects = gate(); h.world.hold = { '/rest/api/3/project/search': projects.p };
   h.gs.update('jay.lastSession', { ...h.gs.get('jay.lastSession'), projects: [{ key: 'DEMO', name: 'Demo' }, { key: 'ZED', name: 'Zed' }] });
   tokenFile(h.home);
-  ui.setConfig('jay.signIn.tokenFile', '~/creds.json'); await settle();
+  ui.setConfig('jira.signIn.tokenFile', '~/creds.json'); await settle();
   assert.deepStrictEqual(lastState(h.view).projects, [], 'the last sign-in\'s projects are gone');
   h.view.webview._receive({ type: 'setProject', key: 'ZED' });
   assert.strictEqual(h.gs.get('jay.project'), 'DEMO', 'the remembered list is another sign-in\'s: not accepted');
@@ -1159,7 +1159,7 @@ test('the remembered sign-in never holds a token (API token and token file)', as
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-host-'));
   const token = JWT({ sub: 'secret-sub' });
   tokenFile(home, token);
-  h = start({ home, config: { 'jay.signIn.tokenFile': '~/creds.json' } });
+  h = start({ home, config: { 'jira.signIn.tokenFile': '~/creds.json' } });
   await settle();
   assert.strictEqual(h.gs.get('jay.lastSession').fingerprint, 'file:~/creds.json', 'the path as written');
   assert.ok(!dump(h.gs).includes(token) && !dump(h.gs).includes('secret-sub'), 'no token in globalState');
@@ -1261,17 +1261,17 @@ test('a tab restored before sign-in says it is waiting, then loads once the sess
   assert.ok(fs.existsSync(path.join(h.jayDir, 'issues', 'DEMO-1.jira')));
 });
 
-test('sidebar search: an assignee listed in jay.placeholderAssignees has owner none', async () => {
+test('sidebar search: an assignee listed in jira.placeholderAssignees has owner none', async () => {
   const h = start({ world: { search: (body, ok) => ok({ issues: [raw('OTH-1', { summary: 'W', assignee: OTHER })] }) } });
   await settle();
-  ui.setConfig('jay.placeholderAssignees', ['Bo Sample']);
+  ui.setConfig('jira.placeholderAssignees', ['Bo Sample']);
   h.view.webview._receive({ type: 'search', id: 1, query: 'widget' });
   await settle();
   const [r] = searchReplies(h.view);
   assert.strictEqual(r.items[0].owner, 'none'); assert.strictEqual(r.items[0].assignee, 'Bo Sample');
 });
 
-// ---- jay.ticketView (design 101, "Which view opens a ticket")
+// ---- jira.ticketView (design 101, "Which view opens a ticket")
 test('ticketView default: a click opens the Atlassian page, writes the file, marks seen and current.jira', async () => {
   const h = start();
   const tabs = atlassian();
@@ -1332,7 +1332,7 @@ test('ticketView: the Atlassian command failing opens jay\'s tab, message once',
 });
 
 test('ticketView "jay": jay\'s tab, no Atlassian call', async () => {
-  const h = start({ config: { 'jay.ticketView': 'jay' } });
+  const h = start({ config: { 'jira.ticketView': 'jay' } });
   atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
@@ -1377,7 +1377,7 @@ test('ticketView: the active Atlassian tab of a tracked key is the ticket in fro
   ui.activateTab(tabs['DEMO-2']); await settle();
   assert.strictEqual(await ui.commands['jay.activeIssueFile'](), f2);
   assert.ok(/^# Jira \w+ DEMO-2:/.test(current()));
-  ui.setConfig('jay.agentFiles', false);
+  ui.setConfig('jira.agentFiles', false);
   assert.strictEqual(await ui.commands['jay.activeIssueFile'](), null);
 });
 
@@ -1427,7 +1427,7 @@ test('jay.openTicket routes like a click: Atlassian by default, jay tab with tic
   assert.deepStrictEqual(atlCalls(), [[ATL_COMMAND, 'DEMO-1']]);
   assert.strictEqual(ui.panels.length, 0);
   ext.deactivate(); running.length = 0;
-  start({ config: { 'jay.ticketView': 'jay' } });
+  start({ config: { 'jira.ticketView': 'jay' } });
   await settle();
   assert.strictEqual(await ui.commands['jay.openTicket']('DEMO-2'), true);
   await settle();
@@ -1443,7 +1443,7 @@ test('jay.openTicket: invalid or missing key, or signed out, returns false and o
   assert.strictEqual(atlCalls().length, 0);
   assert.strictEqual(ui.panels.length, 0);
   ext.deactivate(); running.length = 0;
-  start({ signedOut: true, config: { 'jay.site': SITE } });
+  start({ signedOut: true, config: { 'jira.site': SITE } });
   atlassian();
   await settle();
   assert.strictEqual(await ui.commands['jay.openTicket']('DEMO-1'), false);
@@ -1457,7 +1457,7 @@ test('jay.projectKeys returns the loaded project keys; [] when signed out', asyn
   await settle();
   assert.deepStrictEqual(await ui.commands['jay.projectKeys'](), ['DEMO', 'OTH']);
   ext.deactivate(); running.length = 0;
-  start({ signedOut: true, config: { 'jay.site': SITE } });
+  start({ signedOut: true, config: { 'jira.site': SITE } });
   await settle();
   assert.deepStrictEqual(await ui.commands['jay.projectKeys'](), []);
 });
@@ -1525,7 +1525,7 @@ test('a page tab restored while Confluence is probed waits; a refused probe turn
 
 test('a token file with no Confluence scopes: "can\'t use Confluence yet", no /wiki request, Jira as usual', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-pod-'));
-  const h = start({ confluence: true, config: { 'jay.signIn.tokenFile': scopedTokenFile(home, null) } });
+  const h = start({ confluence: true, config: { 'jira.signIn.tokenFile': scopedTokenFile(home, null) } });
   await settle();
   const st = lastState(h.view);
   assert.strictEqual(st.conf.note, "This sign-in can't use Confluence yet");
@@ -1537,7 +1537,7 @@ test('a token file with no Confluence scopes: "can\'t use Confluence yet", no /w
 
 test('a token file with read scopes: Confluence through api.atlassian.com/ex/confluence/<cloud_id>/wiki', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-pod-'));
-  const h = start({ confluence: true, config: { 'jay.signIn.tokenFile': scopedTokenFile(home, 'read:jira-work read:page:confluence') } });
+  const h = start({ confluence: true, config: { 'jira.signIn.tokenFile': scopedTokenFile(home, 'read:jira-work read:page:confluence') } });
   await settle();
   const probes = wikiCalls(h).filter(isProbe);
   assert.strictEqual(probes.length, 1);
@@ -1555,7 +1555,7 @@ test('setSide stores the side and sets the view title; turning Confluence off go
   assert.strictEqual(lastState(h.view).side, 'confluence');
   h.view.webview._receive({ type: 'setSide', side: 'wiki' });
   assert.strictEqual(h.gs.get('jay.side'), 'confluence', 'an unknown side is ignored');
-  ui.setConfig('jay.confluence.enabled', false); await settle();
+  ui.setConfig('jira.confluence.enabled', false); await settle();
   const st = lastState(h.view);
   assert.strictEqual(st.side, 'jira'); assert.strictEqual(st.confluenceEnabled, false);
   assert.strictEqual(h.view.title, 'Jira');
@@ -1716,7 +1716,7 @@ test('a probe in flight when Jira asks for sign-in starts nothing once it answer
   } });
   await settle();
   assert.strictEqual(h.api.state.running, false, 'Jira rejected the sign-in');
-  assert.strictEqual(lastState(h.view).error, 'API token rejected: jay: Sign In again');
+  assert.strictEqual(lastState(h.view).error, 'API token rejected: Jira: Sign In again');
   assert.strictEqual(wikiCalls(h).filter(isProbe).length, 1, 'the probe went out before');
   probe.release(); await settle();
   assert.strictEqual(h.timers.pending.size, 0, 'no Confluence poller started');

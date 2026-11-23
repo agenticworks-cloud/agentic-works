@@ -162,8 +162,8 @@ test('pulse and bold classes from events', () => {
 });
 
 test('signed out shows error and Sign In', () => {
-  const p = page(); p.send(state({ signedIn: false, error: 'API token rejected: jay: Sign In again', groups: [] }));
-  assert.strictEqual(p.d.querySelector('.error').textContent, 'API token rejected: jay: Sign In again');
+  const p = page(); p.send(state({ signedIn: false, error: 'API token rejected: Jira: Sign In again', groups: [] }));
+  assert.strictEqual(p.d.querySelector('.error').textContent, 'API token rejected: Jira: Sign In again');
   p.d.querySelector('button.signin').click();
   assert.deepStrictEqual(p.posted.pop(), { type: 'signIn' });
   assert.strictEqual(p.d.querySelector('.tree .row'), null);

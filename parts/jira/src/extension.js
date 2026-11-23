@@ -17,6 +17,7 @@ const { createAtlassianView } = require('./atlassian');
 const { Sidebar } = require('./sidebar');
 const { createPoller } = require('./poller');
 const { createConfluenceSide } = require('./confluenceSide');
+const { carryOverSettings, settingKeys } = require('./settingsCarryOver');
 
 const TREE_MS = 60000;
 const TAB_MS = 30000;
@@ -32,7 +33,7 @@ const SIGNED_OUT = 'jay.signedOut';   // set by Sign Out, cleared by Sign In: a 
 // list (shown at once at the next startup); the list lives inside, so it is never taken for another sign-in's
 const LAST_SESSION = 'jay.lastSession';
 const LEGACY_PROJECTS = 'jay.lastProjects';   // the list as an older jay kept it, beside the session: ignored, deleted at Sign Out
-const PATTERNS = require('../package.json').contributes.configuration.properties['jay.quarter.patterns'].default;
+const PATTERNS = require('../package.json').contributes.configuration.properties['jira.quarter.patterns'].default;
 const WRITES = ['saveText', 'addComment', 'editComment', 'setField', 'transition'];
 const SEARCH_MAX = 20;
 const COLUMN_NAMES = ['key', 'summary', 'assignee', 'status', 'type', 'priority', 'due', 'labels', 'estimate'];
@@ -45,7 +46,7 @@ const NOT_SIGNED_IN = { ok: false, kind: 'failed', message: 'Not signed in' };
 function signInText(reason, kind, file) {
   if (kind === 'envFile' || reason === 'envFile') return `Update the Jira API token in ${file}`;
   if (kind === 'tokenFile') return 'Sign in again with the tool that writes the token file';
-  return reason === 'none' || !kind ? 'Sign in to Jira' : 'API token rejected: jay: Sign In again';
+  return reason === 'none' || !kind ? 'Sign in to Jira' : 'API token rejected: Jira: Sign In again';
 }
 function signInFailure(e) {
   if (e instanceof SignInNeeded) return 'the email or API token was rejected';
@@ -73,11 +74,14 @@ function activate(context, deps = {}) {
   const fetchFn = deps.fetch || ((...a) => globalThis.fetch(...a));
   const run = deps.run || runCommand;
   const secrets = context.secrets; const store = context.globalState;
-  const cfg = (k, d) => vscode.workspace.getConfiguration('jay').get(k, d);
+  // jay.* settings were renamed jira.* (Roost): the user's old values, once, at the scopes they were set at
+  const settingsLog = (l) => out.appendLine(`[${new Date().toISOString()}] ${l}`);
+  carryOverSettings(vscode, store, { from: 'jay', to: 'jira', keys: settingKeys(require('../package.json'), 'jira'), log: settingsLog }).catch((e) => settingsLog(`settings: carry-over failed: ${(e && e.message) || e}`));
+  const cfg = (k, d) => vscode.workspace.getConfiguration('jira').get(k, d);
   // Where the token goes and what jay runs: from the user's settings only (the remote's, in a remote window), never a repo's
   // workspace or folder settings. No machine scope in package.json: remote windows would ignore the local value.
   const userCfg = (k, d) => {
-    const i = vscode.workspace.getConfiguration('jay').inspect(k) || {};
+    const i = vscode.workspace.getConfiguration('jira').inspect(k) || {};
     const v = i.globalValue !== undefined ? i.globalValue : i.defaultValue;
     return v === undefined ? d : v;
   };
@@ -115,7 +119,7 @@ function activate(context, deps = {}) {
     getIndex: () => (s.view ? s.view.index : new Map()), me, isFocused, log, keepFile: (k) => atlassian.keeps(k),
     // Confluence is created below; these reach it lazily (design 102, "In Jira tickets")
     confluence: new Proxy({}, { get: (_, k) => (...a) => conf.confluence[k](...a) }), siteUrl: () => conf.siteUrl(), openPage: (u) => conf.openPage(u) });
-  // jay.ticketView: the one way a click in the sidebar opens a ticket (design 101, "Which view opens a ticket")
+  // jira.ticketView: the one way a click in the sidebar opens a ticket (design 101, "Which view opens a ticket")
   const atlassian = createAtlassianView({ vscode, tickets, mirror, view: () => cfg('ticketView', 'atlassian'),
     markSeen: (k) => { eventsRef.seen(k); eventsRef.save(); }, isFocused, log, now });
   // Confluence (design 102): the page tabs, tree, Mentions and My pages, with pollers of their own
@@ -125,7 +129,7 @@ function activate(context, deps = {}) {
 
   /** The 5 most recently picked project keys, newest first (globalState jay.recentProjects). */
   const recentProjects = () => { const r = store.get('jay.recentProjects'); return Array.isArray(r) ? r.filter((k) => typeof k === 'string').slice(0, 5) : []; };
-  // ---- the view: project, period and mode as stored. The period is a quarter, sprint or fix version (jay.period, see
+  // ---- the view: project, period and mode as stored. The period is a quarter, sprint or fix version (jira.period, see
   // periods.js); its default ('current') follows today's quarter or the active sprint. No key until a sprint/version list loads.
   function choice() {
     const project = store.get('jay.project') || null;
@@ -133,7 +137,7 @@ function activate(context, deps = {}) {
     return { ...p, project, mode: store.get('jay.mode') === 'all' ? 'all' : 'mine', key: project && p.period ? viewKeyOf(project, p.period) : null };
   }
 
-  /** jay.columns, checked: known names only, no repeats, in the user's order, and summary always present. */
+  /** jira.columns, checked: known names only, no repeats, in the user's order, and summary always present. */
   function columns() {
     const v = cfg('columns', DEFAULT_COLUMNS);
     if (!Array.isArray(v)) return DEFAULT_COLUMNS.slice();
@@ -344,7 +348,7 @@ function activate(context, deps = {}) {
     return true;
   }
 
-  let pendingSite = null;   // the jay.site value Sign In is writing: its settings change needn't restart again
+  let pendingSite = null;   // the jira.site value Sign In is writing: its settings change needn't restart again
   async function signIn() {
     if (userCfg('signIn.tokenFile', '')) {   // the token file wins; Sign In just tries it again
       if (await check(await buildAuth())) await restart();
@@ -362,7 +366,7 @@ function activate(context, deps = {}) {
     if (!(await check(createApiTokenAuth({ site: url, email: email.trim(), token: token.trim() })))) return;
     await secrets.store('jay.email', email.trim());
     await secrets.store('jay.apiToken', token.trim());
-    if (userCfg('site', '') !== url) { pendingSite = url; await vscode.workspace.getConfiguration('jay').update('site', url, true); }
+    if (userCfg('site', '') !== url) { pendingSite = url; await vscode.workspace.getConfiguration('jira').update('site', url, true); }
     await restart();
   }
 
@@ -533,10 +537,10 @@ function activate(context, deps = {}) {
   function onSettings(e) {
     const own = pendingSite !== null && userCfg('site', '') === pendingSite;   // Sign In wrote it and restarts by itself
     if (own) pendingSite = null;
-    if (e.affectsConfiguration('jay.signIn') || (e.affectsConfiguration('jay.site') && !own)) restart().catch(log);
-    if (e.affectsConfiguration('jay.quarter') || e.affectsConfiguration('jay.period')) { s.fresh = false; switchView(); }
-    if (e.affectsConfiguration('jay.placeholderAssignees') || e.affectsConfiguration('jay.columns')) render();
-    if (e.affectsConfiguration('jay.agentFiles') && cfg('agentFiles', true) === false) mirror.clearFiles();
+    if (e.affectsConfiguration('jira.signIn') || (e.affectsConfiguration('jira.site') && !own)) restart().catch(log);
+    if (e.affectsConfiguration('jira.quarter') || e.affectsConfiguration('jira.period')) { s.fresh = false; switchView(); }
+    if (e.affectsConfiguration('jira.placeholderAssignees') || e.affectsConfiguration('jira.columns')) render();
+    if (e.affectsConfiguration('jira.agentFiles') && cfg('agentFiles', true) === false) mirror.clearFiles();
     conf.settings(e);
   }
 

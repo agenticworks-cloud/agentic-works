@@ -1,5 +1,5 @@
 'use strict';
-// jay.ticketView "atlassian": a click opens the ticket in the Atlassian extension's issue page (atlassian.atlascode), a soft
+// jira.ticketView "atlassian": a click opens the ticket in the Atlassian extension's issue page (atlassian.atlascode), a soft
 // dependency with jay's own tab as the fallback. jay still mirrors the ticket for the agent, and follows that page's editor tab
 // to know when it is the ticket in front (design 101, "Which view opens a ticket").
 const { KEY_RE } = require('./ticket');
@@ -14,7 +14,7 @@ const passOn = (e) => e && (e.name === 'Offline' || e.status === 429 || e.status
 
 /**
  * @param o.vscode, o.tickets (createTickets), o.mirror (createMirror)
- * @param o.view()       the jay.ticketView setting
+ * @param o.view()       the jira.ticketView setting
  * @param o.markSeen(key) marks the ticket seen and saves
  * @param o.isFocused(), o.log(e), o.now()
  */
@@ -36,7 +36,7 @@ function createAtlassianView(o) {
   const showing = (key) => groups().some((g) => g.activeTab && trackedKeyOf(g.activeTab) === key);
 
   function fallback(key, reason) {
-    o.log(`jay.ticketView: ${reason}; opened ${key} in jay's view`);
+    o.log(`jira.ticketView: ${reason}; opened ${key} in jay's view`);
     if (!told) { told = true; Promise.resolve(vscode.window.showInformationMessage(`Opened in jay's view: ${reason}`)).catch(() => {}); }
     tickets.open(key);
   }

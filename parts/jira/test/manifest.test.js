@@ -7,27 +7,27 @@ test('manifest', () => {
   assert.strictEqual(p.engines.vscode, '^1.90.0');
   assert.deepStrictEqual(Object.keys(p.dependencies || {}), []);
   const props = p.contributes.configuration.properties;
-  assert.deepStrictEqual(Object.keys(props).sort(), ['jay.agentFiles','jay.columns','jay.confluence.enabled','jay.period','jay.placeholderAssignees','jay.quarter.fiscalYearStart',
-    'jay.quarter.patterns','jay.signIn.refreshCommand','jay.signIn.tokenFile','jay.site','jay.ticketView']);
-  assert.strictEqual(props['jay.quarter.fiscalYearStart'].default, 1);
-  assert.deepStrictEqual(props['jay.quarter.patterns'].default, ['label:FY{YYYY}Q{Q}', 'label:FY{YY}-Q{Q}', 'summary:[Q{Q}FY{YY}]']);
-  assert.deepStrictEqual(props['jay.placeholderAssignees'].default, []);
-  assert.deepStrictEqual(props['jay.columns'].default, ['key', 'summary', 'status']);
-  assert.deepStrictEqual(props['jay.columns'].items.enum, ['key', 'summary', 'assignee', 'status', 'type', 'priority', 'due', 'labels', 'estimate']);
-  assert.strictEqual(props['jay.agentFiles'].default, true);
+  assert.deepStrictEqual(Object.keys(props).sort(), ['jira.agentFiles','jira.columns','jira.confluence.enabled','jira.period','jira.placeholderAssignees','jira.quarter.fiscalYearStart',
+    'jira.quarter.patterns','jira.signIn.refreshCommand','jira.signIn.tokenFile','jira.site','jira.ticketView']);
+  assert.strictEqual(props['jira.quarter.fiscalYearStart'].default, 1);
+  assert.deepStrictEqual(props['jira.quarter.patterns'].default, ['label:FY{YYYY}Q{Q}', 'label:FY{YY}-Q{Q}', 'summary:[Q{Q}FY{YY}]']);
+  assert.deepStrictEqual(props['jira.placeholderAssignees'].default, []);
+  assert.deepStrictEqual(props['jira.columns'].default, ['key', 'summary', 'status']);
+  assert.deepStrictEqual(props['jira.columns'].items.enum, ['key', 'summary', 'assignee', 'status', 'type', 'priority', 'due', 'labels', 'estimate']);
+  assert.strictEqual(props['jira.agentFiles'].default, true);
   // where the token goes and what runs: no workspace-capable scope, and not machine (remote windows ignore machine-scoped user values)
-  for (const k of ['jay.site', 'jay.signIn.tokenFile', 'jay.signIn.refreshCommand']) assert.ok(!['resource', 'language-overridable', 'machine', 'machine-overridable'].includes(props[k].scope), k);
-  assert.strictEqual(props['jay.period'].default, 'quarter');
-  assert.deepStrictEqual(props['jay.period'].enum, ['quarter', 'sprint', 'fixVersion']);
-  assert.strictEqual(props['jay.ticketView'].default, 'atlassian');
-  assert.deepStrictEqual(props['jay.ticketView'].enum, ['atlassian', 'jay']);
-  assert.strictEqual(props['jay.ticketView'].enumDescriptions.length, 2);
+  for (const k of ['jira.site', 'jira.signIn.tokenFile', 'jira.signIn.refreshCommand']) assert.ok(!['resource', 'language-overridable', 'machine', 'machine-overridable'].includes(props[k].scope), k);
+  assert.strictEqual(props['jira.period'].default, 'quarter');
+  assert.deepStrictEqual(props['jira.period'].enum, ['quarter', 'sprint', 'fixVersion']);
+  assert.strictEqual(props['jira.ticketView'].default, 'atlassian');
+  assert.deepStrictEqual(props['jira.ticketView'].enum, ['atlassian', 'jay']);
+  assert.strictEqual(props['jira.ticketView'].enumDescriptions.length, 2);
   assert.strictEqual(p.extensionDependencies, undefined, 'the Atlassian extension is a soft dependency');
   const hidden = p.contributes.menus.commandPalette.find((m) => m.command === 'jay.activeIssueFile');
   assert.strictEqual(hidden.when, 'false');
-  assert.strictEqual(props['jay.confluence.enabled'].default, true);
-  assert.strictEqual(props['jay.confluence.enabled'].type, 'boolean');
-  assert.strictEqual(props['jay.confluence.enabled'].description, 'Show the Jira | Confluence switch and check Confluence for mentions.');
+  assert.strictEqual(props['jira.confluence.enabled'].default, true);
+  assert.strictEqual(props['jira.confluence.enabled'].type, 'boolean');
+  assert.strictEqual(props['jira.confluence.enabled'].description, 'Show the Jira | Confluence switch and check Confluence for mentions.');
   assert.strictEqual(p.contributes.viewsContainers.activitybar[0].title, 'Jira and Confluence');
   assert.strictEqual(p.contributes.views.jay[0].name, 'Jira', 'the view title is set at run time');
   assert.ok(p.activationEvents.includes('onWebviewPanel:jay.page'));

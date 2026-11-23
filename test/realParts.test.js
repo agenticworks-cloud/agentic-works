@@ -35,7 +35,7 @@ const setJira = async (on) => { ui.setConfig('roost.jira.enabled', on); await wa
 
 (async () => {
   for (const id of ['agents', 'pullRequests', 'teams']) ui.config[`roost.${id}.enabled`] = false;   // only jay
-  ui.config['jay.confluence.enabled'] = false;
+  ui.config['jira.confluence.enabled'] = false;
 
   // window 1: jay on; VS Code restores a ticket tab, jay takes it and keeps it
   let w = boot(); await w.roost.ready;

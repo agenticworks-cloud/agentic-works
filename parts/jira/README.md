@@ -30,14 +30,14 @@ jay works with Jira Cloud only. There are three ways to sign in:
 
 | Way | How | When to use it |
 | --- | --- | --- |
-| **An API token** | Run **jay: Sign In**. It asks for your site (for example `https://example.atlassian.net`), your email and an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens). | The usual way. The email and token go in the editor's secret storage; the site goes in `jay.site`. |
-| **An OAuth token file** | Set `jay.signIn.tokenFile` to a credentials JSON file another login tool writes, with `access_token`, `cloud_id` and `jira_url`. Optionally set `jay.signIn.refreshCommand` (for example `your-login --refresh`). | If another tool already signs you in to Jira with OAuth. jay runs the command when the token is about to expire, then re-reads the file. |
-| **A jira-mcp wrapper or env file** | Set `jay.signIn.tokenFile` to a file with `JIRA_URL`, `JIRA_USERNAME` and `JIRA_API_TOKEN` lines, such as the wrapper script you start a Jira MCP server with. | If you already have that file. jay reads the three lines; `export` and quotes are fine. |
+| **An API token** | Run **Jira: Sign In**. It asks for your site (for example `https://example.atlassian.net`), your email and an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens). | The usual way. The email and token go in the editor's secret storage; the site goes in `jira.site`. |
+| **An OAuth token file** | Set `jira.signIn.tokenFile` to a credentials JSON file another login tool writes, with `access_token`, `cloud_id` and `jira_url`. Optionally set `jira.signIn.refreshCommand` (for example `your-login --refresh`). | If another tool already signs you in to Jira with OAuth. jay runs the command when the token is about to expire, then re-reads the file. |
+| **A jira-mcp wrapper or env file** | Set `jira.signIn.tokenFile` to a file with `JIRA_URL`, `JIRA_USERNAME` and `JIRA_API_TOKEN` lines, such as the wrapper script you start a Jira MCP server with. | If you already have that file. jay reads the three lines; `export` and quotes are fine. |
 
-- When `jay.signIn.tokenFile` is set, it wins over an API token.
+- When `jira.signIn.tokenFile` is set, it wins over an API token.
 - jay reads a token file, re-reading it when it changes. It never runs
   it and never writes it.
-- **jay: Sign Out** deletes the API token from secret storage and the
+- **Jira: Sign Out** deletes the API token from secret storage and the
   files under `~/.jay`, in every window. It never touches a token file.
 - The sidebar's account line says which sign-in is in use, for example
   "Signed in as alex@example.com (API token)".
@@ -56,7 +56,7 @@ jay works with Jira Cloud only. There are three ways to sign in:
   epic that holds something of yours, with its whole tree; other
   people's tickets show in grey. All shows every epic, Unclaimed first,
   then Claimed.
-- **Columns:** each row shows the columns in `jay.columns`. The
+- **Columns:** each row shows the columns in `jira.columns`. The
   default is key, summary, assignee and status; you can add type,
   priority, due, labels and estimate.
 
@@ -78,7 +78,7 @@ agent use it, add a line like this to your CLAUDE.md:
 - Confluence: when I say "this page" without a link, read ~/.jay/current.confluence (written by jay); change Confluence only when I say so.
 ```
 
-Set `jay.confluence.enabled` to `false` to hide the switch and stop
+Set `jira.confluence.enabled` to `false` to hide the switch and stop
 polling for mentions. With an OAuth token file, the login that wrote it
 must have granted Confluence's granular scopes (such as
 `read:page:confluence`), and saved them as `scope` in the file; without
@@ -89,15 +89,15 @@ Design and rulings: [docs/notes/102-confluence.md](docs/notes/102-confluence.md)
 
 ## Periods
 
-`jay.period` chooses what the period picker lists.
+`jira.period` chooses what the period picker lists.
 
 **Quarters** (the default) are matched on epics. Tasks and sub-tasks
 belong to their epic's quarter.
 
-- `jay.quarter.fiscalYearStart` is the month your fiscal year starts
+- `jira.quarter.fiscalYearStart` is the month your fiscal year starts
   (1 is the calendar year). The fiscal year is named by the year it
   ends in.
-- `jay.quarter.patterns` lists how epics mark their quarter: `label:`
+- `jira.quarter.patterns` lists how epics mark their quarter: `label:`
   templates match a label exactly, and `summary:` templates match part
   of the title. They use `{YYYY}`, `{YY}` and `{Q}`.
 
@@ -105,8 +105,8 @@ For example, if your fiscal year starts in May and epics carry a label
 like `FY2027Q3` or a title like `Backups [Q3FY27]`, set:
 
 ```json
-"jay.quarter.fiscalYearStart": 5,
-"jay.quarter.patterns": ["label:FY{YYYY}Q{Q}", "summary:[Q{Q}FY{YY}]"]
+"jira.quarter.fiscalYearStart": 5,
+"jira.quarter.patterns": ["label:FY{YYYY}Q{Q}", "summary:[Q{Q}FY{YY}]"]
 ```
 
 Q3 FY27 is then November 2026 to January 2027.
@@ -123,7 +123,7 @@ each one under its epic, with "No epic" last.
 
 ## Which view opens a ticket
 
-`jay.ticketView` decides what a click opens, in the tree, in "Jira
+`jira.ticketView` decides what a click opens, in the tree, in "Jira
 results" and on "Open KEY".
 
 - **`atlassian` (the default):** the issue page of Atlassian's own
@@ -138,7 +138,7 @@ results" and on "Open KEY".
   active tab, it is the ticket in front; closing that page removes its
   file.
 - **`jay`:** jay's own ticket tab, described below. Set
-  `"jay.ticketView": "jay"` in your settings to always use it, for
+  `"jira.ticketView": "jay"` in your settings to always use it, for
   example if the Atlassian extension changes.
 
 ## Editing in the tab
@@ -205,27 +205,27 @@ Everything is under `~/.jay`, with directories mode 700 and files mode
 - `current.jira`: the ticket most recently in front.
 - `seen.json`: when you last looked at each ticket.
 
-Set `jay.agentFiles` to `false` to stop writing `issues/` and
-`current.jira`; they are deleted when you do. **jay: Sign Out** deletes
+Set `jira.agentFiles` to `false` to stop writing `issues/` and
+`current.jira`; they are deleted when you do. **Jira: Sign Out** deletes
 all of these. jay never writes a token file.
 
 ## Settings
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `jay.site` | (empty) | Your Jira Cloud site URL, for API-token sign-in |
-| `jay.signIn.tokenFile` | (empty) | A token file another tool keeps: OAuth JSON, or a jira-mcp wrapper or env file. Wins when set |
-| `jay.signIn.refreshCommand` | (empty) | A command that refreshes an OAuth token file |
-| `jay.period` | `quarter` | What the period picker lists: `quarter`, `sprint` or `fixVersion` |
-| `jay.quarter.fiscalYearStart` | `1` | The month the fiscal year starts, 1 to 12 |
-| `jay.quarter.patterns` | `["label:FY{YYYY}Q{Q}", "label:FY{YY}-Q{Q}", "summary:[Q{Q}FY{YY}]"]` | How epics mark their quarter |
-| `jay.placeholderAssignees` | `[]` | Display names or account ids that count as unclaimed, for example `["Team Queue"]` |
-| `jay.columns` | `["key", "summary", "assignee", "status"]` | Row columns, in order; also `type`, `priority`, `due`, `labels`, `estimate` |
-| `jay.ticketView` | `atlassian` | What a click opens: `atlassian`, the Atlassian extension's issue page (jay's tab if it isn't installed or fails), or `jay`, jay's own tab |
-| `jay.agentFiles` | `true` | Write each open ticket to `~/.jay` for an agent |
-| `jay.confluence.enabled` | `true` | Show the Jira \| Confluence switch and poll Confluence mentions |
+| `jira.site` | (empty) | Your Jira Cloud site URL, for API-token sign-in |
+| `jira.signIn.tokenFile` | (empty) | A token file another tool keeps: OAuth JSON, or a jira-mcp wrapper or env file. Wins when set |
+| `jira.signIn.refreshCommand` | (empty) | A command that refreshes an OAuth token file |
+| `jira.period` | `quarter` | What the period picker lists: `quarter`, `sprint` or `fixVersion` |
+| `jira.quarter.fiscalYearStart` | `1` | The month the fiscal year starts, 1 to 12 |
+| `jira.quarter.patterns` | `["label:FY{YYYY}Q{Q}", "label:FY{YY}-Q{Q}", "summary:[Q{Q}FY{YY}]"]` | How epics mark their quarter |
+| `jira.placeholderAssignees` | `[]` | Display names or account ids that count as unclaimed, for example `["Team Queue"]` |
+| `jira.columns` | `["key", "summary", "assignee", "status"]` | Row columns, in order; also `type`, `priority`, `due`, `labels`, `estimate` |
+| `jira.ticketView` | `atlassian` | What a click opens: `atlassian`, the Atlassian extension's issue page (jay's tab if it isn't installed or fails), or `jay`, jay's own tab |
+| `jira.agentFiles` | `true` | Write each open ticket to `~/.jay` for an agent |
+| `jira.confluence.enabled` | `true` | Show the Jira \| Confluence switch and poll Confluence mentions |
 
-`jay.site`, `jay.signIn.tokenFile` and `jay.signIn.refreshCommand` are read only from your user settings (or the remote's settings in a remote window); a workspace's `.vscode/settings.json` can't change them.
+`jira.site`, `jira.signIn.tokenFile` and `jira.signIn.refreshCommand` are read only from your user settings (or the remote's settings in a remote window); a workspace's `.vscode/settings.json` can't change them.
 
 ## Development
 
