@@ -987,11 +987,20 @@ open_vscode() {  # a new VS Code window, once the checklist is done; not as root
 
 # ---- sudo, the terminal, flags, main -------------------------------------------------------------------------
 
+roost_download_planned() {  # true when the Roost step is going to download the .vsix: no Roost yet, or an older one
+  local current
+  skip_named roost && return 1
+  roost_stamped || return 1
+  find_code || return 0  # the VS Code step installs it first
+  current=$(installed_version "$ROOST_ID" "$(installed_extensions)") || return 0
+  [ "$(version_cmp "$current" "$ROOST_VERSION")" = lt ]
+}
+
 system_changes() {  # what the steps that are going to run add system-wide, one per line, in run order; or nothing
   local vscode=0 gh=0 roost=0 ms_repo=0 gh_repo=0
   skip_named vscode || find_code || vscode=1
   skip_named github || have gh || gh=1
-  if ! skip_named roost && { [ "$vscode" = 1 ] || find_code; }; then roost=1; fi
+  if { [ "$vscode" = 1 ] || find_code; } && roost_download_planned; then roost=1; fi
   case $OS in
     macos)  # VS Code and gh come through Homebrew, whose installer needs administrator rights
       if [ "$vscode$gh" != 00 ] && ! find_brew; then echo "Homebrew"; fi ;;
