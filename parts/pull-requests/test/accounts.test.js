@@ -79,7 +79,7 @@ test('offline, gh reports every login failed: they are still listed', async () =
   assert.deepStrictEqual(await a.list(), ['octo-dev']);
 });
 
-test('isAllowed follows kestrel.accounts; empty allows all', () => {
+test('isAllowed follows pullRequests.accounts; empty allows all', () => {
   let only = [];
   const a = createAccounts({ run: async () => ok(STATUS), allowed: () => only });
   assert.strictEqual(a.isAllowed('octo-old'), true);

@@ -36,7 +36,7 @@ function createAccounts({ run, allowed }) {
   const tokens = new Map();
   const only = () => (allowed && allowed()) || [];
   return {
-    /** False when kestrel.accounts is set and leaves this login out. */
+    /** False when pullRequests.accounts is set and leaves this login out. */
     isAllowed: (login) => !only().length || only().includes(login),
     async list() {
       const r = await run(['auth', 'status', '--hostname', HOST]);

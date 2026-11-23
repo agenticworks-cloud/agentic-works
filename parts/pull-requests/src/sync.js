@@ -82,7 +82,7 @@ function createSync({ accounts, client, tracker, now, onRound = () => {} }) {
     }
   }
 
-  /** Lists accounts again. A login that was listed and now isn't is dropped: quietly if kestrel.accounts left it out,
+  /** Lists accounts again. A login that was listed and now isn't is dropped: quietly if pullRequests.accounts left it out,
    * else with the expired note (gh no longer has it). */
   async function listAccounts() {
     let next;

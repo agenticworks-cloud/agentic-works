@@ -29,17 +29,17 @@ test('panel view, commands and settings', () => {
   assert.deepStrictEqual(c.viewsContainers.panel, [{ id: 'kestrel', title: 'PRs', icon: 'media/pr.svg' }]);
   assert.deepStrictEqual(c.views.kestrel, [{ type: 'webview', id: 'kestrel.prs', name: 'PRs' }]);
   const refresh = c.commands.find((x) => x.command === 'kestrel.refresh');
-  assert.strictEqual(refresh.title, 'kestrel: Refresh');
+  assert.strictEqual(refresh.title, 'Pull Requests: Refresh');
   assert.strictEqual(refresh.icon, '$(refresh)');
   assert.ok(c.menus['view/title'].some((m) => m.command === 'kestrel.refresh' && m.when === 'view == kestrel.prs' && m.group === 'navigation@1'));
   assert.ok(c.commands.some((x) => x.command === 'kestrel.watch'));
   assert.ok(c.menus.commandPalette.some((m) => m.command === 'kestrel.watch' && m.when === 'false'));
   const props = c.configuration.properties;
-  assert.strictEqual(props['kestrel.accounts'].type, 'array');
-  assert.strictEqual(props['kestrel.accounts'].items.type, 'string');
-  assert.deepStrictEqual(props['kestrel.accounts'].default, []);
-  assert.deepStrictEqual(props['kestrel.mergeMethod'].enum, ['squash', 'merge', 'rebase']);
-  assert.strictEqual(props['kestrel.mergeMethod'].default, 'squash');
+  assert.strictEqual(props['pullRequests.accounts'].type, 'array');
+  assert.strictEqual(props['pullRequests.accounts'].items.type, 'string');
+  assert.deepStrictEqual(props['pullRequests.accounts'].default, []);
+  assert.deepStrictEqual(props['pullRequests.mergeMethod'].enum, ['squash', 'merge', 'rebase']);
+  assert.strictEqual(props['pullRequests.mergeMethod'].default, 'squash');
 });
 
 test('the listing icon is a 128x128 PNG', () => {

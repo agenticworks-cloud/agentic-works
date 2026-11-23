@@ -12,15 +12,19 @@ const { createMerger } = require('./merge');
 const { createLocalOrigins } = require('./origins');
 const { createMergeWatch } = require('./mergedElsewhere');
 const { PanelProvider } = require('./panel');
+const { carryOverSettings, settingKeys } = require('./settingsCarryOver');
 
 let current = null;
 
 function activate(context, deps = {}) {
   const now = deps.now || Date.now;
   const out = vscode.window.createOutputChannel('kestrel');
-  const cfg = () => vscode.workspace.getConfiguration('kestrel');
+  const cfg = () => vscode.workspace.getConfiguration('pullRequests');
   const log = (line) => { try { out.appendLine(line); } catch (_) { /* the channel is gone */ } };
   const describe = (e) => `${(e && e.message) || e}${e && e.stack ? ` (${String(e.stack).split('\n')[1] || ''})`.replace(' ()', '') : ''}`;
+  // kestrel.* settings were renamed pullRequests.* (Roost): the user's old values, once, at the scopes they were set at
+  carryOverSettings(vscode, context.globalState, { from: 'kestrel', to: 'pullRequests', keys: settingKeys(require('../package.json'), 'pullRequests'), log })
+    .catch((e) => log(`settings: carry-over failed: ${describe(e)}`));
 
   const accounts = createAccounts({ run: deps.run || defaultRun, allowed: () => cfg().get('accounts', []) });
   const client = deps.client || createClient(deps.request ? { request: deps.request } : {});
@@ -67,7 +71,7 @@ function activate(context, deps = {}) {
     vscode.window.registerWebviewViewProvider('kestrel.prs', panel),
     vscode.commands.registerCommand('kestrel.refresh', () => { sync.relist(); sync.fast(); poller.kick(); }),
     vscode.commands.registerCommand('kestrel.watch', (url) => { if (sync.watch(url)) poller.kick(); }),
-    vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('kestrel.accounts')) { sync.relist(); poller.kick(); } }),
+    vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('pullRequests.accounts')) { sync.relist(); poller.kick(); } }),
     vscode.window.onDidChangeWindowState((s) => { if (s.focused) poller.kick(); }),
     { dispose: () => poller.stop() },
   );

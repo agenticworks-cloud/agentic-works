@@ -81,10 +81,10 @@ test('kestrel.refresh runs another round', async () => {
   ext.deactivate();
 });
 
-test('a settings change to kestrel.accounts and a window focus both kick a round', async () => {
+test('a settings change to pullRequests.accounts and a window focus both kick a round', async () => {
   const { w } = await boot();
   let n = w.listed.length;
-  ui.setConfig('kestrel.accounts', ['octo-dev']);
+  ui.setConfig('pullRequests.accounts', ['octo-dev']);
   await settle(); await settle();
   assert.ok(w.listed.length > n);
   n = w.listed.length;
@@ -188,7 +188,7 @@ test('focus, Refresh and watch do not poll during a throttle hold', async () => 
   ext.deactivate();
 });
 
-test('accounts are listed on start, on Refresh and on a kestrel.accounts change, not every poll', async () => {
+test('accounts are listed on start, on Refresh and on a pullRequests.accounts change, not every poll', async () => {
   const { w } = await boot();
   const status = () => w.ghCalls.filter((a) => a[1] === 'status').length;
   assert.strictEqual(status(), 1);
@@ -199,7 +199,7 @@ test('accounts are listed on start, on Refresh and on a kestrel.accounts change,
   assert.strictEqual(status(), 1, 'a focus poll reuses the list');
   await ui.commands['kestrel.refresh'](); await settle(); await settle();
   assert.strictEqual(status(), 2);
-  ui.setConfig('kestrel.accounts', ['octo-dev']); await settle(); await settle();
+  ui.setConfig('pullRequests.accounts', ['octo-dev']); await settle(); await settle();
   assert.strictEqual(status(), 3);
   ext.deactivate();
 });

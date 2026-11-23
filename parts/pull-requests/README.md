@@ -99,7 +99,7 @@ where it is, and a click opens the PR on GitHub.
 ## Merging
 
 Clicking **merge** asks first: "Merge acme/widgets#42 'Title'?", with the
-merge method on the button. The method is `kestrel.mergeMethod` if the
+merge method on the button. The method is `pullRequests.mergeMethod` if the
 repo allows it, otherwise the first allowed of squash, merge, rebase.
 kestrel asks GitHub to merge only the commit you saw, so a push that landed
 after the row was drawn is refused, and kestrel re-checks the row after
@@ -165,10 +165,10 @@ kestrel works without perch or any agent.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `kestrel.accounts` | `[]` | `gh` logins whose PRs to list. Empty means every account `gh` is signed in to. |
-| `kestrel.mergeMethod` | `squash` | `squash`, `merge` or `rebase`: how **merge** merges, if the repo allows it. |
+| `pullRequests.accounts` | `[]` | `gh` logins whose PRs to list. Empty means every account `gh` is signed in to. |
+| `pullRequests.mergeMethod` | `squash` | `squash`, `merge` or `rebase`: how **merge** merges, if the repo allows it. |
 
-Commands: **kestrel: Refresh** (also in the panel's title bar).
+Commands: **Pull Requests: Refresh** (also in the panel's title bar).
 
 ## Signing in
 

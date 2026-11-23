@@ -284,12 +284,12 @@
       },
       {
         "command": "kestrel.refresh",
-        "title": "kestrel: Refresh",
+        "title": "Pull Requests: Refresh",
         "icon": "$(refresh)"
       },
       {
         "command": "kestrel.watch",
-        "title": "kestrel: Watch"
+        "title": "Pull Requests: Watch"
       },
       {
         "command": "chirp.refresh",
@@ -1156,7 +1156,7 @@
         "title": "PRs",
         "order": 3,
         "properties": {
-          "kestrel.accounts": {
+          "pullRequests.accounts": {
             "type": "array",
             "items": {
               "type": "string"
@@ -1164,7 +1164,7 @@
             "default": [],
             "description": "GitHub accounts (as known to the gh CLI) whose pull requests to list. Empty: every account gh is signed in to."
           },
-          "kestrel.mergeMethod": {
+          "pullRequests.mergeMethod": {
             "type": "string",
             "enum": [
               "squash",
