@@ -3,12 +3,14 @@
 // own; starts or stops a part when its setting changes; a part that throws at start is reported once and left off.
 // Before a part is switched off it may say no (its confirmStop), which puts the switch back on. While a part is off,
 // tabs VS Code brings back for it are closed, so they do not hang without a page; the part's own saved tab list,
-// which it restores from when it starts, is left as it is.
+// which it restores from when it starts, is left as it is. A part's views and commands show while its setting is on
+// and its context key roost.<id>.failed is not set; Roost sets that key from a failed start until the next good one.
 const path = require('node:path');
 const vscode = require('vscode');
 const { readParts, partContext } = require('./parts');
 
-const contextKey = (id) => `roost.${id}.enabled`;
+const settingKey = (id) => `roost.${id}.enabled`;
+const failedKey = (id) => `roost.${id}.failed`;
 const isEnabled = (id) => vscode.workspace.getConfiguration('roost').get(`${id}.enabled`, true);
 const errorText = (e) => (e && e.stack) || String(e);
 
@@ -16,8 +18,11 @@ class Roost {
   constructor(base, parts, output) {
     this.base = base;
     this.output = output;
-    // id → { part, state: 'on'|'off'|'failed', context, module, queue, closers }
-    this.parts = new Map(parts.map((part) => [part.id, { part, state: 'off', context: null, module: null, queue: Promise.resolve(), closers: null }]));
+    // id → { part, state: 'on'|'off'|'failed', failed, context, module, queue, closers }
+    // `failed`: what roost.<id>.failed was last set to
+    this.parts = new Map(parts.map((part) => [part.id, {
+      part, state: 'off', failed: false, context: null, module: null, queue: Promise.resolve(), closers: null,
+    }]));
   }
 
   state(id) { return this.entry(id).state; }
@@ -54,18 +59,19 @@ class Roost {
         this.log(`${part.title} could not start: ${errorText(err)}`);
         await this.release(e);
         this.closeRestoredTabs(e);
-        await this.setKey(part.id, false);
+        await this.setFailed(e, true);
         vscode.window.showErrorMessage(`Roost: ${part.title} could not start.`, 'Show Log').then((choice) => {
           if (choice === 'Show Log') this.output.show();
         });
         return;
       }
       e.state = 'on';
-      await this.setKey(part.id, true);
+      if (e.failed) await this.setFailed(e, false);
     });
   }
 
-  // `ask`: the user switched it off, so the part may say no first (the window closing asks nothing).
+  // `ask`: the user switched it off, so the part may say no first (the window closing asks nothing). No context key
+  // is set: the setting itself hides the part's views, and a failed part stays marked until it starts.
   stop(id, { ask = false } = {}) {
     return this.queue(id, async (e) => {
       if (e.state === 'off') return;
@@ -73,7 +79,6 @@ class Roost {
         await this.keepOn(e.part.id);
         return;
       }
-      await this.setKey(e.part.id, false);
       if (e.state === 'on') await this.release(e);
       e.state = 'off';
       this.closeRestoredTabs(e);
@@ -140,17 +145,19 @@ class Roost {
   }
 
   // A key that cannot be set is logged; what the part does goes on.
-  setKey(id, on) {
-    return Promise.resolve(vscode.commands.executeCommand('setContext', contextKey(id), on))
-      .catch((err) => this.log(`${contextKey(id)} could not be set: ${errorText(err)}`));
+  setFailed(e, failed) {
+    e.failed = failed;
+    const key = failedKey(e.part.id);
+    return Promise.resolve(vscode.commands.executeCommand('setContext', key, failed))
+      .catch((err) => this.log(`${key} could not be set: ${errorText(err)}`));
   }
 
-  // Every key false first, so nothing shows for a part that is off or fails; each turns true as its part starts.
-  // The parts start side by side: one whose activate never ends holds up none of the others. Nothing here is awaited
-  // before the parts' activate calls, so each part registers its serializers before VS Code restores its tabs, as
-  // it does when it is an extension of its own.
+  // Every failed key false first (one can be left from before an extension host restart); a part that fails sets
+  // its own true after that. The parts start side by side: one whose activate never ends holds up none of the
+  // others. Nothing here is awaited before the parts' activate calls, so each part registers its serializers before
+  // VS Code restores its tabs, as it does when it is an extension of its own.
   async startAll() {
-    const keys = [...this.parts.keys()].map((id) => this.setKey(id, false));
+    const keys = [...this.parts.values()].map((e) => this.setFailed(e, false));
     const starts = [];
     for (const [id, e] of this.parts) {
       if (isEnabled(id)) starts.push(this.start(id));
@@ -162,13 +169,14 @@ class Roost {
   onConfigChange(event) {
     if (this.closed) return;           // Roost is stopping: a change now starts nothing
     for (const id of this.parts.keys()) {
-      if (!event.affectsConfiguration(contextKey(id))) continue;
+      if (!event.affectsConfiguration(settingKey(id))) continue;
       // a failure is already in the output channel (queue)
       (isEnabled(id) ? this.start(id) : this.stop(id, { ask: true })).catch(() => {});
     }
   }
 
-  // The window closing: every part stops, and no serializer is left behind.
+  // The window closing: every part is released (a stop sets no context key, so nothing waits on VS Code's main
+  // thread), and no serializer is left behind.
   async stopAll() {
     this.closed = true;
     await Promise.all([...this.parts.keys()].map((id) => this.stop(id)));

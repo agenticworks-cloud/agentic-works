@@ -58,7 +58,7 @@
           "type": "webview",
           "id": "chirp.sidebar",
           "name": "Chats and Channels",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         }
       ],
       "jay": [
@@ -66,7 +66,7 @@
           "type": "webview",
           "id": "jay.sidebar",
           "name": "Jira",
-          "when": "roost.jira.enabled"
+          "when": "config.roost.jira.enabled && !roost.jira.failed"
         }
       ],
       "kestrel": [
@@ -74,7 +74,7 @@
           "type": "webview",
           "id": "kestrel.prs",
           "name": "PRs",
-          "when": "roost.prs.enabled"
+          "when": "config.roost.prs.enabled && !roost.prs.failed"
         }
       ],
       "perch": [
@@ -82,7 +82,7 @@
           "type": "webview",
           "id": "perch.main",
           "name": "Sessions",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         }
       ]
     },
@@ -340,334 +340,334 @@
       "commandPalette": [
         {
           "command": "chirp.activeConversationFile",
-          "when": "roost.teams.enabled && (false)"
+          "when": "config.roost.teams.enabled && !roost.teams.failed && (false)"
         },
         {
           "command": "chirp.copyCode",
-          "when": "roost.teams.enabled && (false)"
+          "when": "config.roost.teams.enabled && !roost.teams.failed && (false)"
         },
         {
           "command": "chirp.refresh",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
         {
           "command": "chirp.focusFilter",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
         {
           "command": "chirp.signIn",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
         {
           "command": "chirp.signOut",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
         {
           "command": "chirp.enableChannels",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
         {
           "command": "chirp.cancelSignIn",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
         {
           "command": "chirp.copyAdminLink",
-          "when": "roost.teams.enabled"
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
         {
           "command": "jay.activeIssueFile",
-          "when": "roost.jira.enabled && (false)"
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
         },
         {
           "command": "jay.openTicket",
-          "when": "roost.jira.enabled && (false)"
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
         },
         {
           "command": "jay.projectKeys",
-          "when": "roost.jira.enabled && (false)"
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
         },
         {
           "command": "jay.openPage",
-          "when": "roost.jira.enabled && (false)"
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
         },
         {
           "command": "jay.siteUrl",
-          "when": "roost.jira.enabled && (false)"
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
         },
         {
           "command": "jay.activePageFile",
-          "when": "roost.jira.enabled && (false)"
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
         },
         {
           "command": "jay.refresh",
-          "when": "roost.jira.enabled"
+          "when": "config.roost.jira.enabled && !roost.jira.failed"
         },
         {
           "command": "jay.signIn",
-          "when": "roost.jira.enabled"
+          "when": "config.roost.jira.enabled && !roost.jira.failed"
         },
         {
           "command": "jay.signOut",
-          "when": "roost.jira.enabled"
+          "when": "config.roost.jira.enabled && !roost.jira.failed"
         },
         {
           "command": "jay.focusSearch",
-          "when": "roost.jira.enabled"
+          "when": "config.roost.jira.enabled && !roost.jira.failed"
         },
         {
           "command": "kestrel.watch",
-          "when": "roost.prs.enabled && (false)"
+          "when": "config.roost.prs.enabled && !roost.prs.failed && (false)"
         },
         {
           "command": "kestrel.refresh",
-          "when": "roost.prs.enabled"
+          "when": "config.roost.prs.enabled && !roost.prs.failed"
         },
         {
           "command": "perch.insertText",
-          "when": "roost.perch.enabled && (false)"
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (false)"
         },
         {
           "command": "perch.notePrMerged",
-          "when": "roost.perch.enabled && (false)"
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (false)"
         },
         {
           "command": "perch.findPrSession",
-          "when": "roost.perch.enabled && (false)"
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (false)"
         },
         {
           "command": "perch.openPrSession",
-          "when": "roost.perch.enabled && (false)"
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (false)"
         },
         {
           "command": "perch.open",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.newClaude",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.newClaudeGateway",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.newCodex",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.stop",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.closeTab",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.handoff",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.continueInCodex",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.continueInClaude",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.sessions",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.renameTab",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.refreshModels",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.meter.refresh",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.meter.toggleBackend",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.meter.login",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.new",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.moveToEditor",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.moveToSidebar",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.moveAllToEditor",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.moveAllToSidebar",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.codebaseIndex.toggle",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.codebaseIndex.install",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.clearSecretExceptions",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.voice.setup",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.voice.toggle",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.voice.cancel",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.voice.unload",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.codex.toggleBackend",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.codex.setApiKey",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         },
         {
           "command": "perch.codex.clearApiKey",
-          "when": "roost.perch.enabled"
+          "when": "config.roost.perch.enabled && !roost.perch.failed"
         }
       ],
       "view/title": [
         {
           "command": "chirp.refresh",
-          "when": "roost.teams.enabled && (view == chirp.sidebar)",
+          "when": "config.roost.teams.enabled && !roost.teams.failed && (view == chirp.sidebar)",
           "group": "navigation@1"
         },
         {
           "command": "chirp.signIn",
-          "when": "roost.teams.enabled && (view == chirp.sidebar)",
+          "when": "config.roost.teams.enabled && !roost.teams.failed && (view == chirp.sidebar)",
           "group": "2_account@1"
         },
         {
           "command": "chirp.signOut",
-          "when": "roost.teams.enabled && (view == chirp.sidebar)",
+          "when": "config.roost.teams.enabled && !roost.teams.failed && (view == chirp.sidebar)",
           "group": "2_account@2"
         },
         {
           "command": "jay.refresh",
-          "when": "roost.jira.enabled && (view == jay.sidebar)",
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (view == jay.sidebar)",
           "group": "navigation@1"
         },
         {
           "command": "jay.signIn",
-          "when": "roost.jira.enabled && (view == jay.sidebar)",
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (view == jay.sidebar)",
           "group": "2_account@1"
         },
         {
           "command": "jay.signOut",
-          "when": "roost.jira.enabled && (view == jay.sidebar)",
+          "when": "config.roost.jira.enabled && !roost.jira.failed && (view == jay.sidebar)",
           "group": "2_account@2"
         },
         {
           "command": "kestrel.refresh",
-          "when": "roost.prs.enabled && (view == kestrel.prs)",
+          "when": "config.roost.prs.enabled && !roost.prs.failed && (view == kestrel.prs)",
           "group": "navigation@1"
         },
         {
           "command": "perch.handoff",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "1_new@5"
         },
         {
           "command": "perch.continueInCodex",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "1_new@6"
         },
         {
           "command": "perch.continueInClaude",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "1_new@7"
         },
         {
           "command": "perch.stop",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "navigation@2"
         },
         {
           "command": "perch.sessions",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "navigation@3"
         },
         {
           "command": "perch.renameTab",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "1_new@4"
         },
         {
           "command": "perch.newClaude",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "1_new@1"
         },
         {
           "command": "perch.newClaudeGateway",
-          "when": "roost.perch.enabled && (view == perch.main && perch.gateway)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main && perch.gateway)",
           "group": "1_new@11"
         },
         {
           "command": "perch.newCodex",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "1_new@2"
         },
         {
           "command": "perch.closeTab",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "1_new@3"
         },
         {
           "command": "perch.refreshModels",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "2_models@1"
         },
         {
           "command": "perch.meter.toggleBackend",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "3_meter@1"
         },
         {
           "command": "perch.meter.refresh",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "3_meter@2"
         },
         {
           "command": "perch.moveToEditor",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "2_models@2"
         },
         {
           "command": "perch.moveAllToEditor",
-          "when": "roost.perch.enabled && (view == perch.main)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (view == perch.main)",
           "group": "2_models@3"
         },
         {
@@ -679,67 +679,67 @@
       "editor/title": [
         {
           "command": "perch.new",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "navigation@1"
         },
         {
           "command": "perch.handoff",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@2"
         },
         {
           "command": "perch.continueInCodex",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@6"
         },
         {
           "command": "perch.continueInClaude",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@7"
         },
         {
           "command": "perch.sessions",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "navigation@3"
         },
         {
           "command": "perch.renameTab",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "1_new@3"
         },
         {
           "command": "perch.newClaude",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "1_new@1"
         },
         {
           "command": "perch.newClaudeGateway",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session' && perch.gateway)",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session' && perch.gateway)",
           "group": "1_new@11"
         },
         {
           "command": "perch.newCodex",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "1_new@2"
         },
         {
           "command": "perch.moveToSidebar",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@1"
         },
         {
           "command": "perch.refreshModels",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "3_models@1"
         },
         {
           "command": "perch.meter.toggleBackend",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "4_meter@1"
         },
         {
           "command": "perch.meter.refresh",
-          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.roost.perch.enabled && !roost.perch.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "4_meter@2"
         }
       ]
@@ -754,7 +754,7 @@
         "command": "perch.open",
         "key": "ctrl+alt+p",
         "mac": "cmd+alt+p",
-        "when": "roost.perch.enabled"
+        "when": "config.roost.perch.enabled && !roost.perch.failed"
       }
     ],
     "configuration": {

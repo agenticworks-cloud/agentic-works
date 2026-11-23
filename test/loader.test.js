@@ -1,6 +1,7 @@
 'use strict';
 // Roost's loader: starts each enabled part with a context of its own, starts and stops parts as their
-// roost.<id>.enabled setting changes, and isolates a part that throws. Fake parts live in temp dirs.
+// roost.<id>.enabled setting changes, and isolates a part that throws, marking it with the context key
+// roost.<id>.failed (its views and commands are gated on the setting and that key). Fake parts live in temp dirs.
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -93,10 +94,10 @@ test('enabled parts start, disabled do not', async () => {
   assert.deepStrictEqual(activated(), ['jira', 'prs', 'perch']);
   assert.ok(fake.calls.every((c) => c[0] !== 'activate' || c[2] === undefined), 'no deps passed');
   assert.deepStrictEqual(ui.contexts, {
-    'roost.teams.enabled': false,
-    'roost.jira.enabled': true,
-    'roost.prs.enabled': true,
-    'roost.perch.enabled': true,
+    'roost.teams.failed': false,
+    'roost.jira.failed': false,
+    'roost.prs.failed': false,
+    'roost.perch.failed': false,
   });
   assert.strictEqual(roost.state('teams'), 'off');
   assert.strictEqual(roost.state('perch'), 'on');
@@ -114,25 +115,26 @@ test('roost.openSettings is registered with every part off and opens Roost\'s se
   await extension.deactivate();
 });
 
-test('every context key is set before any part starts', async () => {
-  const { ui, extension, base } = setup({ 'roost.prs.enabled': false });
+test('every failed key is cleared before any part starts', async () => {
+  const { ui, extension, base } = setup({ 'roost.teams.enabled': false });
   ui.asyncSetContext = true;                          // applied later, in the order sent, as VS Code applies them
   let sentBefore = null;
-  fake.parts.teams = { activate: () => { sentBefore = ui.sent.slice(); } };
+  fake.parts.jira = { activate: () => { sentBefore = ui.sent.slice(); } };
+  fake.parts.prs = { activate: () => { throw new Error('boom'); } };
   await activate(extension, base);
   await ui.applied;
   assert.deepStrictEqual(sentBefore, [
-    ['roost.teams.enabled', false],
-    ['roost.jira.enabled', false],
-    ['roost.prs.enabled', false],
-    ['roost.perch.enabled', false],
-  ], 'every key false is sent before the first part starts');
+    ['roost.teams.failed', false],
+    ['roost.jira.failed', false],
+    ['roost.prs.failed', false],
+    ['roost.perch.failed', false],
+  ], 'every key false is sent before the first part starts (a key left from before an extension host restart)');
   assert.deepStrictEqual(ui.contexts, {
-    'roost.teams.enabled': true,
-    'roost.jira.enabled': true,
-    'roost.prs.enabled': false,
-    'roost.perch.enabled': true,
-  }, 'and none of those lands after its part turned it on');
+    'roost.teams.failed': false,
+    'roost.jira.failed': false,
+    'roost.prs.failed': true,
+    'roost.perch.failed': false,
+  }, 'and none of those lands after its part was marked failed');
   await extension.deactivate();
 });
 
@@ -145,14 +147,30 @@ test('a context key that cannot be set is logged', async () => {
   await extension.deactivate();
 });
 
-test('a stop whose context key cannot be set still stops the part', async () => {
+test('switching a part off or on sets no context key: the setting gates its views', async () => {
   const { ui, extension, base } = setup();
   const roost = await activate(extension, base);
-  ui.failSetContext = 1;
+  ui.sent.length = 0;
   await setEnabled(ui, 'perch', false);
   assert.strictEqual(roost.state('perch'), 'off');
-  assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'perch'), 'released, so Perch is not left half-stopped');
+  assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'perch'));
+  await setEnabled(ui, 'perch', true);
+  assert.strictEqual(roost.state('perch'), 'on');
+  assert.deepStrictEqual(ui.sent, []);
   await extension.deactivate();
+});
+
+test('the window closing releases every part without waiting on a context key', async () => {
+  const { ui, extension, base } = setup();
+  fake.parts.prs = { activate: () => { throw new Error('boom'); } };   // failed: its key is true
+  await activate(extension, base);
+  ui.sent.length = 0;
+  fake.calls.length = 0;
+  const run = ui.vscode.commands.executeCommand;
+  ui.vscode.commands.executeCommand = (id, ...a) => (id === 'setContext' ? new Promise(() => {}) : run(id, ...a));   // never answered
+  assert.notStrictEqual(await within(extension.deactivate()), 'timed out', 'deactivate returned');
+  assert.deepStrictEqual(fake.calls.filter((c) => c[0] === 'deactivate').map((c) => c[1]).sort(), ['jira', 'perch', 'teams']);
+  assert.deepStrictEqual(ui.sent, [], 'no context key set while closing');
 });
 
 test('a part that throws after registering its own serializer still fails cleanly', async () => {
@@ -165,7 +183,7 @@ test('a part that throws after registering its own serializer still fails cleanl
   };
   const roost = await activate(extension, base);
   assert.strictEqual(roost.state('jira'), 'failed');
-  assert.strictEqual(ui.contexts['roost.jira.enabled'], false);
+  assert.strictEqual(ui.contexts['roost.jira.failed'], true);
   assert.deepStrictEqual(ui.errors, [{ message: 'Roost: Jira & Confluence could not start.', items: ['Show Log'] }]);
   assert.strictEqual(ui.restorePanel('jay.page').disposed, true, 'its other type is still closed while it is off');
   await extension.deactivate();
@@ -228,17 +246,18 @@ test('a throwing part leaves the others running', async () => {
   assert.deepStrictEqual(activated(), ['teams', 'jira', 'prs', 'perch']);
   assert.strictEqual(roost.state('jira'), 'failed');
   for (const id of ['teams', 'prs', 'perch']) assert.strictEqual(roost.state(id), 'on', id);
-  assert.strictEqual(ui.contexts['roost.jira.enabled'], false);
+  assert.strictEqual(ui.contexts['roost.jira.failed'], true);
   assert.deepStrictEqual(ui.errors, [{ message: 'Roost: Jira & Confluence could not start.', items: ['Show Log'] }]);
   assert.ok(ui.out.some((l) => l.includes('boom')), 'error in the Roost output channel');
 
   fail = false;
   await setEnabled(ui, 'jira', false);
   assert.strictEqual(roost.state('jira'), 'off');
+  assert.strictEqual(ui.contexts['roost.jira.failed'], true, 'off but failed: still marked until it starts');
   await setEnabled(ui, 'jira', true);
   assert.deepStrictEqual(activated(), ['teams', 'jira', 'prs', 'perch', 'jira']);
   assert.strictEqual(roost.state('jira'), 'on');
-  assert.strictEqual(ui.contexts['roost.jira.enabled'], true);
+  assert.strictEqual(ui.contexts['roost.jira.failed'], false);
   assert.strictEqual(ui.errors.length, 1);
   await extension.deactivate();
 });
@@ -275,7 +294,7 @@ test('off then on registers cleanly and leaves no timer', async () => {
     assert.strictEqual(roost.state('teams'), 'off');
     assert.strictEqual(live.size, 0, 'timer cleared');
     assert.strictEqual(ui.commands['chirp.refresh'], undefined, 'command unregistered');
-    assert.strictEqual(ui.contexts['roost.teams.enabled'], false);
+    assert.strictEqual(ui.contexts['roost.teams.failed'], false);
     assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'teams'));
 
     await setEnabled(ui, 'teams', true);
@@ -305,7 +324,7 @@ test('stop survives a throwing dispose', async () => {
   await roost.stop('prs');
   assert.strictEqual(roost.state('prs'), 'off');
   assert.deepStrictEqual(disposed.sort(), ['a', 'c']);
-  assert.strictEqual(ui.contexts['roost.prs.enabled'], false);
+  assert.strictEqual(ui.contexts['roost.prs.failed'], false);
   assert.ok(ui.out.some((l) => l.includes('bad dispose')));
   await roost.start('prs');
   assert.strictEqual(roost.state('prs'), 'on');
@@ -324,14 +343,14 @@ test('switching Perch off mid-turn asks first', async () => {
   assert.deepStrictEqual(asked(), ['perch']);
   assert.strictEqual(roost.state('perch'), 'on', 'cancelled: still on');
   assert.deepStrictEqual(ui.updates, [['roost.perch.enabled', undefined, 2]], 'the switch is put back, in the workspace: its value there removed, as the user setting is on');
-  assert.strictEqual(ui.contexts['roost.perch.enabled'], true);
+  assert.strictEqual(ui.contexts['roost.perch.failed'], false);
   assert.ok(!fake.calls.some((c) => c[0] === 'deactivate'), 'not stopped');
   assert.deepStrictEqual(activated(), ['teams', 'jira', 'prs', 'perch'], 'and not started a second time');
 
   answer = true;
   await setEnabled(ui, 'perch', false);
   assert.strictEqual(roost.state('perch'), 'off');
-  assert.strictEqual(ui.contexts['roost.perch.enabled'], false);
+  assert.strictEqual(ui.contexts['roost.perch.failed'], false);
   assert.strictEqual(ui.updates.length, 1, 'nothing written back');
 
   await setEnabled(ui, 'perch', true);
@@ -446,7 +465,7 @@ test('a failed start or stop does not block later ones', async () => {
     await setEnabled(ui, 'prs', true);
     await setEnabled(ui, 'prs', false);               // and the next stop still runs
     assert.strictEqual(roost.state('prs'), 'off');
-    assert.strictEqual(ui.contexts['roost.prs.enabled'], false);
+    assert.strictEqual(ui.contexts['roost.prs.failed'], false);
     await setEnabled(ui, 'prs', true);
     assert.strictEqual(roost.state('prs'), 'on');
     await tick();

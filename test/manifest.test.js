@@ -93,14 +93,14 @@ test('union keeps every id', () => {
 test('when added', () => {
   const m = buildManifest(fixture());
   const views = m.contributes.views.b;
-  assert.strictEqual(views[0].when, 'roost.b.enabled && (foo)');
-  assert.strictEqual(views[1].when, 'roost.b.enabled');
-  assert.strictEqual(m.contributes.views.a[0].when, 'roost.a.enabled');
+  assert.strictEqual(views[0].when, 'config.roost.b.enabled && !roost.b.failed && (foo)');
+  assert.strictEqual(views[1].when, 'config.roost.b.enabled && !roost.b.failed');
+  assert.strictEqual(m.contributes.views.a[0].when, 'config.roost.a.enabled && !roost.a.failed');
   assert.deepStrictEqual(
     m.contributes.menus['view/title'].map((e) => e.when),
-    ['roost.a.enabled && (view == a.view)', 'roost.a.enabled && (view == a.view)'],
+    ['config.roost.a.enabled && !roost.a.failed && (view == a.view)', 'config.roost.a.enabled && !roost.a.failed && (view == a.view)'],
   );
-  assert.deepStrictEqual(m.contributes.keybindings.map((k) => k.when), ['roost.a.enabled', 'roost.a.enabled && (editorFocus)']);
+  assert.deepStrictEqual(m.contributes.keybindings.map((k) => k.when), ['config.roost.a.enabled && !roost.a.failed', 'config.roost.a.enabled && !roost.a.failed && (editorFocus)']);
   // VS Code ignores `when` on view containers; they hide when all their views are hidden.
   assert.strictEqual(m.contributes.viewsContainers.panel[0].when, undefined);
 });
@@ -108,8 +108,8 @@ test('when added', () => {
 test('every part command is gated in the Command Palette', () => {
   const m = buildManifest(fixture());
   assert.deepStrictEqual(m.contributes.menus.commandPalette, [
-    { command: 'a.x', when: 'roost.a.enabled' },
-    { command: 'b.y', when: 'roost.b.enabled' },
+    { command: 'a.x', when: 'config.roost.a.enabled && !roost.a.failed' },
+    { command: 'b.y', when: 'config.roost.b.enabled && !roost.b.failed' },
   ]);
 });
 
@@ -214,7 +214,7 @@ test('real tree builds', () => {
     assert.ok(m.activationEvents.includes(`onWebviewPanel:${type}`), type);
   }
   // Every view and menu entry carries its part's switch; every icon path exists.
-  const switches = parts.map((p) => `roost.${p.id}.enabled`);
+  const switches = parts.map((p) => `config.roost.${p.id}.enabled && !roost.${p.id}.failed`);
   // (roost.openSettings is Roost's own, in no part's switch: asserted in its own test)
   const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()].filter((e) => e.command !== 'roost.openSettings');
   for (const e of entries) assert.ok(switches.some((s) => e.when.startsWith(s)), JSON.stringify(e));
@@ -222,7 +222,8 @@ test('real tree builds', () => {
   // (a command's prefix is its part's folder name or id)
   const owner = Object.fromEntries(parts.flatMap((p) => [[path.basename(p.dir), p.id], [p.id, p.id]]));
   for (const { command } of m.contributes.commands.filter((c) => c.command !== 'roost.openSettings')) {
-    const want = `roost.${owner[command.split('.')[0]]}.enabled`;
+    const id = owner[command.split('.')[0]];
+    const want = `config.roost.${id}.enabled && !roost.${id}.failed`;
     const entries = m.contributes.menus.commandPalette.filter((e) => e.command === command);
     assert.ok(entries.length && entries.every((e) => e.when.startsWith(want)), `${command} gated by ${want}`);
   }

@@ -79,7 +79,10 @@ function partContributes(contributes, prefix) {
   return out;
 }
 
-const withSwitch = (entry, key) => ({ ...entry, when: entry.when ? `${key} && (${entry.when})` : key });
+// A part's views, menus, Command Palette entries and keybindings show while its setting is on (a settings context
+// key, there from the first frame) and Roost has not marked it failed (the context key roost.<id>.failed).
+const gate = (id) => `config.roost.${id}.enabled && !roost.${id}.failed`;
+const withSwitch = (entry, when) => ({ ...entry, when: entry.when ? `${when} && (${entry.when})` : when });
 
 // Arrays concatenate, objects merge key by key, equal scalars agree; anything else is a conflict.
 function merge(into, from, where) {
@@ -114,7 +117,7 @@ function buildManifest(root) {
   const extensionPack = [];
 
   for (const { name, part, pkg } of parts) {
-    const key = `roost.${part.id}.enabled`;
+    const key = gate(part.id);
     const own = partContributes(pkg.contributes || {}, `parts/${name}`);
 
     for (const c of own.commands || []) claim('command', c.command, name);

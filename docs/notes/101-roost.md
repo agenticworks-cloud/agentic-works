@@ -86,7 +86,7 @@ roost/
 { "id": "teams", "title": "Teams", "entry": "src/extension.js", "needs": [] }
 ```
 
-`id` names its switch (`roost.<id>.enabled`) and context key; `title` is what settings and messages call it;
+`id` names its switch (`roost.<id>.enabled`) and its context key `roost.<id>.failed`; `title` is what settings and messages call it;
 `entry` exports the part's `activate` (and `deactivate`); `needs` lists parts it cannot work without (none
 today: every existing link already tolerates the other part being absent). The part keeps its own
 `package.json` for its `contributes` block (and, for Perch, its npm dependencies), as today.
@@ -105,8 +105,9 @@ the parts: it reads every `parts/*/part.json` and that part's `package.json`, an
   panel container, the webview types (`perch.session`, `chirp.conversation`, `jay.ticket`, `jay.page`). So the
   user's settings keep working and the C3 installer's activity-bar layout (c3securitytools' note 802) does not
   change;
-- `when: roost.<id>.enabled` added to each part's views, view containers and menu entries (combined with any
-  `when` the part already has);
+- `when: config.roost.<id>.enabled && !roost.<id>.failed` added to each part's views, menu entries (the Command
+  Palette's included) and keybindings, combined with any `when` the part already has (view containers take no
+  `when`: VS Code hides one whose views are all hidden);
 - one `roost.<id>.enabled` setting per part, `true` by default, titled from `part.json`;
 - the union of activation events and of npm dependencies (Perch's Claude Agent SDK and Codex SDK), which move
   into Roost's `package.json` and `.vsix`; Perch's code finds them through Node's normal lookup from `parts/perch/`;
@@ -128,15 +129,18 @@ same `part.json` files at runtime, so it has no list of parts to edit either.
   the real `ExtensionContext`'s fields, but its own `subscriptions` array. Stopping a part disposes that array
   and calls the part's `deactivate` if it has one.
 - A setting change starts or stops that part at once.
-- Each part's views, view containers and menu entries get `when: roost.<part>.enabled`, a context key Roost
-  sets, so a part that is off shows no icon, no panel tab and no commands in the palette or menus.
+- Each part's views, menu entries and keybindings get `when: config.roost.<id>.enabled && !roost.<id>.failed`,
+  so a part that is off shows no icon, no panel tab and no commands in the palette or menus. The setting half is
+  there from the window's first frame, so a part that is on shows its icon at once and a restored sidebar stays;
+  Roost sets only `roost.<id>.failed`. A part that is on but still starting shows its icon a moment before its
+  views work, as a standalone extension does.
 - **Isolation:** each part's `activate` runs in its own try/catch; a part that throws is reported once (a
   notification with "Show log", and Roost's output channel) and left off for this window; the others run.
 - A part's own background work (chirp's and kestrel's pollers, jay's mirror, Perch's timers) must stop with the
   part. Where a part keeps a timer outside its subscriptions today (Perch's `ticketTimer`, `firstStartTimer`,
   cleared only by its own `dispose`), Roost's tests check that stopping the part leaves no timer running.
-- **Retry:** switching a part off and on again retries a part that failed to start. While it is failed, its
-  context key is false (no icon or commands), whatever the setting says. *(my call)*
+- **Retry:** switching a part off and on again retries a part that failed to start. From a failed start until
+  the next good one, `roost.<id>.failed` is true (no icon or commands), whatever the setting says. *(my call)*
 - **Switching a part off with tabs open** works like closing the window for that part *(my call)*: its editor
   tabs close, its agents stop, and its own saved tab list is kept, so switching it on again restores them as a
   window reload does. If a Perch turn is running, Roost asks first ("Stop the running turn and close Perch's
@@ -208,21 +212,21 @@ Activation, and switching a part off:
     |-- activate ---------->|                          |                         |
     |                       |-- register all parts' webview serializers          |
     |                       |-- read roost.*.enabled ------------------------>   |
-    |                       |-- setContext roost.<part>.enabled = true/false     |
+    |                       |-- setContext roost.<part>.failed = false           |
     |                       |   [part off: its restored tabs closed quietly, its saved list kept]
     |                       |-- chirp.activate(own context) ->|                  |
-    |                       |   [throws: log, notify once, leave off; others go on]
+    |                       |   [throws: log, notify once, leave off, setContext roost.teams.failed = true; others go on]
     |                       |<-- ok ----------------------|                      |
     |   ... later, the user turns Teams off ...           |                      |
     |                       |<-- onDidChangeConfiguration ---------------------- |
     |                       |   [Perch with a turn running: ask; cancel → setting back on]
     |                       |-- close its tabs; dispose its subscriptions (commands, pollers), deactivate ->|
     |                       |   [dispose throws: log it, still mark the part off]                         |
-    |                       |-- setContext roost.teams.enabled = false           |
+    |                       |   [no context key: the setting itself hides its views]
     |<-- icon, views, menus hidden (when clauses) -----|  |                      |
     |   ... the user turns Teams on again ...             |                      |
     |                       |-- chirp.activate(new own context) ->| [throws: as at start]
-    |                       |-- setContext roost.teams.enabled = true; its saved tabs come back
+    |                       |-- [it had failed: setContext roost.teams.failed = false]; its saved tabs come back
 ```
 
 The import:
@@ -249,6 +253,11 @@ The import:
 - For a part that is off, Roost registers a serializer for each of its webview types (from its
   `onWebviewPanel:` activation events) that closes restored panels, and removes it before starting the part.
   Where stopping a part today clears its saved tab list (Perch's `dispose` closing the window), a stop keeps it.
+- A part's views and commands are gated on its setting and `roost.<id>.failed`
+  (`config.roost.<id>.enabled && !roost.<id>.failed`), not on a context key `roost.<id>.enabled` Roost would
+  set: settings context keys exist from the first frame, so icons do not arrive late and restored sidebars are
+  not lost. Roost clears every `roost.<id>.failed` as it starts and sets it for a part that fails; switching a
+  part off or on, and closing the window, set no key. *(final review, Ruling 10)*
 - Roost's own contributions (the `roost.openSettings` command and its gear on the Perch view's title) live in
   `roost.contributes.json`, merged by the manifest build. The **Settings** row is in the Perch part's page and
   runs the command; in a standalone Perch the row does nothing visible.
