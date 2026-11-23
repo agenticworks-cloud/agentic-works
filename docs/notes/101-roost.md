@@ -18,7 +18,8 @@ seeing it work. The extension comes first either way: a fork would ship Roost bu
 ### Goals
 
 - One extension, `seanahn.roost`, in a new repo `seanahn/roost` (local `/git/roost`). *(Sean)*
-- Each part — **Perch** (agent tabs), **Teams** (chirp), **Jira & Confluence** (jay), **PRs** (kestrel) — can be
+- Each part — **Agents** (Perch: Claude Code and Codex tabs), **Teams** (chirp), **Jira & Confluence** (jay), **PRs**
+  (kestrel) — can be
   switched on or off in settings while VS Code runs, with no reload. **All on by default.** *(Sean)*
 - A part whose service the user does not use simply does not work for them (Teams with no Microsoft sign-in
   only offers the sign-in) and never gets in the way of the others. *(Sean)*
@@ -37,7 +38,9 @@ seeing it work. The extension comes first either way: a fork would ship Roost bu
 ### Anti-goals
 
 - A part that fails to start, or a service that is down, taking the other parts with it.
-- Renaming settings, commands or views, which would break the user's existing settings and any installer that sets them.
+- Renaming commands or views, which would break keybindings, other parts' calls and any installer's layout.
+  *(Settings were renamed after all, on 2026-11-23, with a carry-over of the user's values: see* Renamed parts and
+  settings *below.)*
 - Losing any repo's history.
 
 ## What the four look like (recon, 2026-11-23)
@@ -74,10 +77,10 @@ roost/
   package.json            GENERATED from the parts (checked in); never edited by hand
   src/                    Roost itself: the part loader, the on/off switches, shared services between parts
   parts/
-    perch/    part.json  package.json  src/  media/  test/  docs/     (as imported, plus part.json)
-    chirp/    part.json  …
-    jay/      part.json  …
-    kestrel/  part.json  …
+    agents/         part.json  package.json  src/  media/  test/  docs/   (imported as parts/perch, plus part.json)
+    jira/           part.json  …                                        (parts/jay)
+    pull-requests/  part.json  …                                        (parts/kestrel)
+    teams/          part.json  …                                        (parts/chirp)
   scripts/build-manifest.js
   docs/notes/             Roost's own notes (this is 101); each part's notes stay in parts/<name>/docs
   Makefile                manifest, test (Roost + every part), install / package / publish for seanahn.roost
@@ -104,7 +107,7 @@ VS Code reads only a static root `package.json`, so `scripts/build-manifest.js` 
 the parts: it reads every `parts/*/part.json` and that part's `package.json`, and writes the root manifest with
 
 - the union of the parts' `contributes` blocks, with **every id kept**: `perch.*`, `chirp.*`, `jay.*`,
-  `kestrel.*` settings and commands, the `perch`, `chirp` and `jay` activity-bar containers and the `kestrel`
+  `kestrel.*` commands (the settings were renamed later: *Renamed parts and settings*), the `perch`, `chirp` and `jay` activity-bar containers and the `kestrel`
   panel container, the webview types (`perch.session`, `chirp.conversation`, `jay.ticket`, `jay.page`). So the
   user's settings keep working and an installer's activity-bar layout (which hides and orders containers by id) does not
   change, plus Roost's own `roost.openSettings` from `roost.contributes.json`;
@@ -113,7 +116,7 @@ the parts: it reads every `parts/*/part.json` and that part's `package.json`, an
   `when`: VS Code hides one whose views are all hidden);
 - one `roost.<id>.enabled` setting per part, `true` by default, titled from `part.json`, collected in a first settings section titled Roost (switches in part order, so they list before everything else), followed by one settings section per part titled from `part.json`, holding that part's own settings;
 - the union of activation events and of npm dependencies (Perch's Claude Agent SDK and Codex SDK), which move
-  into Roost's `package.json` and `.vsix`; Perch's code finds them through Node's normal lookup from `parts/perch/`;
+  into Roost's `package.json` and `.vsix`; Perch's code finds them through Node's normal lookup from `parts/agents/`;
 - Perch's `extensionPack` (perch-audio, Claude Code, ChatGPT). perch-audio stays a separate companion, since it
   must run on the user's own machine when VS Code is attached to a remote. *(my call)*
 
@@ -125,8 +128,8 @@ lives in a small `roost.json` the script starts from. *(my call; extensionKind a
 
 ### Parts, and switching them
 
-One setting per part, all `true` by default: today `roost.perch.enabled`, `roost.teams.enabled`,
-`roost.jira.enabled`, `roost.pullRequests.enabled` *(ids: my call)*. Roost's loader finds the parts by reading the
+One setting per part, all `true` by default: today `roost.agents.enabled`, `roost.jira.enabled`,
+`roost.pullRequests.enabled`, `roost.teams.enabled` *(ids: my call; `agents`: Sean)*. Roost's loader finds the parts by reading the
 same `part.json` files at runtime, so it has no list of parts to edit either.
 
 - Roost's `activate` starts each enabled part by calling that part's own `activate` with a **context of its own**:
@@ -175,7 +178,7 @@ On its very first activation Roost opens the PRs tab once (`workbench.view.exten
 container), so the bottom panel, closed on a fresh profile, shows it. It runs after the parts have started, is not
 awaited by `activate`, and has no setting. Whatever happens (PRs off or failed, the command failing, which is
 logged to the Roost output channel) `roost.firstStart.done` is then recorded in the base context's `globalState`,
-so it never happens again. Perch's own `perch.firstStart.openClaudeTab` stays separate, for installers.
+so it never happens again. The Agents part's own `agents.firstStart.openClaudeTab` (was `perch.…`) stays separate, for installers.
 
 ### Links between parts, for now
 
@@ -194,7 +197,7 @@ there *(Sean)*:
 
 - a **gear** in the view's title bar, and a **Settings** row at the end of the explorer's sections;
 - both run `roost.openSettings`, which opens VS Code's Settings filtered to Roost (`@ext:seanahn.roost`): the
-  parts' on/off switches first, then every part's own settings (`perch.*`, `chirp.*`, `jay.*`, `kestrel.*`).
+  parts' on/off switches first, then every part's own settings (`agents.*`, `jira.*`, `pullRequests.*`, `teams.*`).
   *(the filter and placement: my call)*
 
 The gear and the row belong to Roost, not to the Perch part, so they stay even if Perch's tabs are the only
@@ -212,7 +215,9 @@ ships through GitHub releases for now; note [102](102-roost-installer.md)). *(my
 VS Code keeps an extension's SecretStorage and globalState per extension id, so Roost starts without the
 standalone extensions' stored state: **the user signs in to Teams and Jira once more**, and kestrel's hidden-PR
 list and Perch's remembered tab state start empty. Files in `~/.chirp`, `~/.jay` and the agents' own session
-records are shared and carry over. No migration. *(my call: one sign-in, for one user, is cheaper than
+records are shared and carry over. No migration of that state. (Settings are shared by every extension, so the
+standalone ones' `perch.*`, `chirp.*`, `jay.*`, `kestrel.*` values are there for Roost; since the rename each part
+copies them to its new keys once: *Renamed parts and settings*.) *(my call: one sign-in, for one user, is cheaper than
 migration code.)*
 
 ### Keybindings
@@ -239,6 +244,35 @@ and the files only the manifest build reads (`roost.json`, `roost.contributes.js
 lines bring every dependency's `LICENSE*`/`LICENCE*` back without re-including the agents' programs. The `.vsix`
 went from 495 MB to 10 MB; the package test checks the exclusions, the licence files and a size under 20 MB.
 The root `LICENSE` is MIT (Sean Ahn, 2026), as each part's is.
+
+### Renamed parts and settings (2026-11-23)
+
+Built as 0.1.0, the parts kept their standalone names. Then *(Sean, 2026-11-23)*:
+
+| folder (was) | part id | settings | Command Palette titles |
+|---|---|---|---|
+| `parts/agents` (`parts/perch`) | `agents` (was `perch`; switch `roost.agents.enabled`) | `perch.*` → `agents.*` | "Perch: …" → "Agents: …" |
+| `parts/teams` (`parts/chirp`) | `teams` | `chirp.*` → `teams.*` | "chirp: …" → "Teams: …" |
+| `parts/jira` (`parts/jay`) | `jira` | `jay.*` → `jira.*` | "jay: …" → "Jira: …" |
+| `parts/pull-requests` (`parts/kestrel`) | `pullRequests` | `kestrel.*` → `pullRequests.*` | "kestrel: …" → "Pull Requests: …" |
+
+The folders moved with `git mv`, so `git log --follow` and `git blame` reach back through the import. Part titles
+stay, but for Agents: "Agents (Claude Code and Codex)". Folder order is now agents, jira, pull-requests, teams, so
+the switches and settings sections list in that order. **Unchanged:** command ids, view and container ids, webview
+types, context keys, globalState and secret keys, `~/.chirp` and `~/.jay`: users never see them, and the links
+between the parts and the installers' layout depend on them.
+
+**Carry-over.** Each part, at activation, copies the user's values from the old keys to the new: for each of its
+settings and each scope (user, workspace, every workspace folder), if the new key has no value at that scope and
+the old key has one, the old value is written to the new key at that scope; the old key is left. Then the part
+records `<new prefix>.settingsCarriedOver` in globalState, so it runs once; a write that fails is logged in the
+part's output channel and skipped. It is not awaited: a value carried over reaches the part through its
+configuration-change handlers, or at its next start. The code is `src/settingsCarryOver.js`, the same file in each
+part (a part does not require Roost's `src/`, so it still runs on its own); Roost's tests check the four copies
+match and that each part calls it with its own prefixes. *(the copy per part: my call)*
+
+Not carried over: language-specific values (`"[python]": { "perch.…" }`), and a workspace first opened after the
+part's first start (the record is per user, not per workspace).
 
 ## Flows
 
@@ -283,6 +317,7 @@ The import:
 ## Settled while planning (2026-11-23)
 
 - Part ids: `perch`, `teams` (chirp), `jira` (jay), `pullRequests` (kestrel); parts are ordered by folder name everywhere.
+  (Perch's id became `agents` on 2026-11-23: *Renamed parts and settings*.)
   kestrel's id was `prs` until it became `pullRequests`, so its Settings switch reads "Pull Requests" not "Prs".
 - A part's context is the real one with its own `subscriptions` and its folder as `extensionUri`, so each
   part's media and webview resource roots resolve under `parts/<name>/`; `globalState`, `workspaceState` and
@@ -301,7 +336,7 @@ The import:
   `roost.contributes.json`, merged by the manifest build. The **Settings** row is in the Perch part's page and
   runs the command; in a standalone Perch the row does nothing visible.
 - `make deps / test / test-live / manifest / install / package`; the `.vsix` carries the root `node_modules`
-  only; perch-audio is still built and published from `parts/perch/audio` as its own package.
+  only; perch-audio is still built and published from `parts/agents/audio` as its own package.
 
 Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
 (`docs/superpowers/plans/2026-11-23-roost.md`) is deleted; this note is the record.
@@ -324,7 +359,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
 
 - **Stronger links** through shared services in `src/` (see *Links between parts, for now*).
 - **chirp: a company's own Microsoft app.** chirp signs in with its own built-in app (an unverified publisher),
-  which many companies block users from approving. Add `chirp.signIn.clientId` and `chirp.signIn.tenant`
+  which many companies block users from approving. Add `teams.signIn.clientId` and `teams.signIn.tenant`
   (default: chirp's app and `organizations`), so the editor sign-in and the sign-in code can use an app the
   company's admins already approved. Today a locked-down company's only route is a token file from another tool.
   *(Sean)*
@@ -344,7 +379,8 @@ What was asked:
 - Turning each part off hides its icon or tab and its commands at once, and stops its polling; turning it on
   brings it back without a reload.
 - A part made to throw at start leaves the other three working, with one notification.
-- `git log -- parts/perch/src/extension.js` in Roost shows Perch's full history.
+- `git log -- parts/perch/src/extension.js` in Roost shows Perch's full history (since the rename:
+  `git log --follow -- parts/agents/src/extension.js`).
 - A throwaway fifth part (a folder with `part.json` and one view) appears with its own switch after `make
   manifest`, with no other file edited.
 

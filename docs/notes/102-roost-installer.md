@@ -69,7 +69,9 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
 3. **The standalone four.** If any of `seanahn.perch`, `seanahn.chirp`, `seanahn.jay`, `seanahn.kestrel-prs` is
    installed, Roost's matching parts would fail to start (the same command ids twice). The installer lists them and
    asks: **Uninstall them and use Roost** (default) / **Stop**. Their settings, files under `~/.chirp` and `~/.jay`,
-   and agent sessions stay; only the extensions go. *(my call)* **Stop** skips steps 4–7 (Roost, GitHub, the look,
+   and agent sessions stay; only the extensions go. *(my call)* Their `perch.*`, `chirp.*`, `jay.*` and `kestrel.*`
+   settings are copied to Roost's `agents.*`, `teams.*`, `jira.*` and `pullRequests.*` by each part on its first
+   start (note 101, *Renamed parts and settings*); the installer writes no part settings itself. **Stop** skips steps 4–7 (Roost, GitHub, the look,
    the icons, opening VS Code) and exits 1 — GitHub too, since its question is for Roost's PRs panel; a VS Code installed in step 2 stays, which is harmless. With no terminal to
    ask on (a pipe, a layer), the run stops the same way unless `--yes` was given, which answers Uninstall. If an
    uninstall fails, Roost is not installed (a clash is worse than no Roost) and the run says which one is left.
