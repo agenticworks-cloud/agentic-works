@@ -22,3 +22,8 @@ node_modules/@openai/codex-win32-*/**
 node_modules/**/*.map
 node_modules/**/*.md
 node_modules/**/.github/**
+# ...but the dependencies' licence files stay, some of which are .md. A `!` line beats every line above, so these
+# leave the agents' programs (excluded above) out.
+!node_modules/!(@anthropic-ai|@openai)/**/[Ll][Ii][Cc][Ee][Nn][CcSs][Ee]*
+!node_modules/@anthropic-ai/!(claude-agent-sdk-*)/**/[Ll][Ii][Cc][Ee][Nn][CcSs][Ee]*
+!node_modules/@openai/!(codex-linux-*|codex-darwin-*|codex-win32-*)/**/[Ll][Ii][Cc][Ee][Nn][CcSs][Ee]*

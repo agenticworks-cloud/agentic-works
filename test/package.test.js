@@ -18,6 +18,13 @@ for (const f of [
   'extension/src/extension.js',
   'extension/parts/perch/src/extension.js',
   'extension/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
+  // licences: Roost's own (vsce renames LICENSE), and the dependencies' that are .md files
+  'extension/LICENSE.txt',
+  'extension/node_modules/@anthropic-ai/claude-agent-sdk/LICENSE.md',
+  'extension/node_modules/ms/license.md',
+  'extension/node_modules/qs/LICENSE.md',
+  'extension/node_modules/jose/LICENSE.md',
+  'extension/node_modules/json-schema-typed/LICENSE.md',
 ]) assert.ok(has(f), `${f} is in the package`);
 
 const { readParts } = require(path.join(root, 'src', 'parts.js'));
@@ -30,7 +37,7 @@ const unwanted = [
   /\/test\//, /\/docs\//, /^extension\/parts\/[^/]+\/node_modules\//, /\.vsix$/,
   // the agents' programs: Perch runs the ones inside the vendors' own extensions
   /^extension\/node_modules\/@anthropic-ai\/claude-agent-sdk-/, /^extension\/node_modules\/@openai\/codex-(linux|darwin|win32)-/,
-  /^extension\/node_modules\/.*\.map$/, /^extension\/node_modules\/.*\.md$/, /^extension\/node_modules\/.*\/\.github\//,
+  /^extension\/node_modules\/.*\.map$/, /^extension\/node_modules\/(?!.*\/licen[cs]e[^/]*$).*\.md$/i, /^extension\/node_modules\/.*\/\.github\//,
   /(^|\/)package-lock\.json$/, /(^|\/)\.env$/, /__pycache__\//,
   /^extension\/parts\/[^/]+\/\.gitignore$/, /^extension\/parts\/[^/]+\/\.vscodeignore$/,
 ];
