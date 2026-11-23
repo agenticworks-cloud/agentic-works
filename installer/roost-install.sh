@@ -54,6 +54,7 @@ CODE_DATA=""  # as root on Linux: the --user-data-dir VS Code's CLI insists on (
 SUDO=""
 TTY_OPEN=0
 CLASH=""  # why Roost can't go in beside the standalone four; when set, Roost fails and the steps after it stay out
+VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
 
 # ---- the checklist -------------------------------------------------------------------------------------------
@@ -316,7 +317,9 @@ apt_prereqs() {  # $* = commands needed: installs the missing ones' packages (cu
 
 install_vscode_apt() {  # Ubuntu and Debian-based: Microsoft's apt repository (unless a source has it); curl, gnupg
   # shellcheck disable=SC2086
-  if ! apt_has_source "packages.microsoft.com/repos/code"; then
+  if apt_has_source "packages.microsoft.com/repos/code"; then
+    apt_prereqs curl || return 1  # Roost's download needs it all the same
+  else
     apt_prereqs curl gpg &&
       add_apt_repo "$MS_KEY" /usr/share/keyrings/microsoft.gpg /etc/apt/sources.list.d/vscode.list \
         "deb [arch=$(deb_arch) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
@@ -433,8 +436,8 @@ installed_version() {  # $1 = id, $2 = installed_extensions' words: prints its v
   return 1
 }
 
-version_cmp() {  # $1, $2 = versions (1.2.3): prints lt, eq or gt. Numeric by field; a suffix (-beta) is ignored
-  local a=$1 b=$2 x y
+version_cmp() {  # $1, $2 = versions (1.2.3): prints lt, eq or gt, numeric by field; a prerelease (-beta.1) is cut
+  local a=${1%%-*} b=${2%%-*} x y
   while [ -n "$a" ] || [ -n "$b" ]; do
     x=${a%%.*} y=${b%%.*}
     if [ "$x" = "$a" ]; then a=""; else a=${a#*.}; fi
@@ -549,6 +552,10 @@ roost_stamped() {  # true when make release wrote this script's Roost version an
   [ -n "$ROOST_VERSION" ] && [ -n "$ROOST_SHA256" ]
 }
 
+lower() {  # $1 = text: in lowercase
+  printf '%s' "$1" | tr 'A-Z' 'a-z'
+}
+
 file_sha256() {  # $1 = file: prints its SHA-256; false when neither sha256sum nor shasum is here
   local out
   if have sha256sum; then
@@ -572,7 +579,7 @@ install_roost_vsix() {  # $1 = temp dir: download this release's .vsix there, ch
     code_cli --install-extension "$vsix"
   elif ! sum=$(file_sha256 "$vsix"); then
     ROOST_ERROR="no sha256sum or shasum to check the download with"
-  elif [ "$sum" != "$ROOST_SHA256" ]; then
+  elif [ "$(lower "$sum")" != "$(lower "$ROOST_SHA256")" ]; then
     ROOST_ERROR="the download did not match its checksum — run the installer again"
   elif ! code_cli --install-extension "$vsix"; then
     ROOST_ERROR="VS Code couldn't install it; see $LOG"
@@ -581,7 +588,7 @@ install_roost_vsix() {  # $1 = temp dir: download this release's .vsix there, ch
 }
 
 ensure_roost() {  # this release's Roost: installed, upgraded over an older one, or a newer one left alone
-  local current="" detail="installed $ROOST_VERSION" dir
+  local current="" detail="installed $ROOST_VERSION"
   skipped roost "Roost" && return 0
   step_begin "Roost"
   if [ -n "$CLASH" ]; then
@@ -605,12 +612,14 @@ ensure_roost() {  # this release's Roost: installed, upgraded over an older one,
     esac
     detail="upgraded from $current to $ROOST_VERSION"
   fi
-  if ! dir=$(mktemp -d "${TMPDIR:-/tmp}/roost-install-vsix.XXXXXX"); then
+  if ! VSIX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/roost-install-vsix.XXXXXX"); then
+    VSIX_DIR=""
     step_end failed "couldn't make a temp dir for the download"
     return 0
   fi
-  install_roost_vsix "$dir"
-  rm -rf "$dir"
+  install_roost_vsix "$VSIX_DIR"
+  rm -rf "$VSIX_DIR"
+  VSIX_DIR=""
   if [ -n "$ROOST_ERROR" ]; then
     step_end failed "$ROOST_ERROR"
   elif [ "$DRY_RUN" = 1 ]; then
@@ -622,9 +631,12 @@ ensure_roost() {  # this release's Roost: installed, upgraded over an older one,
 
 ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and codex) and Perch's audio, by id
   local installed="" id missing="" failed="" agents=""
-  [ -n "$CLASH" ] && return 0
   skipped companions "Companions" && return 0
   step_begin "Companions"
+  if [ -n "$CLASH" ]; then
+    step_end skipped "skipped — Roost was not installed"
+    return 0
+  fi
   if find_code; then
     installed=$(installed_extensions)
   elif [ "$DRY_RUN" != 1 ]; then
@@ -695,6 +707,7 @@ gh_signed_in() {
 
 ensure_github() {  # gh, and one optional browser sign-in (never answered by --yes)
   local installed="" user rc
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
   skipped github "GitHub" && return 0
   step_begin "GitHub"
   if ! have gh; then
@@ -722,7 +735,8 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
     if [ -n "$installed" ]; then
       step_end done "${installed}signed in${user:+ as $user}"
     else
-      step_end already "signed in${user:+ as $user}"
+      step_end already
+      [ -z "$user" ] || step_say "signed in as $user"
     fi
     return 0
   fi
@@ -812,6 +826,7 @@ parse_args() {
 }
 
 cleanup() {  # on exit: the log is kept, and named, only when a step failed and something was logged
+  [ -z "$VSIX_DIR" ] || rm -rf "$VSIX_DIR"
   if [ "$N_FAIL" != 0 ] && [ -s "$LOG" ]; then
     printf 'Details of what failed: %s\n' "$LOG"
   elif [ "$LOG" != /dev/null ]; then
@@ -828,6 +843,8 @@ main() {  # the steps, in order
   parse_args "$@"
   LOG=$(mktemp "${TMPDIR:-/tmp}/roost-install-log.XXXXXX")
   trap cleanup EXIT
+  trap 'exit 130' INT  # through the EXIT trap, so an interrupted run leaves no download behind
+  trap 'exit 143' TERM
   printf 'roost-install — VS Code with Roost%s\n\n' "$([ "$DRY_RUN" = 1 ] && echo ' (dry run)')"
   check_platform
   prepare_sudo

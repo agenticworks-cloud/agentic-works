@@ -14,11 +14,14 @@ from __future__ import annotations
 import functools
 import hashlib
 import http.server
+import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -29,7 +32,7 @@ DOWNLOAD = "https://code.visualstudio.com/download"
 
 # The system tools the script may use; everything else on PATH is a stub.
 SYSTEM = ("bash", "sh", "dirname", "uname", "mkdir", "chmod", "mv", "rm", "mktemp", "cat", "tr", "grep", "env",
-          "id", "sha256sum", "shasum")
+          "id", "sha256sum", "shasum", "sleep")
 ALL_PRESENT = ("brew", "curl", "gpg", "code", "sudo", "apt-get", "dnf", "rpm", "gh")
 
 VERSION = "1.2.3"  # what the test copy of the script is stamped with
@@ -53,7 +56,8 @@ CODE = r"""case " $* " in
     done
     exit 0 ;;
 esac
-for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "$a" >> "$STUB_LOG" ;; esac; done
+for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "$a" >> "$STUB_LOG"
+  [ -z "${CODE_SLEEP:-}" ] || exec sleep "$CODE_SLEEP" ;; esac; done
 [ -n "${CODE_FAIL_ON:-}" ] && case "$*" in *"$CODE_FAIL_ON"*) exit 1 ;; esac
 """
 # sudo and brew "install gh" put a gh stub on PATH, as the real install would.
@@ -314,6 +318,11 @@ class TestVSCode(_Installer):
                 self.assertEqual("microsoft.asc" in out, adds, out)
                 self.assertEqual("/etc/apt/sources.list.d/vscode.list" in out, adds, out)
                 self.assertEqual("gnupg" in out, adds, out)
+                self.assertIn("apt-get install -y curl ca-certificates", out)  # Roost's download needs curl
+
+        # curl there already: nothing to install first.
+        rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get", "gh", "curl")), "--dry-run")
+        self.assertNotIn("ca-certificates", out)
 
     def test_install_that_gives_no_code_fails(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get", "curl", "gpg")))
@@ -568,10 +577,12 @@ class TestStandalone(_Served):
         self.assertEqual(len(roost), 1, out)
         self.assertIn("stopped", roost[0])
         self.assertEqual([mark.split(":")[0].split(" (")[0] for mark in self.marks(out)],
-                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✗ Roost", "✓ GitHub"], out)
+                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✗ Roost", "– Companions"], out)
+        self.assertIn("  – Companions: skipped — Roost was not installed", out)
         self.assertEqual(self.logged("--install-extension"), [])
         self.assertEqual(self.logged("--uninstall-extension"), [])
-        self.assertRegex(out, r"\nDone: 4 ✓  0 –  1 ✗\n")
+        self.assertEqual([line for line in self.stub_log() if line.startswith("gh ")], [])
+        self.assertRegex(out, r"\nDone: 3 ✓  1 –  1 ✗\n")
 
     def test_no_terminal_without_yes_stops(self) -> None:
         env = self.served_env(CODE_EXTENSIONS="seanahn.jay@0.5.0", ROOST_INSTALL_TTY=str(self.tmp / "no-tty"))
@@ -601,7 +612,8 @@ class TestStandalone(_Served):
         self.assertIn("couldn't uninstall jay", roost[0])
         self.assertNotIn("Perch", roost[0])
         self.assertEqual(self.logged("--install-extension"), [])
-        self.assertNotIn("Companions", out)
+        self.assertIn("  – Companions: skipped — Roost was not installed", out)
+        self.assertNotIn("GitHub", out)
 
 
 class TestRoost(_Served):
@@ -630,6 +642,41 @@ class TestRoost(_Served):
         self.assertEqual(rc, 0, out)
         self.assertIn(f"  – Roost: 1.10.0 is newer than this installer's {VERSION}; left as is", out)
         self.assertEqual(self.logged("--install-extension"), [])
+
+    def test_prerelease_counts_as_its_release(self) -> None:
+        installed = f"seanahn.roost@{VERSION}-beta.1 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Roost (already)", out)
+        for a, b, want in (("1.2.3-beta.1", "1.2.3", "eq"), ("1.2.3", "1.2.4-rc.9", "lt"), ("1.10.0", "1.9.9", "gt")):
+            rc, out = self.run_sourced(self.served_env(), 'version_cmp "$1" "$2"', a, b)
+            self.assertEqual(out.strip(), want, (a, b))
+
+    def test_checksum_case_does_not_matter(self) -> None:
+        stamp(self.script, sha=SHA.upper())
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=" ".join(f"{c}@1.0.0" for c in COMPANIONS)))
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"  ✓ Roost (installed {VERSION})", out)
+
+    def test_interrupted_install_leaves_nothing(self) -> None:
+        """Ctrl-C (SIGINT to the process group) while code installs the .vsix: its temp dir still goes."""
+        env = self.served_env(CODE_EXTENSIONS="", CODE_SLEEP="30")
+        proc = subprocess.Popen([shutil.which("bash"), str(self.script)], env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            for _ in range(200):
+                if self.logged("vsix-present"):
+                    break
+                time.sleep(0.05)
+            self.assertTrue(self.logged("vsix-present"), self.stub_log())
+            self.assertTrue(self.leftovers())  # there while code runs
+            os.killpg(proc.pid, signal.SIGINT)
+            self.assertEqual(proc.wait(timeout=10), 130)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+        self.assertEqual(self.leftovers(), [])
 
     def test_fresh_install(self) -> None:
         installed = " ".join(f"{c}@1.0.0" for c in COMPANIONS)
@@ -766,7 +813,7 @@ class TestGitHub(_Installer):
     def test_gh_signed_in_no_question(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("n")))
         self.assertEqual(rc, 0, out)
-        self.assertIn("  ✓ GitHub (signed in as octocat) (already)", out)
+        self.assertIn("  ✓ GitHub (already)\n      signed in as octocat\n", out)
         self.assertNotIn("Sign in to GitHub", out)
         self.assertEqual(self.logged("gh auth login"), [])
 
