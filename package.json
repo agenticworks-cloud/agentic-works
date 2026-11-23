@@ -1,0 +1,1006 @@
+{
+  "name": "roost",
+  "displayName": "Roost",
+  "publisher": "seanahn",
+  "version": "0.1.0",
+  "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/seanahn/roost",
+  "icon": "parts/perch/media/icon.png",
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:chirp.conversation",
+    "onWebviewPanel:jay.ticket",
+    "onWebviewPanel:jay.page",
+    "onWebviewPanel:perch.session"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "chirp",
+          "title": "Teams",
+          "icon": "parts/chirp/media/teams-icon.svg"
+        },
+        {
+          "id": "jay",
+          "title": "Jira and Confluence",
+          "icon": "parts/jay/media/jay-icon.svg"
+        },
+        {
+          "id": "perch",
+          "title": "Perch",
+          "icon": "parts/perch/media/perch.svg"
+        }
+      ],
+      "panel": [
+        {
+          "id": "kestrel",
+          "title": "PRs",
+          "icon": "parts/kestrel/media/pr.svg"
+        }
+      ]
+    },
+    "views": {
+      "chirp": [
+        {
+          "type": "webview",
+          "id": "chirp.sidebar",
+          "name": "Chats and Channels",
+          "when": "roost.teams.enabled"
+        }
+      ],
+      "jay": [
+        {
+          "type": "webview",
+          "id": "jay.sidebar",
+          "name": "Jira",
+          "when": "roost.jira.enabled"
+        }
+      ],
+      "kestrel": [
+        {
+          "type": "webview",
+          "id": "kestrel.prs",
+          "name": "PRs",
+          "when": "roost.prs.enabled"
+        }
+      ],
+      "perch": [
+        {
+          "type": "webview",
+          "id": "perch.main",
+          "name": "Sessions",
+          "when": "roost.perch.enabled"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "chirp.refresh",
+        "title": "chirp: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "chirp.focusFilter",
+        "title": "chirp: Filter Chats and Channels"
+      },
+      {
+        "command": "chirp.activeConversationFile",
+        "title": "chirp: Active Conversation File"
+      },
+      {
+        "command": "chirp.signIn",
+        "title": "chirp: Sign In",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "chirp.signOut",
+        "title": "chirp: Sign Out",
+        "icon": "$(sign-out)"
+      },
+      {
+        "command": "chirp.enableChannels",
+        "title": "chirp: Enable Channels"
+      },
+      {
+        "command": "chirp.cancelSignIn",
+        "title": "chirp: Cancel Sign-in"
+      },
+      {
+        "command": "chirp.copyAdminLink",
+        "title": "chirp: Copy the Admin Approval Link"
+      },
+      {
+        "command": "chirp.copyCode",
+        "title": "chirp: Copy Sign-in Code and Open the Sign-in Page"
+      },
+      {
+        "command": "jay.refresh",
+        "title": "jay: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "jay.signIn",
+        "title": "jay: Sign In",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "jay.signOut",
+        "title": "jay: Sign Out",
+        "icon": "$(sign-out)"
+      },
+      {
+        "command": "jay.focusSearch",
+        "title": "jay: Search Tickets"
+      },
+      {
+        "command": "jay.activeIssueFile",
+        "title": "jay: Active Issue File"
+      },
+      {
+        "command": "jay.openTicket",
+        "title": "jay: Open Ticket"
+      },
+      {
+        "command": "jay.projectKeys",
+        "title": "jay: Project Keys"
+      },
+      {
+        "command": "jay.openPage",
+        "title": "jay: Open Confluence Page"
+      },
+      {
+        "command": "jay.siteUrl",
+        "title": "jay: Site URL"
+      },
+      {
+        "command": "jay.activePageFile",
+        "title": "jay: Active Page File"
+      },
+      {
+        "command": "kestrel.refresh",
+        "title": "kestrel: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kestrel.watch",
+        "title": "kestrel: Watch"
+      },
+      {
+        "command": "perch.open",
+        "title": "Perch: Open",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "perch.newClaude",
+        "title": "Perch: New Claude Tab",
+        "icon": "$(add)"
+      },
+      {
+        "command": "perch.newClaudeGateway",
+        "title": "Perch: New Claude Tab on the Gateway",
+        "icon": "$(add)"
+      },
+      {
+        "command": "perch.newCodex",
+        "title": "Perch: New Codex Tab",
+        "icon": "$(add)"
+      },
+      {
+        "command": "perch.stop",
+        "title": "Perch: Stop Active Tab",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "perch.closeTab",
+        "title": "Perch: Close Active Tab",
+        "icon": "$(close)"
+      },
+      {
+        "command": "perch.handoff",
+        "title": "Perch: Hand Off Last Answer to Another Tab…",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "perch.insertText",
+        "title": "Perch: Insert Text into the Active Tab"
+      },
+      {
+        "command": "perch.notePrMerged",
+        "title": "Perch: Note a Merged Pull Request in the Session That Made It"
+      },
+      {
+        "command": "perch.findPrSession",
+        "title": "Perch: Find the Session That Made a Pull Request"
+      },
+      {
+        "command": "perch.openPrSession",
+        "title": "Perch: Open the Session That Made a Pull Request"
+      },
+      {
+        "command": "perch.continueInCodex",
+        "title": "Perch: Continue This Tab in Codex…",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "perch.continueInClaude",
+        "title": "Perch: Continue This Tab in Claude…",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "perch.sessions",
+        "title": "Perch: Sessions…",
+        "icon": "$(history)"
+      },
+      {
+        "command": "perch.renameTab",
+        "title": "Perch: Rename Active Tab…",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "perch.refreshModels",
+        "title": "Perch: Refresh Model Lists",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "perch.meter.refresh",
+        "title": "Perch: Refresh Claude Usage"
+      },
+      {
+        "command": "perch.meter.toggleBackend",
+        "title": "Perch: Switch Claude Backend (Subscription / API)"
+      },
+      {
+        "command": "perch.meter.login",
+        "title": "Perch: Log in to Claude (subscription)"
+      },
+      {
+        "command": "perch.new",
+        "title": "Perch: New Tab…",
+        "icon": "$(add)"
+      },
+      {
+        "command": "perch.moveToEditor",
+        "title": "Perch: Move Tab to the Editor Area",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "perch.moveToSidebar",
+        "title": "Perch: Move Tab to the Sidebar",
+        "icon": "$(layout-sidebar-right)"
+      },
+      {
+        "command": "perch.moveAllToEditor",
+        "title": "Perch: Move All Tabs to the Editor Area"
+      },
+      {
+        "command": "perch.moveAllToSidebar",
+        "title": "Perch: Move All Tabs to the Sidebar"
+      },
+      {
+        "command": "perch.codebaseIndex.toggle",
+        "title": "Perch: Toggle Codebase Search"
+      },
+      {
+        "command": "perch.codebaseIndex.install",
+        "title": "Perch: Install Codebase Search by Meaning"
+      },
+      {
+        "command": "perch.clearSecretExceptions",
+        "title": "Perch: Clear Secret-Check Exceptions"
+      },
+      {
+        "command": "perch.voice.setup",
+        "title": "Perch: Set Up Voice Input"
+      },
+      {
+        "command": "perch.voice.toggle",
+        "title": "Perch: Start or Finish Dictation",
+        "icon": "$(mic)"
+      },
+      {
+        "command": "perch.voice.cancel",
+        "title": "Perch: Discard Dictation"
+      },
+      {
+        "command": "perch.voice.unload",
+        "title": "Perch: Unload the Speech Model (frees its memory)"
+      },
+      {
+        "command": "perch.codex.toggleBackend",
+        "title": "Perch: Switch Codex Backend (ChatGPT / API key)"
+      },
+      {
+        "command": "perch.codex.setApiKey",
+        "title": "Perch: Set OpenAI API Key for Codex…"
+      },
+      {
+        "command": "perch.codex.clearApiKey",
+        "title": "Perch: Forget the OpenAI API Key for Codex"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "chirp.activeConversationFile",
+          "when": "roost.teams.enabled && (false)"
+        },
+        {
+          "command": "chirp.copyCode",
+          "when": "roost.teams.enabled && (false)"
+        },
+        {
+          "command": "jay.activeIssueFile",
+          "when": "roost.jira.enabled && (false)"
+        },
+        {
+          "command": "jay.openTicket",
+          "when": "roost.jira.enabled && (false)"
+        },
+        {
+          "command": "jay.projectKeys",
+          "when": "roost.jira.enabled && (false)"
+        },
+        {
+          "command": "jay.openPage",
+          "when": "roost.jira.enabled && (false)"
+        },
+        {
+          "command": "jay.siteUrl",
+          "when": "roost.jira.enabled && (false)"
+        },
+        {
+          "command": "jay.activePageFile",
+          "when": "roost.jira.enabled && (false)"
+        },
+        {
+          "command": "kestrel.watch",
+          "when": "roost.prs.enabled && (false)"
+        },
+        {
+          "command": "perch.insertText",
+          "when": "roost.perch.enabled && (false)"
+        },
+        {
+          "command": "perch.notePrMerged",
+          "when": "roost.perch.enabled && (false)"
+        },
+        {
+          "command": "perch.findPrSession",
+          "when": "roost.perch.enabled && (false)"
+        },
+        {
+          "command": "perch.openPrSession",
+          "when": "roost.perch.enabled && (false)"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "chirp.refresh",
+          "when": "roost.teams.enabled && (view == chirp.sidebar)",
+          "group": "navigation@1"
+        },
+        {
+          "command": "chirp.signIn",
+          "when": "roost.teams.enabled && (view == chirp.sidebar)",
+          "group": "2_account@1"
+        },
+        {
+          "command": "chirp.signOut",
+          "when": "roost.teams.enabled && (view == chirp.sidebar)",
+          "group": "2_account@2"
+        },
+        {
+          "command": "jay.refresh",
+          "when": "roost.jira.enabled && (view == jay.sidebar)",
+          "group": "navigation@1"
+        },
+        {
+          "command": "jay.signIn",
+          "when": "roost.jira.enabled && (view == jay.sidebar)",
+          "group": "2_account@1"
+        },
+        {
+          "command": "jay.signOut",
+          "when": "roost.jira.enabled && (view == jay.sidebar)",
+          "group": "2_account@2"
+        },
+        {
+          "command": "kestrel.refresh",
+          "when": "roost.prs.enabled && (view == kestrel.prs)",
+          "group": "navigation@1"
+        },
+        {
+          "command": "perch.handoff",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "1_new@5"
+        },
+        {
+          "command": "perch.continueInCodex",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "1_new@6"
+        },
+        {
+          "command": "perch.continueInClaude",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "1_new@7"
+        },
+        {
+          "command": "perch.stop",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "navigation@2"
+        },
+        {
+          "command": "perch.sessions",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "navigation@3"
+        },
+        {
+          "command": "perch.renameTab",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "1_new@4"
+        },
+        {
+          "command": "perch.newClaude",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "1_new@1"
+        },
+        {
+          "command": "perch.newClaudeGateway",
+          "when": "roost.perch.enabled && (view == perch.main && perch.gateway)",
+          "group": "1_new@11"
+        },
+        {
+          "command": "perch.newCodex",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "1_new@2"
+        },
+        {
+          "command": "perch.closeTab",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "1_new@3"
+        },
+        {
+          "command": "perch.refreshModels",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "2_models@1"
+        },
+        {
+          "command": "perch.meter.toggleBackend",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "3_meter@1"
+        },
+        {
+          "command": "perch.meter.refresh",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "3_meter@2"
+        },
+        {
+          "command": "perch.moveToEditor",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "2_models@2"
+        },
+        {
+          "command": "perch.moveAllToEditor",
+          "when": "roost.perch.enabled && (view == perch.main)",
+          "group": "2_models@3"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "perch.new",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "navigation@1"
+        },
+        {
+          "command": "perch.handoff",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "2_move@2"
+        },
+        {
+          "command": "perch.continueInCodex",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "2_move@6"
+        },
+        {
+          "command": "perch.continueInClaude",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "2_move@7"
+        },
+        {
+          "command": "perch.sessions",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "navigation@3"
+        },
+        {
+          "command": "perch.renameTab",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "1_new@3"
+        },
+        {
+          "command": "perch.newClaude",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "1_new@1"
+        },
+        {
+          "command": "perch.newClaudeGateway",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session' && perch.gateway)",
+          "group": "1_new@11"
+        },
+        {
+          "command": "perch.newCodex",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "1_new@2"
+        },
+        {
+          "command": "perch.moveToSidebar",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "2_move@1"
+        },
+        {
+          "command": "perch.refreshModels",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "3_models@1"
+        },
+        {
+          "command": "perch.meter.toggleBackend",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "4_meter@1"
+        },
+        {
+          "command": "perch.meter.refresh",
+          "when": "roost.perch.enabled && (activeWebviewPanelId == 'perch.session')",
+          "group": "4_meter@2"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "workbench.editor.autoLockGroups": {
+        "mainThreadWebview-perch.session": true
+      }
+    },
+    "keybindings": [
+      {
+        "command": "perch.open",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p"
+      }
+    ],
+    "configuration": {
+      "title": "Roost",
+      "properties": {
+        "roost.teams.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Teams: switch this part on or off."
+        },
+        "roost.jira.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Jira & Confluence: switch this part on or off."
+        },
+        "roost.prs.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "PRs: switch this part on or off."
+        },
+        "roost.perch.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Perch: switch this part on or off."
+        },
+        "chirp.signIn.method": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "editor",
+            "deviceCode",
+            "tokenFile"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "A token file if one is set, otherwise the editor's Microsoft sign-in, otherwise a sign-in code.",
+            "The editor's own Microsoft account sign-in, using chirp's app.",
+            "A code you enter at microsoft.com/devicelogin; chirp keeps the tokens in the editor's secret storage.",
+            "Reuse the login another tool keeps in a token file (chirp.signIn.tokenFile)."
+          ],
+          "description": "How chirp signs in to Microsoft. See the README's \"Signing in\" section."
+        },
+        "chirp.signIn.tokenFile": {
+          "type": "string",
+          "default": "",
+          "description": "A token file another tool keeps (JSON with access_token, refresh_token, client_id, tenant_id, expires_at). When set, chirp reuses that login instead of signing in itself. chirp refreshes it in place and never deletes it."
+        },
+        "chirp.agentFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write each open conversation to ~/.chirp as plain text (files readable only by you), so an AI agent beside chirp knows which chat is open. Off: no files, and chirp.activeConversationFile returns nothing."
+        },
+        "jay.site": {
+          "type": "string",
+          "default": "",
+          "description": "Your Jira Cloud site URL, for example https://example.atlassian.net. Used when you sign in with an API token."
+        },
+        "jay.signIn.tokenFile": {
+          "type": "string",
+          "default": "",
+          "description": "A token file another tool keeps: either an OAuth credentials JSON file, or a jira-mcp wrapper or env file with JIRA_URL, JIRA_USERNAME and JIRA_API_TOKEN lines (never run). When set, jay uses that login instead of signing in itself, and never writes the file."
+        },
+        "jay.signIn.refreshCommand": {
+          "type": "string",
+          "default": "",
+          "description": "A command that refreshes the token file. jay runs it when the token has expired."
+        },
+        "jay.period": {
+          "type": "string",
+          "enum": [
+            "quarter",
+            "sprint",
+            "fixVersion"
+          ],
+          "enumDescriptions": [
+            "Quarters, matched on epics by the quarter patterns",
+            "The project's sprints (Jira Software)",
+            "The project's fix versions"
+          ],
+          "default": "quarter",
+          "description": "What the sidebar's second picker lists: quarters, sprints or fix versions."
+        },
+        "jay.quarter.fiscalYearStart": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "default": 1,
+          "description": "The month the fiscal year starts, 1 to 12. The default, 1, is the calendar year."
+        },
+        "jay.quarter.patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "label:FY{YYYY}Q{Q}",
+            "label:FY{YY}-Q{Q}",
+            "summary:[Q{Q}FY{YY}]"
+          ],
+          "description": "Templates that mark an epic as in a quarter. 'label:' templates match a label exactly; 'summary:' templates match part of the title. Use {YYYY}, {YY} and {Q}."
+        },
+        "jay.placeholderAssignees": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Display names or account ids that count as unclaimed, so their tickets show under Unclaimed."
+        },
+        "jay.columns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "key",
+              "summary",
+              "assignee",
+              "status",
+              "type",
+              "priority",
+              "due",
+              "labels",
+              "estimate"
+            ]
+          },
+          "default": [
+            "key",
+            "summary",
+            "status"
+          ],
+          "description": "The columns the sidebar shows on each row, in order. The summary is always shown."
+        },
+        "jay.ticketView": {
+          "type": "string",
+          "enum": [
+            "atlassian",
+            "jay"
+          ],
+          "enumDescriptions": [
+            "The issue page of Atlassian's own extension (atlassian.atlascode), falling back to jay's tab when it isn't installed or fails",
+            "jay's own ticket tab"
+          ],
+          "default": "atlassian",
+          "description": "Which view a click on a ticket opens, in the tree, in Jira results and on \"Open KEY\"."
+        },
+        "jay.agentFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write each open ticket to ~/.jay as plain text (files readable only by you), so an AI agent beside jay knows which ticket is open. Off: no files, and jay.activeIssueFile returns nothing."
+        },
+        "jay.confluence.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Jira | Confluence switch and check Confluence for mentions."
+        },
+        "kestrel.accounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "GitHub accounts (as known to the gh CLI) whose pull requests to list. Empty: every account gh is signed in to."
+        },
+        "kestrel.mergeMethod": {
+          "type": "string",
+          "enum": [
+            "squash",
+            "merge",
+            "rebase"
+          ],
+          "default": "squash",
+          "description": "How the Merge button merges a pull request."
+        },
+        "perch.lockGroup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lock an editor group that holds only Perch tabs, so files opened from the Explorer go to your other editor group and not in among the sessions. The lock comes off once the group's last Perch tab has gone and other tabs are left in it (VS Code 1.92 or later)."
+        },
+        "perch.newTabs": {
+          "type": "string",
+          "enum": [
+            "editor",
+            "sidebar"
+          ],
+          "default": "editor",
+          "enumDescriptions": [
+            "Each session is an editor tab, like a file. No sidebar title rows; tabs can be dragged, split, and reordered.",
+            "Sessions are tabs inside the Perch sidebar view."
+          ],
+          "description": "Where Perch opens new tabs. Tabs saved before this setting existed follow it too."
+        },
+        "perch.claude.permissionMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "auto",
+            "bypassPermissions"
+          ],
+          "default": "default",
+          "description": "Claude Code permission mode for new tabs. bypassPermissions skips all prompts."
+        },
+        "perch.claude.model": {
+          "type": "string",
+          "default": "",
+          "description": "Claude model for new tabs, for example opus, sonnet, or a full model id. Empty uses Claude Code's default. Each tab can change it live."
+        },
+        "perch.claude.effort": {
+          "type": "string",
+          "default": "",
+          "description": "Claude reasoning effort for new tabs, for example high. Empty uses the model's default. Ignored if the tab's model does not accept it. Each tab can change it live."
+        },
+        "perch.claude.executable": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a claude program to run. Empty uses the one that comes with the Claude Code extension."
+        },
+        "perch.claude.gatewayEnv": {
+          "type": "string",
+          "default": "~/.config/gateway-claude/env",
+          "description": "A file describing a gateway Claude Code can be run through: export KEY=VALUE lines, as a shell reads them, with ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY, and any model names. A Claude tab opened on the gateway runs with these added to its environment; nothing is written to Claude Code's settings. When the file exists, + offers a tab on the gateway."
+        },
+        "perch.claude.defaultBackend": {
+          "type": "string",
+          "enum": [
+            "remembered",
+            "gateway"
+          ],
+          "default": "remembered",
+          "description": "Where new Claude tabs start before you have chosen a backend for any tab. After you choose one in a tab's backend menu, new tabs follow your choice."
+        },
+        "perch.codex.executable": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a codex program to run. Empty uses the one that comes with the ChatGPT extension."
+        },
+        "perch.firstStart.openClaudeTab": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open one Claude tab on the right the next time Perch starts, then set this back to false. For installers."
+        },
+        "perch.ideContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "New tabs attach the active file and, if there is one, the selection to each message, as the vendors' own panels do. Each tab can turn it on or off; the choice is kept with the tab."
+        },
+        "perch.secretCheck.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Before a message is sent, look in it for something that looks like a password or key (a GitHub token, an AWS key, a password in a URL, a long random string…). If one is found the message waits, and you choose: Send anyway, Not a secret, or Edit. The check runs in the page, on the text alone."
+        },
+        "perch.secretCheck.ignore": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Regular expressions for values the secret check never flags, such as a trace-id or build-id format. A value is let through when one of them matches it in full. An invalid expression is skipped, with a note in the tab."
+        },
+        "perch.codebaseIndex.enabled": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Give Claude and Codex tabs a `codebase_search` tool: search the workspace by keywords, and by meaning once that is installed (`Perch: Install Codebase Search by Meaning`). Off by default: on a well-documented repository the agents found their answers as fast by grep, and the tool cost them steps; turn it on, for every workspace or for one, where the names in the code are not what you would ask for. Every folder of a multi-root workspace is covered, an index each; a folder's own `.vscode/settings.json` decides for that folder. Indexes are kept in `~/.cache/codebase-index/`, on the machine the workspace is on. A change applies to each tab from its next message.",
+          "scope": "resource"
+        },
+        "perch.codebaseIndex.python": {
+          "type": "string",
+          "default": "",
+          "description": "The Python that codebase search runs on, and that makes its private environment: 3.8 or newer, with SQLite FTS5. Empty uses python3."
+        },
+        "perch.codex.approvalPolicy": {
+          "type": "string",
+          "enum": [
+            "never",
+            "on-request",
+            "on-failure",
+            "untrusted"
+          ],
+          "default": "on-failure",
+          "description": "Codex approval policy. The Codex SDK runs non-interactively, so approvals resolve by policy, not by prompt."
+        },
+        "perch.codex.sandboxMode": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ],
+          "default": "workspace-write",
+          "description": "Codex sandbox mode for new tabs."
+        },
+        "perch.codex.model": {
+          "type": "string",
+          "default": "",
+          "description": "Codex model for new tabs, for example gpt-6-sol. Empty uses the model in ~/.codex/config.toml. Set per tab before its first message."
+        },
+        "perch.codex.bedrock.endpoint": {
+          "type": "string",
+          "enum": [
+            "runtime",
+            "mantle"
+          ],
+          "default": "runtime",
+          "description": "How Codex reaches Amazon Bedrock when that backend is chosen: runtime (bedrock-runtime.<region>.amazonaws.com, the bedrock:* actions Claude on Bedrock uses, models as us.openai.<name>) or mantle (bedrock-mantle.<region>.api.aws, its own IAM action bedrock-mantle:CreateInference, not in every region, models as openai.<name>)."
+        },
+        "perch.codex.bedrock.region": {
+          "type": "string",
+          "default": "",
+          "description": "The AWS region for Codex on Bedrock. Empty: AWS_REGION from the environment or from the env block of ~/.claude/settings.json (us-east-1 if none); for Mantle, us-east-1."
+        },
+        "perch.codex.bedrock.profile": {
+          "type": "string",
+          "default": "",
+          "description": "The AWS profile for Codex on Bedrock. Empty: AWS_PROFILE from the environment or from the env block of ~/.claude/settings.json, else the default credential chain."
+        },
+        "perch.codex.reasoningEffort": {
+          "type": "string",
+          "default": "",
+          "description": "Codex reasoning effort for new tabs, for example high. Empty uses ~/.codex/config.toml or the model's default. Ignored if the tab's model does not accept it."
+        },
+        "perch.meter.mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "subscription",
+            "cost"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Cost when Claude is configured for Bedrock or API, subscription limits otherwise.",
+            "Subscription limits from the usage endpoint.",
+            "Token totals and estimated cost from local transcripts."
+          ],
+          "description": "What the Claude usage gauge shows."
+        },
+        "perch.meter.pollMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "How often the Claude usage gauge refreshes, in minutes."
+        },
+        "perch.meter.display": {
+          "type": "string",
+          "enum": [
+            "remaining",
+            "used"
+          ],
+          "default": "remaining",
+          "description": "Show percent remaining, fuel-tank style, or percent used."
+        },
+        "perch.meter.showModelWeekly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also show model-scoped weekly limits when reported."
+        },
+        "perch.meter.warnBelow": {
+          "type": "number",
+          "default": 25,
+          "description": "Warning colour when any limit has less than this percent remaining."
+        },
+        "perch.meter.errorBelow": {
+          "type": "number",
+          "default": 10,
+          "description": "Error colour when any limit has less than this percent remaining."
+        },
+        "perch.voice.model": {
+          "type": "string",
+          "default": "auto",
+          "description": "The Whisper model for dictation. auto picks by device: large-v3-turbo on a GPU, small on a CPU. Any faster-whisper model name can be given (large-v3-turbo, medium, small, base). Changing it fetches the new model on next use."
+        },
+        "perch.voice.runOn": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "local",
+            "remote"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "The computer you sit at when it has an NVIDIA GPU, otherwise the machine with the workspace.",
+            "The computer you sit at, in Perch Audio.",
+            "The machine with the workspace, in Perch."
+          ],
+          "description": "Where speech-to-text runs when the workspace is remote. The microphone is always on the computer you sit at; the words can be worked out there, and only the text sent to the workspace, or the audio can be sent to the workspace machine. With no remote, both are the same machine."
+        },
+        "perch.voice.device": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "cuda",
+            "cpu"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "The GPU if there is one that works, otherwise the CPU.",
+            "The NVIDIA GPU only.",
+            "The CPU only."
+          ],
+          "description": "The processor for speech-to-text, on whichever machine runs it (perch.voice.runOn)."
+        },
+        "perch.voice.language": {
+          "type": "string",
+          "default": "",
+          "description": "The language you dictate in, as a code such as en or ko. Empty detects it each time, which on a CPU costs as much again as the transcription."
+        },
+        "perch.voice.vocabulary": {
+          "type": "string",
+          "default": "",
+          "description": "Words and names to expect, such as project or product names, to help them be spelled right. A short phrase or list."
+        },
+        "perch.voice.idleMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "Unload the speech model after this many minutes without dictation, freeing its memory (about 2.5 GB on a GPU). 0 keeps it loaded."
+        },
+        "perch.voice.python": {
+          "type": "string",
+          "default": "",
+          "description": "The Python interpreter used to create the private environment. Empty uses python3."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.321",
+    "@openai/codex-sdk": "^0.159.0"
+  },
+  "extensionPack": [
+    "seanahn.perch-audio",
+    "anthropic.claude-code",
+    "openai.chatgpt"
+  ]
+}
