@@ -1,5 +1,5 @@
-node_modules/
-parts/*/node_modules/
+node_modules
+parts/*/node_modules
 *.vsix
 .superpowers/
 .worktrees/
