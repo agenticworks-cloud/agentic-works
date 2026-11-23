@@ -705,6 +705,7 @@ ensure_roost() {  # this release's Roost: installed, upgraded over an older one,
   else
     ROOST_IN_PLACE=1
     step_end done "$detail"
+    [ -z "$current" ] || step_say "Reload any open VS Code window to use the new version."
   fi
 }
 

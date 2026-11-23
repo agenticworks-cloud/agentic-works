@@ -859,7 +859,8 @@ class TestRoost(_Served):
         installed = "seanahn.roost@1.1.9 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"  ✓ Roost (upgraded from 1.1.9 to {VERSION})", out)
+        self.assertIn(f"  ✓ Roost (upgraded from 1.1.9 to {VERSION})\n"
+                      "      Reload any open VS Code window to use the new version.\n", out)
         installs = self.vsix_installs()
         self.assertEqual(len(installs), 1, self.stub_log())
         self.assertTrue(installs[0].endswith(f"/roost-{VERSION}.vsix"), installs)
@@ -936,6 +937,7 @@ class TestRoost(_Served):
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
         self.assertIn(f"  ✓ Roost (installed {VERSION})", out)
+        self.assertNotIn("Reload", out)  # only an upgrade replaces a running Roost
         self.assertEqual(len(self.vsix_installs()), 1, self.stub_log())
         self.assertEqual(self.leftovers(), [])
 
