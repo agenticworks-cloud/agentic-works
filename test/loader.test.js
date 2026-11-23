@@ -105,15 +105,58 @@ test('enabled parts start, disabled do not', async () => {
 
 test('every context key is set before any part starts', async () => {
   const { ui, extension, base } = setup({ 'roost.prs.enabled': false });
-  let seen = null;
-  fake.parts.teams = { activate: () => { seen = { ...ui.contexts }; } };
+  ui.asyncSetContext = true;                          // applied later, in the order sent, as VS Code applies them
+  let sentBefore = null;
+  fake.parts.teams = { activate: () => { sentBefore = ui.sent.slice(); } };
   await activate(extension, base);
-  assert.deepStrictEqual(seen, {
-    'roost.teams.enabled': false,
-    'roost.jira.enabled': false,
+  await ui.applied;
+  assert.deepStrictEqual(sentBefore, [
+    ['roost.teams.enabled', false],
+    ['roost.jira.enabled', false],
+    ['roost.prs.enabled', false],
+    ['roost.perch.enabled', false],
+  ], 'every key false is sent before the first part starts');
+  assert.deepStrictEqual(ui.contexts, {
+    'roost.teams.enabled': true,
+    'roost.jira.enabled': true,
     'roost.prs.enabled': false,
-    'roost.perch.enabled': false,
-  });
+    'roost.perch.enabled': true,
+  }, 'and none of those lands after its part turned it on');
+  await extension.deactivate();
+});
+
+test('a context key that cannot be set is logged', async () => {
+  const { ui, extension, base } = setup();
+  ui.failSetContext = 1;
+  const roost = await activate(extension, base);
+  assert.ok(ui.out.some((l) => l.includes('setContext failed')));
+  for (const id of ['teams', 'jira', 'prs', 'perch']) assert.strictEqual(roost.state(id), 'on', id);
+  await extension.deactivate();
+});
+
+test('a stop whose context key cannot be set still stops the part', async () => {
+  const { ui, extension, base } = setup();
+  const roost = await activate(extension, base);
+  ui.failSetContext = 1;
+  await setEnabled(ui, 'perch', false);
+  assert.strictEqual(roost.state('perch'), 'off');
+  assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'perch'), 'released, so Perch is not left half-stopped');
+  await extension.deactivate();
+});
+
+test('a part that throws after registering its own serializer still fails cleanly', async () => {
+  const { ui, extension, base } = setup();
+  fake.parts.jira = {
+    activate: () => {
+      ui.vscode.window.registerWebviewPanelSerializer('jay.ticket', { deserializeWebviewPanel: async () => {} });   // not in its subscriptions
+      throw new Error('boom');
+    },
+  };
+  const roost = await activate(extension, base);
+  assert.strictEqual(roost.state('jira'), 'failed');
+  assert.strictEqual(ui.contexts['roost.jira.enabled'], false);
+  assert.deepStrictEqual(ui.errors, [{ message: 'Roost: Jira & Confluence could not start.', items: ['Show Log'] }]);
+  assert.strictEqual(ui.restorePanel('jay.page').disposed, true, 'its other type is still closed while it is off');
   await extension.deactivate();
 });
 
@@ -265,11 +308,11 @@ test('switching Perch off mid-turn asks first', async () => {
   const roost = await activate(extension, base);
   const asked = () => fake.calls.filter((c) => c[0] === 'confirmStop').map((c) => c[1]);
 
-  ui.inspect['roost.perch.enabled'] = { globalValue: true, workspaceValue: false };   // switched off for this workspace
+  ui.inspect['roost.perch.enabled'] = { defaultValue: true, globalValue: true, workspaceValue: false };   // switched off for this workspace
   await setEnabled(ui, 'perch', false);
   assert.deepStrictEqual(asked(), ['perch']);
   assert.strictEqual(roost.state('perch'), 'on', 'cancelled: still on');
-  assert.deepStrictEqual(ui.updates, [['roost.perch.enabled', true, 2]], 'the switch is put back, in the workspace');
+  assert.deepStrictEqual(ui.updates, [['roost.perch.enabled', undefined, 2]], 'the switch is put back, in the workspace: its value there removed, as the user setting is on');
   assert.strictEqual(ui.contexts['roost.perch.enabled'], true);
   assert.ok(!fake.calls.some((c) => c[0] === 'deactivate'), 'not stopped');
   assert.deepStrictEqual(activated(), ['teams', 'jira', 'prs', 'perch'], 'and not started a second time');
@@ -284,6 +327,24 @@ test('switching Perch off mid-turn asks first', async () => {
   await extension.deactivate();                       // the window closing: nothing is asked
   assert.deepStrictEqual(asked(), ['perch', 'perch']);
   assert.strictEqual(roost.state('perch'), 'off');
+});
+
+test('the switch is put back as it was at that scope', async () => {
+  const { ui, extension, base } = setup();
+  fake.parts.perch = { confirmStop: async () => false };
+  await activate(extension, base);
+  const cases = [
+    [{ defaultValue: true, globalValue: false }, ['roost.perch.enabled', undefined, 1], 'user setting off: removed, the default is on'],
+    [{ defaultValue: true, globalValue: false, workspaceValue: false }, ['roost.perch.enabled', true, 2], 'off for the user too: true in the workspace'],
+    [{ defaultValue: false }, ['roost.perch.enabled', true, 1], 'a default that is off: true for the user'],
+  ];
+  for (const [inspect, want, why] of cases) {
+    ui.updates.length = 0;
+    ui.inspect['roost.perch.enabled'] = inspect;
+    await setEnabled(ui, 'perch', false);
+    assert.deepStrictEqual(ui.updates, [want], why);
+  }
+  await extension.deactivate();
 });
 
 test("a confirmStop that throws does not keep the part on", async () => {
@@ -354,10 +415,13 @@ test('a failed start or stop does not block later ones', async () => {
   const onUnhandled = (e) => unhandled.push(e);
   process.on('unhandledRejection', onUnhandled);
   try {
+    let answer = false;
+    fake.parts.prs = { confirmStop: async () => answer };
     const roost = await activate(extension, base);
-    ui.failSetContext = 1;
-    await setEnabled(ui, 'prs', false);               // its stop rejects: the context key cannot be set
-    assert.ok(ui.out.some((l) => l.includes('setContext failed')), 'the failure is in the Roost output channel');
+    ui.failUpdate = 'settings are read-only';
+    await setEnabled(ui, 'prs', false);               // its stop rejects: the switch cannot be put back
+    assert.ok(ui.out.some((l) => l.includes('settings are read-only')), 'the failure is in the Roost output channel');
+    ui.failUpdate = null; answer = true;
     await setEnabled(ui, 'prs', true);
     await setEnabled(ui, 'prs', false);               // and the next stop still runs
     assert.strictEqual(roost.state('prs'), 'off');

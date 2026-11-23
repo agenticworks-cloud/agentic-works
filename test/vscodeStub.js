@@ -13,7 +13,7 @@ class Emitter {
 }
 
 function install() {
-  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [] };
+  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve() };
   const configChange = new Emitter();
   ui.changeConfig = (keys) => configChange.fire({ affectsConfiguration: (s) => keys.some((k) => k === s || k.startsWith(s + '.')) });
   const Uri = {
@@ -52,8 +52,11 @@ function install() {
       executeCommand: async (id, ...a) => {
         if (id === 'setContext') {
           if (ui.failSetContext > 0) { ui.failSetContext--; throw new Error('setContext failed'); }
-          ui.contexts[a[0]] = a[1];
-          return undefined;
+          ui.sent.push([a[0], a[1]]);
+          if (!ui.asyncSetContext) { ui.contexts[a[0]] = a[1]; return undefined; }
+          // as across the process boundary: applied a turn later, in the order sent
+          ui.applied = ui.applied.then(() => new Promise((r) => setImmediate(r))).then(() => { ui.contexts[a[0]] = a[1]; });
+          return ui.applied;
         }
         if (!ui.commands[id]) throw new Error(`command '${id}' not found`);
         return ui.commands[id](...a);
@@ -72,9 +75,10 @@ function install() {
         // records the write, then changes the value and tells the listeners, as the real one does
         update: async (key, value, target) => {
           const full = section ? `${section}.${key}` : key;
+          if (ui.failUpdate) throw new Error(ui.failUpdate);
           ui.updates.push([full, value, target]);
           delete ui.inspect[full];
-          ui.config[full] = value;
+          if (value === undefined) delete ui.config[full]; else ui.config[full] = value;   // undefined: the default holds
           ui.changeConfig([full]);
         },
       }),

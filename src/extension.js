@@ -91,20 +91,29 @@ class Roost {
     }
   }
 
-  // Puts roost.<id>.enabled back to true at the scope where it was set to false: the workspace's, else the user's.
+  // Puts roost.<id>.enabled back on at the scope where it was set to false (the workspace's, else the user's): the
+  // value there is removed when the wider one (the user's, else the default) is already true, else set to true.
   async keepOn(id) {
     const config = vscode.workspace.getConfiguration('roost');
     const key = `${id}.enabled`;
     const set = config.inspect(key) || {};
-    const target = set.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
-    await config.update(key, true, target);
+    const T = vscode.ConfigurationTarget;
+    const inWorkspace = set.workspaceValue !== undefined;
+    const wider = inWorkspace && set.globalValue !== undefined ? set.globalValue : set.defaultValue;
+    await config.update(key, wider === true ? undefined : true, inWorkspace ? T.Workspace : T.Global);
   }
 
   // While a part is off: a serializer for each of its webview types, closing a tab VS Code restores for it.
   closeRestoredTabs(e) {
     if (e.closers || this.closed) return;
-    e.closers = e.part.webviews.map((type) =>
-      vscode.window.registerWebviewPanelSerializer(type, { deserializeWebviewPanel: async (panel) => panel.dispose() }));
+    e.closers = [];
+    for (const type of e.part.webviews) {
+      try {
+        e.closers.push(vscode.window.registerWebviewPanelSerializer(type, { deserializeWebviewPanel: async (panel) => panel.dispose() }));
+      } catch (err) {   // the part left one of its own registered
+        this.log(`${e.part.title}: tabs of ${type} cannot be closed while it is off: ${errorText(err)}`);
+      }
+    }
   }
 
   stopClosingTabs(e) {
@@ -130,7 +139,11 @@ class Roost {
     }
   }
 
-  setKey(id, on) { return vscode.commands.executeCommand('setContext', contextKey(id), on); }
+  // A key that cannot be set is logged; what the part does goes on.
+  setKey(id, on) {
+    return Promise.resolve(vscode.commands.executeCommand('setContext', contextKey(id), on))
+      .catch((err) => this.log(`${contextKey(id)} could not be set: ${errorText(err)}`));
+  }
 
   // Every key false first, so nothing shows for a part that is off or fails; each turns true as its part starts.
   // The parts start side by side: one whose activate never ends holds up none of the others. Nothing here is awaited

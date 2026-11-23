@@ -3885,5 +3885,22 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     again.dispose(); m.ui.visible = undefined;
   }
 
+  // ---- off at startup inside Roost: VS Code restores the editor tab while Perch is off, and Roost's serializer closes
+  // it; once Perch is switched on, it opens the tab again after the wait for restored tabs
+  {
+    const m = install(undefined, { config: { newTabs: 'editor' } }); await flush();
+    m.commands['perch.newClaude'](); await flush();
+    const saved = m.memento._dump(), id = m.perch.sessions[0].id;
+    m.perch.dispose();
+    const was = m.vscode.window.createWebviewPanel('perch.session', 'Claude 1', { viewColumn: 2, preserveFocus: true }, {});
+    was.dispose();                                     // what Roost's serializer does with it while Perch is off
+    const r = install(saved, { config: { newTabs: 'editor' } });
+    assert.strictEqual(r.ui.panels.length, 0, 'not at once: VS Code may still bring the tab back');
+    await wait(120);
+    assert.deepStrictEqual(r.ui.panels.filter((p) => !p.disposed).map((p) => p.title), ['Claude 1'], 'opened again after the wait');
+    assert.deepStrictEqual(r.perch.sessions.map((s) => s.id), [id]);
+    r.perch.dispose();
+  }
+
   console.log('HOST OK');
 })().catch((e) => { console.error('HOST FAILED:', e.stack || e.message); process.exit(1); });
