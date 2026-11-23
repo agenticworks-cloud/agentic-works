@@ -6,7 +6,8 @@
 # macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora. Installs VS Code if it
 # is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay and kestrel (after asking),
 # which Roost replaces; installs this release's Roost .vsix (SHA-256 checked), its companion extensions and the
-# GitHub CLI, offering one GitHub sign-in. It prints a checklist, one line per step. Each step checks first, so a
+# GitHub CLI, offering one GitHub sign-in; sets VS Code's look and its activity-bar icons (on a VS Code never
+# started), then opens VS Code. It prints a checklist, one line per step. Each step checks first, so a
 # rerun only fills in what is missing. A failed step is reported and the run goes on; the exit status is 1 when
 # any step failed. Design: docs/notes/102-roost-installer.md.
 #
@@ -21,6 +22,7 @@
 #   ROOST_INSTALL_TTY        test seam only: the file answers are read from, one per line, instead of /dev/tty
 #   ROOST_INSTALL_VSIX_URL   test seam only: where Roost's .vsix is downloaded from, instead of this release
 #   ROOST_INSTALL_APT_DIR    test seam only: instead of /etc/apt, where existing apt sources are looked for
+#   ROOST_INSTALL_HELPER     roost-install-helper's path, instead of the one beside this script
 set -u
 
 # Roost's version and its .vsix's SHA-256: written in by `make release`. A copy without them refuses the Roost step.
@@ -51,6 +53,7 @@ OS=""
 ARCH=""
 CODE="code"
 CODE_DATA=""  # as root on Linux: the --user-data-dir VS Code's CLI insists on (its default, ~/.config/Code)
+AS_ROOT=0
 SUDO=""
 TTY_OPEN=0
 CLASH=""  # why Roost can't go in beside the standalone four; when set, Roost fails and the steps after it stay out
@@ -203,8 +206,9 @@ detect_platform() {  # sets OS=macos|ubuntu|debian|rhel|fedora and ARCH=arm64|x8
   esac
   if [ "$(id -u)" != 0 ]; then
     SUDO=sudo
-  elif [ "$OS" != macos ]; then
-    CODE_DATA="$HOME/.config/Code"
+  else
+    AS_ROOT=1
+    [ "$OS" = macos ] || CODE_DATA="$HOME/.config/Code"
   fi
 }
 
@@ -755,6 +759,117 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
   fi
 }
 
+# ---- the look: settings and icons, through roost-install-helper; then VS Code opens ---------------------------
+
+HELPER_OUT=""
+
+helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, or the one beside this script
+  local here
+  if [ -n "${ROOST_INSTALL_HELPER:-}" ]; then
+    printf '%s' "$ROOST_INSTALL_HELPER"
+    return 0
+  fi
+  here=$(dirname "${BASH_SOURCE[0]:-$0}")
+  [ -f "$here/roost-install-helper" ] || return 1
+  printf '%s' "$here/roost-install-helper"
+}
+
+python_ok() {  # true when python3 can run the helper
+  have python3 || return 1
+  # macOS's /usr/bin/python3 is a stub that opens Apple's Command Line Tools install dialog when they're missing.
+  [ "$OS" != macos ] || xcode-select -p > /dev/null 2>&1
+}
+
+no_python_reason() {
+  if [ "$OS" = macos ]; then
+    echo "python3 is not installed; run \`xcode-select --install\`, then run the installer again"
+  else
+    echo "python3 is not installed; install it, then run the installer again"
+  fi
+}
+
+run_helper() {  # $1 = subcommand: its stdout in HELPER_OUT; returns its exit status (0 done, 2 skipped, 1 error)
+  local helper rc
+  HELPER_OUT=""
+  if ! helper=$(helper_path); then
+    HELPER_OUT="roost-install-helper isn't beside this script; run a released installer: $LATEST_INSTALLER"
+    return 1
+  fi
+  if [ "$DRY_RUN" = 1 ]; then
+    step_say "\$ python3 $helper $1"
+    return 0
+  fi
+  printf '$ python3 %s %s\n' "$helper" "$1" >> "$LOG"
+  # As root on Linux, the user data dir the code calls use.
+  HELPER_OUT=$(env ${CODE_DATA:+"ROOST_VSCODE_USER_DIR=$CODE_DATA/User"} python3 "$helper" "$1" < /dev/null 2>> "$LOG")
+  rc=$?
+  [ "$rc" = 1 ] && HELPER_OUT=""  # an error's own words are in the log
+  return "$rc"
+}
+
+look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand, $4 = done detail, $5 = failure detail
+  local rc first rest line
+  skipped "$1" "$2" && return 0
+  step_begin "$2"
+  if [ -n "$CLASH" ]; then
+    step_end skipped "skipped — Roost was not installed"
+    return 0
+  fi
+  if ! python_ok; then
+    step_end skipped "$(no_python_reason)"
+    return 0
+  fi
+  run_helper "$3"
+  rc=$?
+  if [ "$DRY_RUN" = 1 ] && [ "$rc" = 0 ]; then
+    step_end done "dry run"
+    return 0
+  fi
+  case $rc in
+    0) if [ "$HELPER_OUT" = "already set" ]; then step_end already; else step_end done "$4"; fi ;;
+    2)  # the reason is the first line; the lines after it (settings to add by hand) go under the step
+      first=${HELPER_OUT%%$'\n'*}
+      rest=""
+      [ "$first" = "$HELPER_OUT" ] || rest=${HELPER_OUT#*$'\n'}
+      step_end skipped "${first%.}"
+      if [ -n "$rest" ]; then
+        while IFS= read -r line; do step_say "$line"; done <<< "$rest"
+      fi ;;
+    *) step_end failed "${HELPER_OUT:-$5}" ;;
+  esac
+}
+
+apply_settings() {  # the look's four keys, each only when absent; a settings file with comments is left as it is
+  look_step settings "Settings" vscode-settings "added to settings.json" "couldn't write VS Code's settings; see $LOG"
+}
+
+apply_icons() {  # the activity bar's icons, only on a VS Code never started (its state.vscdb has no layout yet)
+  look_step icons "Icons" vscode-layout "activity bar trimmed" "couldn't write the icon layout; see $LOG"
+  case $STEP_RESULT:$HELPER_OUT in
+    skipped:*"already has an icon layout"*) step_say "to hide an icon yourself, right-click it in the activity bar" ;;
+  esac
+}
+
+open_vscode() {  # a new VS Code window, once the checklist is done; not as root, nor with --no-open or --dry-run
+  skip_named open && return 0
+  [ "$NO_OPEN" = 1 ] && return 0
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  find_code || [ "$DRY_RUN" = 1 ] || return 0
+  if [ "$DRY_RUN" = 1 ]; then
+    printf 'Would open VS Code: $ %s --new-window\n' "$CODE"
+  elif [ "$AS_ROOT" = 1 ]; then
+    if [ -n "$CODE_DATA" ]; then
+      printf 'Running as root, so VS Code is not opened. To start it: %s --no-sandbox --user-data-dir %s\n' \
+        "$CODE" "$CODE_DATA"
+    else
+      printf 'Running as root, so VS Code is not opened; open it as yourself.\n'
+    fi
+  else
+    printf 'Opening VS Code.\n'
+    run "$CODE" --new-window || printf "VS Code didn't open; open it from your applications.\n"
+  fi
+}
+
 # ---- sudo, the terminal, flags, main -------------------------------------------------------------------------
 
 needs_root() {  # true when a step that is going to run will install something system-wide
@@ -855,7 +970,10 @@ main() {  # the steps, in order
   ensure_roost
   ensure_companions
   ensure_github
+  apply_settings
+  apply_icons
   finish
+  open_vscode
   [ "$N_FAIL" = 0 ]
 }
 

@@ -1,10 +1,11 @@
 """Tests for installer/roost-install.sh: the platform, VS Code, `code` on the PATH, the standalone four, Roost,
-its companions and GitHub.
+its companions, GitHub, the settings and icons, and opening VS Code.
 
 Each test runs the script in a subprocess with HOME in a temp dir and a PATH of only stubs (brew, apt-get, dnf,
 sudo, code, curl, gh, ... each logging its argv to $STUB_LOG) plus the handful of system tools the script needs, so
 "is it installed" is whatever the test puts on PATH. ROOST_INSTALL_FAKE_OS picks the platform. The script run is a
-copy stamped with a test version and SHA-256, as `make release` stamps it. The `.vsix` downloads go to a local
+copy stamped with a test version and SHA-256, as `make release` stamps it; ROOST_INSTALL_HELPER points it at
+installer/roost-install-helper, which a python3 stub stands in for unless a test puts the real python3 on PATH. The `.vsix` downloads go to a local
 HTTP server, with the real curl. One case runs under bash 3.2, the bash macOS ships, in the bash:3.2 container
 (skipped without Docker). No network.
 """
@@ -14,10 +15,12 @@ from __future__ import annotations
 import functools
 import hashlib
 import http.server
+import json
 import os
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -27,13 +30,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "roost-install.sh"
+HELPER = HERE.parent / "roost-install-helper"
 IMAGE = "bash:3.2"
 DOWNLOAD = "https://code.visualstudio.com/download"
 
 # The system tools the script may use; everything else on PATH is a stub.
 SYSTEM = ("bash", "sh", "dirname", "uname", "mkdir", "chmod", "mv", "rm", "mktemp", "cat", "tr", "grep", "env",
           "id", "sha256sum", "shasum", "sleep")
-ALL_PRESENT = ("brew", "curl", "gpg", "code", "sudo", "apt-get", "dnf", "rpm", "gh")
+ALL_PRESENT = ("brew", "curl", "gpg", "code", "sudo", "apt-get", "dnf", "rpm", "gh", "python3", "xcode-select")
 
 VERSION = "1.2.3"  # what the test copy of the script is stamped with
 VSIX = b"PK roost 1.2.3, as released"
@@ -63,7 +67,17 @@ for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "
 # sudo and brew "install gh" put a gh stub on PATH, as the real install would.
 GH_INSTALL = ('case " $* " in *" install "*" gh "*) [ -z "${GH_STUB_SRC:-}" ] || '
               '{ cat "$GH_STUB_SRC" > "${0%/*}/gh"; chmod 755 "${0%/*}/gh"; } ;; esac\n')
+# python3 (running the helper) prints $PY_SETTINGS_OUT / $PY_LAYOUT_OUT and exits $PY_SETTINGS_RC / $PY_LAYOUT_RC;
+# it notes the ROOST_VSCODE_USER_DIR it was given.
+PYTHON3 = r"""[ -z "${ROOST_VSCODE_USER_DIR:-}" ] || printf 'user-dir %s\n' "$ROOST_VSCODE_USER_DIR" >> "$STUB_LOG"
+case "$*" in
+  *vscode-layout*) [ -z "${PY_LAYOUT_OUT:-}" ] || printf '%s\n' "$PY_LAYOUT_OUT"; exit "${PY_LAYOUT_RC:-0}" ;;
+  *) [ -z "${PY_SETTINGS_OUT:-}" ] || printf '%s\n' "$PY_SETTINGS_OUT"; exit "${PY_SETTINGS_RC:-0}" ;;
+esac
+"""
 STUB_EXTRA = {
+    "python3": PYTHON3,
+    "xcode-select": '[ -z "${XCODE_SELECT_FAIL:-}" ] || exit 2\n',
     "curl": '[ -n "${CURL_FAIL_ON:-}" ] && case "$*" in *"$CURL_FAIL_ON"*) exit 22 ;; esac\n' + WRITE_O,
     "gpg": WRITE_O,
     "code": CODE,
@@ -160,6 +174,7 @@ class _Installer(unittest.TestCase):
             "ROOST_INSTALL_TTY": "/dev/null",
             "ROOST_INSTALL_APT_DIR": str(self.apt),
             "ROOST_INSTALL_VSIX_URL": "http://127.0.0.1:9/nothing-listens-here.vsix",
+            "ROOST_INSTALL_HELPER": str(HELPER),
             "CODE_EXTENSIONS": INSTALLED,
             "GH_AUTH_FILE": str(self.gh_auth),
             "GH_STUB_SRC": str(self.tmp / "gh-stub"),
@@ -208,7 +223,7 @@ class TestVSCode(_Installer):
     def test_dry_run_ubuntu_installs_vscode(self) -> None:
         for os_name in ("ubuntu", "debian"):
             with self.subTest(os=os_name):
-                rc, out = self.run_pipe(self.env(os_name, ("sudo", "apt-get")), "--dry-run")
+                rc, out = self.run_pipe(self.env(os_name, ("sudo", "apt-get", "python3")), "--dry-run")
                 self.assertEqual(rc, 0, out)
                 lines = out.splitlines()
                 prereqs = _index(lines, "apt-get install -y curl ca-certificates gnupg")
@@ -435,8 +450,9 @@ class TestFlags(_Installer):
             self.assertTrue(begin.startswith("  … "), out)
             self.assertTrue(end[4:].startswith(begin[4:]), (begin, end))
         self.assertEqual([mark.split(" (")[0] for mark in self.marks(out)],
-                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✓ Roost", "✓ Companions", "✓ GitHub"], out)
-        self.assertRegex(out, r"\nDone: 6 ✓  0 –  0 ✗\n")
+                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✓ Roost", "✓ Companions", "✓ GitHub",
+                          "✓ Settings", "✓ Icons"], out)
+        self.assertRegex(out, r"\nDone: 8 ✓  0 –  0 ✗\n")
 
     def test_skip_marks_the_step(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get")), "--skip", "vscode", "--dry-run")
@@ -475,13 +491,14 @@ class TestBash32(_Installer):
 
     def test_bash32(self) -> None:
         stubs = self.tmp / "stubs"
-        _write_stubs(stubs, ("sudo", "apt-get"))
+        _write_stubs(stubs, ("sudo", "apt-get", "python3"))
         cmd = ["docker", "run", "--rm", "-i", "-v", f"{self.script.parent}:/s:ro", "-v", f"{stubs}:/stubs:ro"]
         for name, value in {
             "HOME": "/tmp/h",
             "PATH": "/stubs:/usr/local/bin:/usr/bin:/bin",
             "STUB_LOG": "/tmp/stub.log",
             "ROOST_INSTALL_FAKE_OS": "ubuntu",
+            "ROOST_INSTALL_HELPER": "/s/roost-install-helper",
         }.items():
             cmd += ["-e", f"{name}={value}"]
         script = 'mkdir -p /tmp/h; echo "bash=$BASH_VERSION"; bash /s/roost-install.sh --dry-run; echo "rc=$?"'
@@ -495,7 +512,8 @@ class TestBash32(_Installer):
         self.assertIn("apt-get install -y code", out)
         self.assertIn("--install-extension", out)
         self.assertIn("apt-get install -y gh", out)
-        self.assertRegex(out, r"\nDone: 6 ✓  0 –  0 ✗\n")
+        self.assertIn("$ python3 /s/roost-install-helper vscode-layout", out)
+        self.assertRegex(out, r"\nDone: 8 ✓  0 –  0 ✗\n")
 
 
 class _Quiet(http.server.SimpleHTTPRequestHandler):
@@ -577,12 +595,16 @@ class TestStandalone(_Served):
         self.assertEqual(len(roost), 1, out)
         self.assertIn("stopped", roost[0])
         self.assertEqual([mark.split(":")[0].split(" (")[0] for mark in self.marks(out)],
-                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✗ Roost", "– Companions"], out)
+                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✗ Roost", "– Companions",
+                          "– Settings", "– Icons"], out)
         self.assertIn("  – Companions: skipped — Roost was not installed", out)
+        self.assertIn("  – Settings: skipped — Roost was not installed", out)
+        self.assertIn("  – Icons: skipped — Roost was not installed", out)
+        self.assertEqual(self.logged("--new-window"), [])  # nor is VS Code opened
         self.assertEqual(self.logged("--install-extension"), [])
         self.assertEqual(self.logged("--uninstall-extension"), [])
         self.assertEqual([line for line in self.stub_log() if line.startswith("gh ")], [])
-        self.assertRegex(out, r"\nDone: 3 ✓  1 –  1 ✗\n")
+        self.assertRegex(out, r"\nDone: 3 ✓  3 –  1 ✗\n")
 
     def test_no_terminal_without_yes_stops(self) -> None:
         env = self.served_env(CODE_EXTENSIONS="seanahn.jay@0.5.0", ROOST_INSTALL_TTY=str(self.tmp / "no-tty"))
@@ -851,6 +873,157 @@ class TestGitHub(_Installer):
                 self.assertNotIn("Sign in to GitHub", out)
                 self.assertIn("  – GitHub: run `gh auth login` to see your pull requests", out)
                 self.assertEqual(self.logged("gh auth login"), [])
+
+
+class TestLook(_Installer):
+    """apply_settings and apply_icons through the helper, then open_vscode."""
+
+    def python3_calls(self) -> list[str]:
+        return [line for line in self.stub_log() if line.startswith("python3 ")]
+
+    def test_settings_and_icons_applied(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.python3_calls(), [f"python3 {HELPER} vscode-settings", f"python3 {HELPER} vscode-layout"])
+        self.assertIn("  ✓ Settings (added to settings.json)", out)
+        self.assertIn("  ✓ Icons (activity bar trimmed)", out)
+        lines = out.splitlines()
+        self.assertTrue(_index(lines, "✓ GitHub") < _index(lines, "✓ Settings") < _index(lines, "✓ Icons"), out)
+
+        # Exit 2: skipped, the helper's reason as the detail; exit 1: failed.
+        self.log.write_text("")
+        env = self.env("ubuntu", ALL_PRESENT, PY_LAYOUT_RC="2", PY_LAYOUT_OUT="VS Code is running: quit VS Code and rerun.",
+                       PY_SETTINGS_RC="1")
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("  – Icons: VS Code is running: quit VS Code and rerun\n", out)
+        failed = [mark for mark in self.marks(out) if mark.startswith("✗ Settings: ")]
+        self.assertEqual(len(failed), 1, out)
+        self.assertIn("see ", failed[0])
+
+        # --dry-run prints the helper's commands and runs neither.
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.python3_calls(), [])
+        self.assertIn(f"$ python3 {HELPER} vscode-settings", out)
+        self.assertIn(f"$ python3 {HELPER} vscode-layout", out)
+        self.assertIn("  ✓ Settings (dry run)", out)
+        self.assertIn("  ✓ Icons (dry run)", out)
+
+    def test_helper_found_beside_the_script(self) -> None:
+        """Without ROOST_INSTALL_HELPER, the helper next to the script is used, as in a clone."""
+        env = self.env("ubuntu", ALL_PRESENT)
+        del env["ROOST_INSTALL_HELPER"]
+        rc, out = self.run_pipe(env, script=SCRIPT)  # unstamped: Roost fails, the rest goes on
+        self.assertEqual(self.python3_calls()[0], f"python3 {HELPER} vscode-settings")
+
+        self.log.write_text("")
+        rc, out = self.run_pipe(env)  # the stamped copy has no helper beside it
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(self.python3_calls(), [])
+        self.assertIn("  ✗ Settings: ", out)
+
+    def test_used_vscode_keeps_settings(self) -> None:
+        """The real helper: a used VS Code's own keys and its icon layout stay as they are."""
+        user = self.home / ".config" / "Code" / "User"
+        user.mkdir(parents=True)
+        settings = user / "settings.json"
+        settings.write_text(json.dumps({"editor.fontSize": 15, "workbench.startupEditor": "welcomePage"}))
+        (user / "globalStorage").mkdir()
+        con = sqlite3.connect(user / "globalStorage" / "state.vscdb")
+        con.execute("CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)")
+        con.execute("INSERT INTO ItemTable VALUES ('workbench.activity.pinnedViewlets2', '[]')")
+        con.commit()
+        con.close()
+        stubs = tuple(name for name in ALL_PRESENT if name != "python3")
+        env = self.env("ubuntu", stubs, real=("python3",))
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        data = json.loads(settings.read_text())
+        self.assertEqual(data["editor.fontSize"], 15)
+        self.assertEqual(data["workbench.startupEditor"], "welcomePage")
+        self.assertIs(data["chat.disableAIFeatures"], True)
+        self.assertEqual(data["workbench.activityBar.location"], "top")
+        self.assertIn("  ✓ Settings (added to settings.json)", out)
+        self.assertIn("  – Icons: VS Code already has an icon layout; leaving it as it is\n", out)
+        self.assertIn("right-click", out)  # how to hide one by hand
+
+        # A second run: nothing to add.
+        rc, out = self.run_pipe(env)
+        self.assertIn("  ✓ Settings (already)", out)
+
+        # A settings file with comments: not rewritten; the lines to add are printed under the step.
+        text = '{\n  // mine\n  "editor.fontSize": 15\n}\n'
+        settings.write_text(text)
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(settings.read_text(), text)
+        lines = out.splitlines()
+        skipped = _index(lines, "  – Settings: ")
+        self.assertGreaterEqual(skipped, 0, out)
+        self.assertIn("Add these lines yourself", lines[skipped])
+        under = [line.strip() for line in lines[skipped + 1:skipped + 5] if line.startswith("      ")]
+        self.assertIn('"chat.disableAIFeatures": true,', under, out)
+
+    def test_no_python3_skips_settings_and_icons(self) -> None:
+        """A Mac without the Command Line Tools: /usr/bin/python3 would open Apple's install dialog, so it isn't run."""
+        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, XCODE_SELECT_FAIL="1"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.python3_calls(), [], self.stub_log())
+        self.assertEqual(self.logged("xcode-select -p"), ["xcode-select -p"] * 2)
+        for label in ("Settings", "Icons"):
+            skipped = [mark for mark in self.marks(out) if mark.startswith(f"– {label}: ")]
+            self.assertEqual(len(skipped), 1, out)
+            self.assertTrue(skipped[0].startswith(f"– {label}: python3 is not installed; "), skipped)
+            self.assertIn("xcode-select --install", skipped[0])
+
+        # No python3 at all, on Linux.
+        self.log.write_text("")
+        stubs = tuple(name for name in ALL_PRESENT if name != "python3")
+        rc, out = self.run_pipe(self.env("fedora", stubs))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  – Settings: python3 is not installed; ", out)
+        self.assertIn("  – Icons: python3 is not installed; ", out)
+
+        # The Command Line Tools there: python3 runs.
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT))
+        self.assertEqual(len(self.python3_calls()), 2, self.stub_log())
+
+    def test_no_open_flag(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
+        self.assertEqual(rc, 0, out)
+        opens = self.logged("--new-window")
+        self.assertEqual(opens, [f"code --new-window"], self.stub_log())
+        self.assertGreater(_index(self.stub_log(), "--new-window"), _index(self.stub_log(), "vscode-layout"))
+
+        for args in (("--no-open",), ("--skip", "open"), ("--dry-run",)):
+            with self.subTest(args=args):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), *args)
+                self.assertEqual(rc, 0, out)
+                self.assertEqual(self.logged("--new-window"), [])
+        self.assertIn("code --new-window", out)  # the dry run shows it
+
+    def test_root_does_not_open(self) -> None:
+        rc, out = self.run_sourced(self.env("ubuntu", ALL_PRESENT), 'id() { echo 0; }; main')
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.logged("--new-window"), [])
+        self.assertIn(f"--user-data-dir {self.home}/.config/Code", out)  # how to start it
+        self.assertIn("--no-sandbox", out)
+        # The helper edits the user data dir the code calls use.
+        self.assertEqual(self.logged("user-dir "), [f"user-dir {self.home}/.config/Code/User"] * 2)
+
+    def test_rerun_is_all_already(self) -> None:
+        env = self.env("ubuntu", ALL_PRESENT, PY_SETTINGS_OUT="already set", PY_LAYOUT_OUT="already set")
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        marks = [mark for mark in self.marks(out) if not mark.startswith("✓ Platform ")]
+        self.assertEqual(len(marks), 7, out)
+        for mark in marks:
+            self.assertTrue(mark.startswith("✓ ") and mark.endswith(" (already)"), mark)
+        self.assertRegex(out, r"\nDone: 8 ✓  0 –  0 ✗\n")
 
 
 if __name__ == "__main__":
