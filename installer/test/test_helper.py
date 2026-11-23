@@ -1,6 +1,6 @@
-"""Tests for installer/roost-install-helper: VS Code settings merge and activity-bar layout."""
+"""Tests for installer/roost-install-helper: VS Code settings merge and activity-bar layout.
 
-from __future__ import annotations
+Python 3.6-safe, as the helper is: test_install.TestPython36 runs this file under 3.6."""
 
 import contextlib
 import io
@@ -11,6 +11,7 @@ import unittest
 from importlib.machinery import SourceFileLoader
 import importlib.util
 from pathlib import Path
+from typing import List, Tuple
 from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "roost-install-helper"
@@ -56,7 +57,7 @@ class _Case(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def run_cli(self, *argv: str) -> tuple[int, str]:
+    def run_cli(self, *argv: str) -> Tuple[int, str]:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = self.h.main(list(argv))
@@ -149,12 +150,12 @@ class SettingsTests(_Case):
 
 
 class VscodeRunningTests(_Case):
-    def _argv(self, platform: str) -> list[str]:
+    def _argv(self, platform: str) -> List[str]:
         with mock.patch.object(self.h.sys, "platform", platform), mock.patch.object(
             self.h.subprocess, "run", return_value=mock.Mock(returncode=0)
         ) as run:
             self.assertTrue(self.h.vscode_running())
-        return run.call_args.args[0]
+        return run.call_args[0][0]  # call_args.args is 3.8+
 
     def test_macos_matches_command_line(self) -> None:
         uid = str(self.h.os.getuid())
@@ -167,19 +168,19 @@ class VscodeRunningTests(_Case):
 
 class LayoutTests(_Case):
     def _db(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.user / "globalStorage" / "state.vscdb")
+        return sqlite3.connect(str(self.user / "globalStorage" / "state.vscdb"))
 
     def _make_db(self, items: dict) -> Path:
         db = self.user / "globalStorage" / "state.vscdb"
         db.parent.mkdir(parents=True)
-        con = sqlite3.connect(db)
+        con = sqlite3.connect(str(db))
         con.execute("CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)")
         con.executemany("INSERT INTO ItemTable (key, value) VALUES (?, ?)", list(items.items()))
         con.commit()
         con.close()
         return db
 
-    def _layout(self, running: bool = False) -> tuple[int, str]:
+    def _layout(self, running: bool = False) -> Tuple[int, str]:
         with mock.patch.object(self.h, "vscode_running", return_value=running):
             return self.run_cli("vscode-layout")
 

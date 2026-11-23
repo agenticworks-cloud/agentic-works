@@ -119,15 +119,15 @@ def stamp(dest: Path, version: str = VERSION, sha: str = SHA) -> Path:
     return dest
 
 
-def _why_not() -> str:
-    """'' when the bash 3.2 container can run here, else why not."""
+def _why_not(image: str = IMAGE) -> str:
+    """'' when the image's container can run here, else why not."""
     if not shutil.which("docker"):
         return "docker is not installed"
     if subprocess.run(["docker", "info"], capture_output=True, timeout=60, check=False).returncode:
         return "the docker daemon is not reachable"
-    if subprocess.run(["docker", "image", "inspect", IMAGE], capture_output=True, timeout=60, check=False).returncode:
-        if subprocess.run(["docker", "pull", "-q", IMAGE], capture_output=True, timeout=300, check=False).returncode:
-            return f"{IMAGE} can't be pulled"
+    if subprocess.run(["docker", "image", "inspect", image], capture_output=True, timeout=60, check=False).returncode:
+        if subprocess.run(["docker", "pull", "-q", image], capture_output=True, timeout=300, check=False).returncode:
+            return f"{image} can't be pulled"
     return ""
 
 
@@ -548,6 +548,28 @@ class TestBash32(_Installer):
         self.assertIn("apt-get install -y gh", out)
         self.assertIn("$ python3 /s/roost-install-helper vscode-layout", out)
         self.assertRegex(out, r"\nDone: 8 ✓  0 –  0 ✗\n")
+
+
+class TestPython36(unittest.TestCase):
+    """The helper's tests under Python 3.6, RHEL 8's python3, in the python:3.6-slim container."""
+
+    PY36 = "python:3.6-slim"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        why = _why_not(cls.PY36)
+        if why:
+            raise unittest.SkipTest(f"Python 3.6 container unavailable: {why}")
+
+    def test_helper_suite_on_python36(self) -> None:
+        cmd = ["docker", "run", "--rm", "-v", f"{HERE.parent}:/w/installer:ro", "-w", "/w",
+               "-e", "PYTHONDONTWRITEBYTECODE=1", self.PY36,
+               "sh", "-c", 'python3 --version; python3 -m unittest installer/test/test_helper.py; echo "rc=$?"']
+        result = subprocess.run(cmd, capture_output=True, timeout=300, check=False, stdin=subprocess.DEVNULL)
+        out = (result.stdout + result.stderr).decode()
+        self.assertIn("Python 3.6", out)
+        self.assertIn("rc=0", out, out)
+        self.assertRegex(out, r"\nOK\b", out)
 
 
 class _Quiet(http.server.SimpleHTTPRequestHandler):
@@ -1047,6 +1069,24 @@ class TestLook(_Installer):
         self.assertEqual(rc, 0, out)
         self.assertIn("  – Settings: python3 is not installed; install it, then run the installer again\n", out)
         self.assertIn("  – Icons: python3 is not installed; ", out)
+
+        # RHEL 8 without python3: its system platform-python (3.6) runs the helper.
+        self.log.write_text("")
+        platform_python = self.tmp / "platform-python"
+        platform_python.write_text('#!/bin/sh\nprintf \'platform-python %s\\n\' "$*" >> "$STUB_LOG"\n')
+        platform_python.chmod(0o755)
+        for os_name, used in (("rhel", True), ("fedora", False)):
+            with self.subTest(os=os_name):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.env(os_name, stubs, ROOST_INSTALL_PLATFORM_PYTHON=str(platform_python)))
+                self.assertEqual(rc, 0, out)
+                if used:
+                    self.assertEqual(len(self.logged("platform-python ")), 2, self.stub_log())
+                    self.assertIn("  ✓ Settings (added to settings.json)", out)
+                    self.assertIn("  ✓ Icons (activity bar trimmed)", out)
+                else:
+                    self.assertEqual(self.logged("platform-python "), [])
+                    self.assertIn("  – Settings: python3 is not installed; ", out)
 
         # The shim with the Command Line Tools there counts (it runs; here the seam names the stub's path).
         self.log.write_text("")

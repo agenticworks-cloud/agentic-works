@@ -24,6 +24,7 @@
 #   ROOST_INSTALL_APT_DIR    test seam only: instead of /etc/apt, where existing apt sources are looked for
 #   ROOST_INSTALL_HELPER     roost-install-helper's path, instead of the one beside this script
 #   ROOST_INSTALL_PYTHON3    test seam only: the python3 path taken as found, instead of `command -v python3`
+#   ROOST_INSTALL_PLATFORM_PYTHON  test seam only: instead of /usr/libexec/platform-python (RHEL 8's system python)
 set -u
 
 # Roost's version and its .vsix's SHA-256: written in by `make release`. A copy without them refuses the Roost step.
@@ -820,8 +821,14 @@ helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, th
 }
 
 python_ok() {  # true when there is a python3 to run the helper with (in PYTHON); else PYTHON_WHY says why not
+  local platform_python=${ROOST_INSTALL_PLATFORM_PYTHON:-/usr/libexec/platform-python}
   PYTHON=${ROOST_INSTALL_PYTHON3:-$(command -v python3 2> /dev/null)}
   PYTHON_WHY=""
+  # RHEL 8 has no python3 command until `dnf install python3`, but always has dnf's own Python 3.6, which the
+  # helper runs on.
+  if [ -z "$PYTHON" ] && [ "$OS" = rhel ] && [ -x "$platform_python" ]; then
+    PYTHON=$platform_python
+  fi
   if [ -z "$PYTHON" ]; then
     if [ "$OS" = macos ]; then
       PYTHON_WHY="python3 is not installed; install it (Homebrew: brew install python), then run the installer again"
