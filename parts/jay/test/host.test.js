@@ -142,8 +142,8 @@ function start(o = {}) {
   for (const [k, v] of Object.entries(stored)) if (v !== undefined) gs.update(k, v);
   const clock = { t: o.t || Date.UTC(2027, 0, 15, 12) };
   const timers = fakeTimers();
-  const context = { extensionUri: vscode.Uri.file(path.join(__dirname, '..')), globalState: gs, secrets: sec, subscriptions: [] };
-  const api = ext.activate(context, { fetch, home, now: () => clock.t, run: o.run || (async () => ({ code: 1, timedOut: false, stderr: '' })), timers });
+  const context = { extensionUri: vscode.Uri.file(path.join(__dirname, '..')), globalState: gs, workspaceState: o.ws || memento(), secrets: sec, subscriptions: [] };
+  const api = ext.activate(context, { fetch, home, now: () => clock.t, run: o.run || (async () => ({ code: 1, timedOut: false, stderr: '' })), timers, restoreGraceMs: o.restoreGraceMs });
   const view = ui.resolveSidebar();
   const h = { api, fetch, home, world, secrets: sec, gs, clock, timers, view, jayDir: path.join(home, '.jay') };
   running.push(h);
@@ -1174,6 +1174,57 @@ test('deactivate leaves the ticket tabs and their files for the editor to restor
   ext.deactivate(); running.length = 0;
   assert.strictEqual(panel.disposed, false, 'VS Code disposes the panels itself and the serializer restores them');
   assert.ok(fs.existsSync(path.join(h.jayDir, 'issues', 'DEMO-1.jira')));
+});
+
+// Roost switches jay off (confirmStop, then deactivate) and on again (activate) in the same window
+const openTabs = () => ui.panels.filter((p) => !p.disposed).map((p) => [p.viewType, p.viewType === 'jay.ticket' ? p.title : 'page']);
+
+test('tabs come back after off/on', async () => {
+  const ws = memento();
+  const h = start({ confluence: true, ws, restoreGraceMs: 20 }); await settle();
+  h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
+  assert.strictEqual(await ui.commands['jay.openPage'](PAGE_URL), true);
+  assert.deepStrictEqual(openTabs(), [['jay.ticket', 'DEMO-1'], ['jay.page', 'page']]);
+  assert.strictEqual(await ext.confirmStop(), true, 'jay never says no');
+  ext.deactivate(); running.length = 0;
+  assert.ok(ui.panels.every((p) => p.disposed), 'its tabs close with it');
+
+  const h2 = start({ confluence: true, ws, restoreGraceMs: 20, home: h.home });
+  assert.deepStrictEqual(openTabs(), [['jay.ticket', 'DEMO-1'], ['jay.page', 'page']], 'the same two, at once');
+  await settle(80);
+  assert.deepStrictEqual(openTabs(), [['jay.ticket', 'DEMO-1'], ['jay.page', 'page']], 'and once');
+  const page = ui.panels.find((p) => p.viewType === 'jay.page');
+  page.webview._receive({ type: 'ready' }); await settle();
+  assert.ok(h2.fetch.calls.some((c) => c.url.includes('/wiki/api/v2/pages/1001')), 'the page tab loads its page');
+});
+
+test('off at startup: a tab Roost closed comes back when jay starts; one the user closed does not', async () => {
+  const ws = memento();
+  const h = start({ ws, restoreGraceMs: 20 }); await settle();
+  h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
+  h.view.webview._receive({ type: 'open', key: 'DEMO-2' });
+  ui.panels.find((p) => p.title === 'DEMO-2').dispose();      // closed by the user
+  ext.deactivate(); running.length = 0;                       // the window closes, and its tabs with it
+  for (const p of ui.panels) p.dispose();
+  // the next window: jay is off, and Roost's serializer closes the tab VS Code restores
+  start({ ws, restoreGraceMs: 20, home: h.home });
+  assert.deepStrictEqual(openTabs(), [], 'not at once: VS Code may still bring it back');
+  await settle(80);
+  assert.deepStrictEqual(openTabs(), [['jay.ticket', 'DEMO-1']], 'opened after the wait');
+});
+
+test('a tab VS Code restores in the wait is not opened twice', async () => {
+  const ws = memento();
+  const h = start({ ws, restoreGraceMs: 20 }); await settle();
+  h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
+  ext.deactivate(); running.length = 0;
+  for (const p of ui.panels) p.dispose();
+  start({ ws, restoreGraceMs: 20, home: h.home });
+  const back = vscode.window.createWebviewPanel('jay.ticket', 'DEMO-1', 1, {});
+  await ui.serializers['jay.ticket'].deserializeWebviewPanel(back, { key: 'DEMO-1' });
+  await settle(80);
+  assert.deepStrictEqual(openTabs(), [['jay.ticket', 'DEMO-1']]);
+  assert.strictEqual(back.disposed, false);
 });
 
 test('a tab restored before sign-in says it is waiting, then loads once the session is there', async () => {

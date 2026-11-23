@@ -44,6 +44,7 @@ const isUnavailable = (e) => !!e && e.name === 'ConfluenceUnavailable';
  * @param o.s, o.me          extension.js's state and its `me` object
  * @param o.needSignIn(reason), o.signedOutElsewhere(), o.ensureSession()   extension.js's
  * @param o.searchUsers(q)   the Jira api's users(q), for @-mentions in page comments
+ * @param o.workspaceState, o.restoreGraceMs   where the open page tabs are kept (savedTabs.js), and the wait
  */
 function createConfluenceSide(o) {
   const { vscode, s, me, store, cfg, sidebar, now, log } = o;
@@ -60,7 +61,7 @@ function createConfluenceSide(o) {
 
   const pageMirror = createPageMirror({ dir: o.jayDir, enabled: () => cfg('agentFiles', true) !== false });
   const pageTree = createPageTree({ confluence: confRef, cacheDir: path.join(o.jayDir, 'cache'), now });
-  const pages = createPages({ vscode, extensionUri: o.extensionUri, confluence: confRef, writer: writerRef, mirror: pageMirror, me, log: pageLog,
+  const pages = createPages({ vscode, extensionUri: o.extensionUri, workspaceState: o.workspaceState, restoreGraceMs: o.restoreGraceMs, confluence: confRef, writer: writerRef, mirror: pageMirror, me, log: pageLog,
     isFocused: o.isFocused, siteUrl, searchUsers: (q) => o.searchUsers(q),
     access: () => (s.conf && s.conf.available !== false ? s.conf.access : 'none'),
     onShown: (pageId) => { if (s.conf && s.events) { s.conf.mentions.seenPage(pageId); saveEvents(); o.render(); } } });
@@ -402,6 +403,9 @@ function createConfluenceSide(o) {
     },
     siteUrl: () => (s.running && siteUrl() ? siteUrl() : null),
     activePageFile: () => (cfg('agentFiles', true) === false ? null : pages.frontFile()),
+    restoreSaved: () => pages.restoreSaved(),
+    switchOff: () => pages.switchOff(),
+    windowClosing: () => pages.windowClosing(),
     dispose() { stop(); pages.dispose(); },
   };
 }

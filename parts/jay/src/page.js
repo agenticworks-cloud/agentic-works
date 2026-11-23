@@ -5,6 +5,7 @@
 const crypto = require('crypto');
 const { KEY_RE } = require('./ticket');
 const { parsePageUrl } = require('./pageLinks');
+const { createSavedTabs } = require('./savedTabs');
 
 const VIEW_TYPE = 'jay.page';
 const ID_RE = /^\d+$/;
@@ -166,6 +167,7 @@ class PageTab {
  * @param o.access()     'full' | 'read' | 'none': what this sign-in may do in Confluence
  * @param o.isFocused()  whether this window has focus
  * @param o.siteUrl()    the site, for telling Confluence links from others
+ * @param o.workspaceState, o.restoreGraceMs   optional: where the open tabs are kept (savedTabs.js), and the wait
  */
 function createPages(o) {
   const { vscode, extensionUri } = o;
@@ -204,7 +206,7 @@ function createPages(o) {
     },
     closed(tab) {
       tab.disposed = true;
-      if (tabs.get(tab.pageId) === tab) tabs.delete(tab.pageId);
+      if (tabs.get(tab.pageId) === tab) { tabs.delete(tab.pageId); saved.closed(tab.pageId); }
       if (owner.front === tab) owner.front = null;
       if (tab.spaceKey) o.mirror.closed(tab.spaceKey, tab.pageId);
     },
@@ -231,10 +233,11 @@ function createPages(o) {
     panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')] };
     const tab = new PageTab(owner, pageId, {
       webview: panel.webview, onDidDispose: panel.onDidDispose, onDidChangeViewState: panel.onDidChangeViewState,
-      reveal: () => panel.reveal(), setTitle: (t) => { panel.title = t; },
+      reveal: () => panel.reveal(), setTitle: (t) => { panel.title = t; saved.retitled(pageId, t); }, title: () => panel.title,
       isActive: () => !!panel.active, isVisible: () => !!panel.visible, dispose: () => panel.dispose(),
     });
     tabs.set(pageId, tab);
+    saved.opened(pageId, pageId, panel.title);
     owner.front = tab;
     panel.webview.html = html(panel.webview);
     return tab;
@@ -250,13 +253,21 @@ function createPages(o) {
       if (commentId) { if (have.loaded) have.post({ type: 'scrollTo', commentId: String(commentId) }); else have.scrollTo = String(commentId); }
       return true;
     }
-    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, 'Confluence page', vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')] });
-    const tab = attach(panel, id);
+    const tab = openPanel(id);
     if (commentId) tab.scrollTo = String(commentId);
     return true;
   }
 
+  /** `preserveFocus`: a tab opened again from the saved list, not by the user. */
+  function openPanel(id, { preserveFocus = false } = {}) {
+    const where = preserveFocus ? { viewColumn: vscode.ViewColumn.Active, preserveFocus: true } : vscode.ViewColumn.Active;
+    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, 'Confluence page', where,
+      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')] });
+    return attach(panel, id);
+  }
+
+  // the open tabs, for a host that switches jay off and on again in one window (Roost)
+  const saved = createSavedTabs({ state: o.workspaceState, key: 'jay.openPages.v1', viewType: VIEW_TYPE, tabGroups: vscode.window.tabGroups, graceMs: o.restoreGraceMs });
   const registration = vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
     async deserializeWebviewPanel(panel, state) {
       const id = state && String(state.pageId);
@@ -291,6 +302,15 @@ function createPages(o) {
     /** Confluence is not available with this sign-in: the waiting tabs say so; they still load if it comes back (resumeWaiting). */
     unavailable(message) { for (const tab of [...tabs.values()]) if (tab.waiting && !tab.disposed) tab.post({ type: 'loadError', message }); },
     disposeAll() { for (const tab of [...tabs.values()]) tab.shell.dispose(); },
+    /** At activate: the tabs kept from before that VS Code does not bring back (savedTabs.js); like a restored tab, one
+     *  opened before Confluence is ready waits for it. */
+    restoreSaved() {
+      saved.restore({ isOpen: (id) => tabs.has(id), open: (e) => { if (ID_RE.test(e.id) && !tabs.has(e.id)) openPanel(e.id, { preserveFocus: true }); }, openTitles: () => [...tabs.values()].map((t) => t.shell.title()) });
+    },
+    /** Switched off with the window open: the tabs close and are kept. */
+    switchOff() { saved.switchOff(() => { for (const tab of [...tabs.values()]) tab.shell.dispose(); }); },
+    /** The window is closing: the tabs are left to VS Code, and kept. */
+    windowClosing() { saved.windowClosing(); },
     dispose() { registration.dispose(); focusSub.dispose(); },
   };
 }

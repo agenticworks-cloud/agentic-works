@@ -61,7 +61,8 @@ const changedSince = (prev, next) => [...next.index.values()].filter((i) => !pre
 let current = null;
 
 /**
- * @param deps for tests: fetch, home (for ~/.jay and ~ in the token-file path), now, run (the refresh command), timers
+ * @param deps for tests: fetch, home (for ~/.jay and ~ in the token-file path), now, run (the refresh command), timers,
+ *             restoreGraceMs (the wait for VS Code to restore the tabs, savedTabs.js)
  * @returns the running extension: dispose() and its state, for tests
  */
 function activate(context, deps = {}) {
@@ -110,7 +111,7 @@ function activate(context, deps = {}) {
   const loader = createLoader({ api: apiRef, cacheDir: path.join(jayDir, 'cache'), now, fields: WITH_DESCRIPTION });
   const mirror = createMirror({ dir: jayDir, enabled: () => cfg('agentFiles', true) !== false, browseUrl: (k) => apiRef.browseUrl(k) });
   const periods = createPeriods({ api: apiRef, store, cfg, now });
-  const tickets = createTickets({ vscode, extensionUri: context.extensionUri, api: apiRef, writer: writerRef, mirror, events: eventsRef,
+  const tickets = createTickets({ vscode, extensionUri: context.extensionUri, workspaceState: context.workspaceState, restoreGraceMs: deps.restoreGraceMs, api: apiRef, writer: writerRef, mirror, events: eventsRef,
     getIndex: () => (s.view ? s.view.index : new Map()), me, isFocused, log, keepFile: (k) => atlassian.keeps(k),
     // Confluence is created below; these reach it lazily (design 102, "In Jira tickets")
     confluence: new Proxy({}, { get: (_, k) => (...a) => conf.confluence[k](...a) }), siteUrl: () => conf.siteUrl(), openPage: (u) => conf.openPage(u) });
@@ -118,7 +119,7 @@ function activate(context, deps = {}) {
   const atlassian = createAtlassianView({ vscode, tickets, mirror, view: () => cfg('ticketView', 'atlassian'),
     markSeen: (k) => { eventsRef.seen(k); eventsRef.save(); }, isFocused, log, now });
   // Confluence (design 102): the page tabs, tree, Mentions and My pages, with pollers of their own
-  const conf = createConfluenceSide({ vscode, extensionUri: context.extensionUri, s, me, store, cfg, sidebar, fetch: fetchFn, jayDir, now, isFocused,
+  const conf = createConfluenceSide({ vscode, extensionUri: context.extensionUri, workspaceState: context.workspaceState, restoreGraceMs: deps.restoreGraceMs, s, me, store, cfg, sidebar, fetch: fetchFn, jayDir, now, isFocused,
     timers: deps.timers, log, render: () => render(), needSignIn: (r) => needSignIn(r), signedOutElsewhere: () => signedOutElsewhere(),
     ensureSession: () => ensureSession(), searchUsers: (q) => apiRef.users(q) });
 
@@ -546,12 +547,15 @@ function activate(context, deps = {}) {
     conf.kick(true);
   }
 
+  let switchingOff = false;   // confirmStop said yes: dispose closes the tabs
   function dispose() {
     stopAll();
     if (watcher) watcher.dispose();
     watcher = null;
     stopFileCheck();
-    // the tabs stay: VS Code disposes the panels itself, and the serializer restores them after a reload
+    // a window closing: the tabs stay, VS Code disposes the panels itself, and the serializer restores them after a reload.
+    // Switched off with the window open (Roost): they close, and are kept to open again when jay is switched on.
+    if (switchingOff) { tickets.switchOff(); conf.switchOff(); } else { tickets.windowClosing(); conf.windowClosing(); }
     tickets.dispose(); atlassian.dispose(); conf.dispose();
   }
 
@@ -584,10 +588,18 @@ function activate(context, deps = {}) {
   conf.title();
   render();
   restart().catch(log);
-  current = { dispose, state: s, pollers };
+  tickets.restoreSaved(); conf.restoreSaved();
+  current = { dispose, state: s, pollers, switchOff: () => { switchingOff = true; } };
   return current;
 }
 
 function deactivate() { if (current) current.dispose(); current = null; }
 
-module.exports = { activate, deactivate };
+/** Asked by a host that switches jay off while the window stays open (Roost), just before it does: jay never says no,
+ *  and the stop then closes its tabs, keeping the list of them to open again when it is switched on. */
+async function confirmStop() {
+  if (current) current.switchOff();
+  return true;
+}
+
+module.exports = { activate, deactivate, confirmStop };

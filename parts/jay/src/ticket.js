@@ -6,6 +6,7 @@
 const crypto = require('crypto');
 const { chainOf } = require('./tree');
 const { confluenceLinksIn, parsePageUrl } = require('./pageLinks');
+const { createSavedTabs } = require('./savedTabs');
 
 const VIEW_TYPE = 'jay.ticket';
 // A Jira issue key: the one pattern jay uses (the host here and in extension.js; media/sidebar.js keeps a copy)
@@ -164,6 +165,7 @@ class TicketTab {
  * @param o.isFocused()  whether this window has focus
  * @param o.confluence, o.siteUrl(), o.openPage(url)  optional (design 102): the Confluence api, the site, and the page-tab opener (a boolean)
  * @param o.keepFile(key) optional: true when another view still shows key, so closing jay's tab keeps its file
+ * @param o.workspaceState, o.restoreGraceMs   optional: where the open tabs are kept (savedTabs.js), and the wait
  */
 function createTickets(o) {
   const { vscode, extensionUri } = o;
@@ -253,7 +255,7 @@ function createTickets(o) {
     },
     closed(tab) {
       tab.disposed = true;
-      if (tabs.get(tab.key) === tab) tabs.delete(tab.key);
+      if (tabs.get(tab.key) === tab) { tabs.delete(tab.key); saved.closed(tab.key); }
       if (owner.front === tab) owner.front = null;
       if (!(o.keepFile && o.keepFile(tab.key))) o.mirror.closed(tab.key);
     },
@@ -284,19 +286,24 @@ function createTickets(o) {
       reveal: () => panel.reveal(), isActive: () => !!panel.active, isVisible: () => !!panel.visible, dispose: () => panel.dispose(),
     });
     tabs.set(key, tab);
+    saved.opened(key, key, key);
     owner.front = tab;
     panel.webview.html = html(panel.webview);
     return tab;
   }
 
-  function open(key) {
+  /** `preserveFocus`: a tab opened again from the saved list, not by the user. */
+  function open(key, { preserveFocus = false } = {}) {
     const have = tabs.get(key);
     if (have) { have.shell.reveal(); return have; }
-    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, key, vscode.ViewColumn.Active,
+    const where = preserveFocus ? { viewColumn: vscode.ViewColumn.Active, preserveFocus: true } : vscode.ViewColumn.Active;
+    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, key, where,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')] });
     return attach(panel, key);
   }
 
+  // the open tabs, for a host that switches jay off and on again in one window (Roost)
+  const saved = createSavedTabs({ state: o.workspaceState, key: 'jay.openTickets.v1', viewType: VIEW_TYPE, tabGroups: vscode.window.tabGroups, graceMs: o.restoreGraceMs });
   const registration = vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
     async deserializeWebviewPanel(panel, state) {
       const key = state && String(state.key);
@@ -331,6 +338,14 @@ function createTickets(o) {
     /** Loads the tabs that were waiting for a sign-in. */
     resumeWaiting() { for (const tab of [...tabs.values()]) if (tab.waiting && !tab.disposed) tab.show(); },
     disposeAll() { for (const tab of [...tabs.values()]) tab.shell.dispose(); },
+    /** At activate: the tabs kept from before that VS Code does not bring back (savedTabs.js). */
+    restoreSaved() {
+      saved.restore({ isOpen: (key) => tabs.has(key), open: (e) => { if (KEY_RE.test(e.id)) open(e.id, { preserveFocus: true }); }, openTitles: () => [...tabs.keys()] });
+    },
+    /** Switched off with the window open: the tabs close and are kept. */
+    switchOff() { saved.switchOff(() => { for (const tab of [...tabs.values()]) tab.shell.dispose(); }); },
+    /** The window is closing: the tabs are left to VS Code, and kept. */
+    windowClosing() { saved.windowClosing(); },
     dispose() { registration.dispose(); focusSub.dispose(); },
   };
 }
