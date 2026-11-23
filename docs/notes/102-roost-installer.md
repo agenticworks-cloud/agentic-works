@@ -185,8 +185,9 @@ checksum — run the installer again`; the other steps still run, and the exit s
 - Release URL `https://github.com/seanahn/roost/releases/download/v<version>/roost-<version>.vsix`; the script
   carries `@ROOST_VERSION@` / `@ROOST_SHA256@`, stamped by `make release`; an unstamped script refuses the Roost step.
 - `make release` writes `dist/roost-<version>.vsix` and `dist/roost-install.sh` (the helper inlined as a
-  here-document written to a temp file at start); `make release-publish` creates the GitHub release with `gh` — Sean's
-  action, never run by the build.
+  here-document written to a temp file at start); `make release-publish` creates the GitHub release with `gh`, tagged
+  at HEAD (`--target`), and refuses unless the tree is clean and HEAD is on origin — Sean's action, never run by the
+  build or the tests.
 - On macOS, `python3` counts only if Command Line Tools are present (`xcode-select -p`), so the settings and icons
   steps never trigger Apple's install dialog.
 - Fedora uses Microsoft's yum repository with `dnf`. As root (containers), `code` calls get `--user-data-dir` and

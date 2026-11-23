@@ -6,7 +6,7 @@ EXT_ID = seanahn.roost-$(VERSION)
 EXT_DIRS ?= $(HOME)/.vscode/extensions $(HOME)/.local/share/code-server/extensions $(HOME)/.vscode-server/extensions
 PARTS = $(patsubst %/package-lock.json,%,$(wildcard parts/*/package-lock.json))
 
-.PHONY: manifest deps test test-live install package test-package release release-test release-publish clean
+.PHONY: manifest deps test test-live install package test-package release release-test release-publish-check release-publish clean
 
 manifest: ; node scripts/build-manifest.js
 
@@ -54,8 +54,13 @@ release: package
 release-test: release
 	ROOST_REQUIRE_DIST=1 python3 -m unittest installer/test/test_release.py
 
-## Publish dist/ as a GitHub release. The owner's action: nothing in the build or the tests runs it
-release-publish:
+## Refuse to publish from a tree with uncommitted changes, or a HEAD not on origin: the release's tag is made at HEAD
+release-publish-check:
+	@[ -z "$$(git status --porcelain)" ] || { echo "the tree has uncommitted changes; commit them first"; exit 1; }
+	@[ -n "$$(git branch -r --list 'origin/*' --contains HEAD)" ] || { echo "HEAD isn't on origin; push it first"; exit 1; }
+
+## Publish dist/ as a GitHub release, tagged at HEAD. The owner's action: nothing in the build or the tests runs it
+release-publish: release-publish-check
 	@[ -f dist/roost-install.sh ] && [ -f dist/$(VSIX) ] || { echo "dist/ is missing; run make release"; exit 1; }
 	@grep -q '^ROOST_VERSION="$(VERSION)"$$' dist/roost-install.sh || { echo "dist/ is stale (not $(VERSION)); run make release"; exit 1; }
 	@sha=$$(cd dist && (sha256sum $(VSIX) 2> /dev/null || shasum -a 256 $(VSIX)) | cut -d' ' -f1); \
@@ -64,7 +69,7 @@ release-publish:
 	@printf 'Roost %s\n\nInstall: curl -fsSL https://github.com/seanahn/roost/releases/latest/download/roost-install.sh | bash\n' \
 	  "$(VERSION)" > dist/release-notes.md
 	gh release create v$(VERSION) dist/roost-install.sh dist/$(VSIX) --repo seanahn/roost --title "Roost $(VERSION)" \
-	  --notes-file dist/release-notes.md
+	  --target "$$(git rev-parse HEAD)" --notes-file dist/release-notes.md
 
 clean:
 	rm -rf dist
