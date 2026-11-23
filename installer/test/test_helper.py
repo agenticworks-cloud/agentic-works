@@ -1,0 +1,265 @@
+"""Tests for installer/roost-install-helper: VS Code settings merge and activity-bar layout."""
+
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import sqlite3
+import tempfile
+import unittest
+from importlib.machinery import SourceFileLoader
+import importlib.util
+from pathlib import Path
+from unittest import mock
+
+SCRIPT = Path(__file__).resolve().parents[1] / "roost-install-helper"
+KEY = "workbench.activity.pinnedViewlets2"
+MARKER = "roost.installer.layoutWritten"
+SHOWN = [
+    "workbench.view.explorer",
+    "workbench.view.search",
+    "workbench.view.extensions",
+    "workbench.view.extension.perch",
+    "workbench.view.extension.chirp",
+    "workbench.view.extension.jay",
+]
+HIDDEN = [
+    "workbench.view.scm",
+    "workbench.view.debug",
+    "workbench.view.testing",
+    "workbench.view.extension.claude-sidebar",
+    "workbench.view.extension.claude-sessions-sidebar",
+]
+
+
+def _load_script():
+    loader = SourceFileLoader("roost_install_helper", str(SCRIPT))
+    spec = importlib.util.spec_from_loader("roost_install_helper", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class _Case(unittest.TestCase):
+    def setUp(self) -> None:
+        self.h = _load_script()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.user = self.tmp / "User"
+        self.exts = self.tmp / "extensions"
+        env = mock.patch.dict(
+            "os.environ",
+            {"ROOST_VSCODE_USER_DIR": str(self.user), "ROOST_VSCODE_EXTENSIONS_DIR": str(self.exts)},
+        )
+        env.start()
+        self.addCleanup(env.stop)
+
+    def run_cli(self, *argv: str) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.h.main(list(argv))
+        return code, out.getvalue()
+
+
+class SettingsTests(_Case):
+    def test_settings_written_on_empty(self) -> None:
+        code, _ = self.run_cli("vscode-settings")
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            json.loads((self.user / "settings.json").read_text()),
+            {
+                "chat.disableAIFeatures": True,
+                "workbench.startupEditor": "none",
+                "workbench.secondarySideBar.defaultVisibility": "hidden",
+                "workbench.activityBar.location": "top",
+            },
+        )
+
+    def test_keeps_foreign_keys(self) -> None:
+        self.user.mkdir()
+        (self.user / "settings.json").write_text(
+            json.dumps({"editor.fontSize": 15, "workbench.startupEditor": "welcomePage"})
+        )
+        code, _ = self.run_cli("vscode-settings")
+        self.assertEqual(code, 0)
+        data = json.loads((self.user / "settings.json").read_text())
+        self.assertEqual(data["editor.fontSize"], 15)
+        self.assertEqual(data["workbench.startupEditor"], "welcomePage")
+        self.assertEqual(data["workbench.activityBar.location"], "top")
+
+    def test_jsonc_is_not_rewritten(self) -> None:
+        self.user.mkdir()
+        raw = b'{\n  // my font\n  "editor.fontSize": 15\n}\n'
+        (self.user / "settings.json").write_bytes(raw)
+        self.assertIsNone(self.h.merge_settings(raw.decode(), {"a": 1}))
+        code, out = self.run_cli("vscode-settings")
+        self.assertEqual(code, 2)
+        self.assertIn('"workbench.activityBar.location": "top"', out)
+        self.assertIn('"chat.disableAIFeatures": true', out)
+        self.assertEqual((self.user / "settings.json").read_bytes(), raw)
+
+    def test_untouched_when_all_present(self) -> None:
+        self.user.mkdir()
+        raw = (
+            b'{"chat.disableAIFeatures":true,"workbench.startupEditor":"none",'
+            b'"workbench.secondarySideBar.defaultVisibility":"hidden","workbench.activityBar.location":"top"}'
+        )
+        (self.user / "settings.json").write_bytes(raw)
+        code, out = self.run_cli("vscode-settings")
+        self.assertEqual((code, out.strip()), (0, "already set"))
+        self.assertEqual((self.user / "settings.json").read_bytes(), raw)
+
+    def test_non_ascii_kept(self) -> None:
+        self.user.mkdir()
+        (self.user / "settings.json").write_text('{"x": "café"}', encoding="utf-8")
+        self.run_cli("vscode-settings")
+        raw = (self.user / "settings.json").read_text(encoding="utf-8")
+        self.assertIn("café", raw)
+        self.assertNotIn("\\u00e9", raw)
+
+    def test_mode_kept_on_rewrite(self) -> None:
+        self.user.mkdir()
+        path = self.user / "settings.json"
+        path.write_text("{}")
+        path.chmod(0o600)
+        self.run_cli("vscode-settings")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_symlinked_settings_kept_a_symlink(self) -> None:
+        self.user.mkdir()
+        target = self.tmp / "dotfiles" / "settings.json"
+        target.parent.mkdir()
+        target.write_text(json.dumps({"editor.fontSize": 15}))
+        link = self.user / "settings.json"
+        link.symlink_to(target)
+        self.assertEqual(self.run_cli("vscode-settings")[0], 0)
+        self.assertTrue(link.is_symlink())
+        data = json.loads(target.read_text())
+        self.assertEqual(data["editor.fontSize"], 15)
+        self.assertEqual(data["workbench.activityBar.location"], "top")
+
+    def test_non_utf8_treated_as_jsonc(self) -> None:
+        self.user.mkdir()
+        raw = b'{"x": "caf\xe9"}'
+        (self.user / "settings.json").write_bytes(raw)
+        self.assertEqual(self.run_cli("vscode-settings")[0], 2)
+        self.assertEqual((self.user / "settings.json").read_bytes(), raw)
+
+
+class VscodeRunningTests(_Case):
+    def _argv(self, platform: str) -> list[str]:
+        with mock.patch.object(self.h.sys, "platform", platform), mock.patch.object(
+            self.h.subprocess, "run", return_value=mock.Mock(returncode=0)
+        ) as run:
+            self.assertTrue(self.h.vscode_running())
+        return run.call_args.args[0]
+
+    def test_macos_matches_command_line(self) -> None:
+        uid = str(self.h.os.getuid())
+        self.assertEqual(self._argv("darwin"), ["pgrep", "-u", uid, "-f", "Visual Studio Code.app/Contents/MacOS/"])
+
+    def test_linux_matches_process_name(self) -> None:
+        uid = str(self.h.os.getuid())
+        self.assertEqual(self._argv("linux"), ["pgrep", "-x", "-u", uid, "code"])
+
+
+class LayoutTests(_Case):
+    def _db(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.user / "globalStorage" / "state.vscdb")
+
+    def _make_db(self, items: dict) -> Path:
+        db = self.user / "globalStorage" / "state.vscdb"
+        db.parent.mkdir(parents=True)
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)")
+        con.executemany("INSERT INTO ItemTable (key, value) VALUES (?, ?)", list(items.items()))
+        con.commit()
+        con.close()
+        return db
+
+    def _layout(self, running: bool = False) -> tuple[int, str]:
+        with mock.patch.object(self.h, "vscode_running", return_value=running):
+            return self.run_cli("vscode-layout")
+
+    def test_layout_order_and_hidden(self) -> None:
+        entry = self.h.layout_entry([], [])
+        self.assertEqual([e["id"] for e in entry], SHOWN + HIDDEN)
+        for i, e in enumerate(entry[:6]):
+            self.assertEqual(e, {"id": SHOWN[i], "pinned": True, "visible": True, "order": i})
+        for e in entry[6:]:
+            self.assertFalse(e["pinned"])
+            self.assertFalse(e["visible"])
+
+    def test_layout_keeps_unknown_ids(self) -> None:
+        foo = {"id": "workbench.view.extension.foo", "pinned": True, "visible": True, "order": 9}
+        entry = self.h.layout_entry([foo, {"id": "workbench.view.scm", "pinned": True, "visible": True}], [])
+        self.assertIn(foo, entry)
+        self.assertEqual([e["visible"] for e in entry if e["id"] == "workbench.view.scm"], [False])
+
+    def test_codex_containers_hidden(self) -> None:
+        pkg = self.exts / "openai.chatgpt-1.2.3" / "package.json"
+        pkg.parent.mkdir(parents=True)
+        pkg.write_text(json.dumps({"contributes": {"viewsContainers": {"activitybar": [{"id": "codex"}]}}}))
+        self.assertEqual(self._layout()[0], 0)
+        con = self._db()
+        (value,) = con.execute("SELECT value FROM ItemTable WHERE key=?", (KEY,)).fetchone()
+        con.close()
+        hidden = [e["id"] for e in json.loads(value) if not e["visible"]]
+        self.assertIn("workbench.view.extension.codex", hidden)
+
+    def test_fresh_db_gets_layout_and_marker(self) -> None:
+        code, out = self._layout()
+        self.assertEqual((code, out), (0, ""))
+        con = self._db()
+        (value,) = con.execute("SELECT value FROM ItemTable WHERE key=?", (KEY,)).fetchone()
+        marker = con.execute("SELECT 1 FROM ItemTable WHERE key=?", (MARKER,)).fetchone()
+        con.close()
+        self.assertEqual(json.loads(value), self.h.layout_entry([], []))
+        self.assertIsNotNone(marker)
+
+    def test_db_without_pinned_entry_gets_layout(self) -> None:
+        db = self._make_db({"other": "x"})
+        self.assertTrue(self.h.layout_needed(db))
+        self.assertEqual(self._layout()[0], 0)
+        self.assertFalse(self.h.layout_needed(db))
+
+    def test_layout_needed_when_db_absent(self) -> None:
+        self.assertTrue(self.h.layout_needed(self.user / "globalStorage" / "state.vscdb"))
+
+    def test_existing_layout_is_never_rewritten(self) -> None:
+        db = self._make_db({KEY: json.dumps([{"id": "workbench.view.scm", "pinned": True, "visible": True}])})
+        before = db.read_bytes()
+        code, out = self._layout()
+        self.assertEqual(code, 2)
+        self.assertTrue(out.strip())
+        self.assertEqual(db.read_bytes(), before)
+
+    def test_rerun_is_already_set_even_with_vscode_running(self) -> None:
+        self._layout()
+        code, out = self._layout(running=True)
+        self.assertEqual((code, out.strip()), (0, "already set"))
+
+    def test_engineer_changes_not_rewritten_on_rerun(self) -> None:
+        self._layout()
+        mine = json.dumps([{"id": "workbench.view.scm", "pinned": True, "visible": True, "order": 0}])
+        con = self._db()
+        con.execute("UPDATE ItemTable SET value=? WHERE key=?", (mine, KEY))
+        con.commit()
+        con.close()
+        self.assertEqual(self._layout(), (0, "already set\n"))
+        con = self._db()
+        (value,) = con.execute("SELECT value FROM ItemTable WHERE key=?", (KEY,)).fetchone()
+        con.close()
+        self.assertEqual(value, mine)
+
+    def test_vscode_running_skips(self) -> None:
+        code, out = self._layout(running=True)
+        self.assertEqual(code, 2)
+        self.assertIn("quit VS Code", out)
+        self.assertFalse((self.user / "globalStorage" / "state.vscdb").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
