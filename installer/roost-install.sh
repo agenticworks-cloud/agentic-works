@@ -71,6 +71,7 @@ SUDO_FAILED=0  # 1 when the up-front `sudo -v` failed: on a Mac, an account that
 STEP_LABEL=""
 STEP_RESULT=""
 LINE_OPEN=0  # 1 while the cursor sits at the end of a terminal's "… <label>" line
+SPIN_PID=""  # the spinner drawing the open line, on a terminal; stopped before anything else is printed
 N_OK=0
 N_SKIP=0
 N_FAIL=0
@@ -80,17 +81,40 @@ if [ -t 1 ] && [ -z "${NO_COLOR+set}" ]; then
 fi
 LOG=/dev/null  # every command's output; made in main, kept when a step fails
 
-step_begin() {  # $1 = label: "  … <label>", overwritten by step_end on a terminal
+step_begin() {  # $1 = label: "  … <label>", overwritten by step_end on a terminal, where a spinner turns meanwhile
   STEP_LABEL=$1
   if [ -t 1 ]; then
     printf '  … %s' "$STEP_LABEL"
     LINE_OPEN=1
+    spinner_start
   else
     printf '  … %s\n' "$STEP_LABEL"
   fi
 }
 
+spinner_start() {  # the "…" of the open line turns until spinner_stop; it ends by itself if this script is gone
+  local parent=$$
+  (
+    while kill -0 "$parent" 2> /dev/null; do
+      for f in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do
+        printf '\r  %s %s' "$f" "$STEP_LABEL"
+        sleep 0.1
+      done
+    done
+  ) &
+  SPIN_PID=$!
+}
+
+spinner_stop() {  # before anything else is printed: the spinner gone, the open line back to "  … <label>"
+  [ -n "$SPIN_PID" ] || return 0
+  { kill "$SPIN_PID" && wait "$SPIN_PID"; } 2> /dev/null
+  SPIN_PID=""
+  [ "$LINE_OPEN" = 1 ] && printf '\r  … %s' "$STEP_LABEL"
+  return 0
+}
+
 step_say() {  # $1 = text: a line under the step in progress (prompts, URLs, dry-run commands)
+  spinner_stop
   if [ "$LINE_OPEN" = 1 ]; then
     printf '\n'
     LINE_OPEN=0
@@ -113,6 +137,7 @@ step_end() {  # $1 = done|already|skipped|failed, $2 = detail
       result=failed mark='✗' colour=$C_FAIL text="$STEP_LABEL: $detail"
       N_FAIL=$((N_FAIL + 1)) ;;
   esac
+  spinner_stop
   if [ "$LINE_OPEN" = 1 ]; then
     printf '\r\033[K'
     LINE_OPEN=0
@@ -557,6 +582,7 @@ commas() {  # $* = words: "a, b, c"
 ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = no, 2 = no terminal or no answer
   local answer=""
   [ "$TTY_OPEN" = 1 ] || return 2
+  spinner_stop
   if [ "$LINE_OPEN" = 1 ]; then
     printf '\n'
     LINE_OPEN=0
@@ -576,6 +602,7 @@ ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = n
 
 on_terminal() {  # $* = argv, run with the terminal (fd 3) as stdin and output on screen: a browser sign-in
   printf '$ %s\n' "$*" >> "$LOG"
+  spinner_stop
   if [ "$TTY_OPEN" = 1 ]; then "$@" <&3; else "$@" < /dev/null; fi
 }
 
@@ -1118,6 +1145,7 @@ parse_args() {
 }
 
 cleanup() {  # on exit: the log is kept, and named, only when a step failed and something was logged
+  spinner_stop
   sudo_keepalive_stop
   [ -z "$VSIX_DIR" ] || rm -rf "$VSIX_DIR"
   [ -z "$INLINED_HELPER" ] || rm -f "$INLINED_HELPER"
