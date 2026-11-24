@@ -288,21 +288,35 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   assert.strictEqual(w.id, 'roost.getStarted');
   const when = Object.fromEntries(w.steps.map((s) => [s.id, s.when]));
   assert.deepStrictEqual(when, {
-    connectClaude: 'config.roost.agents.enabled && !roost.agents.failed', agents: 'config.roost.agents.enabled && !roost.agents.failed', codebaseSearch: 'config.roost.agents.enabled && !roost.agents.failed', teams: 'config.roost.teams.enabled && !roost.teams.failed',
+    connectClaude: 'config.roost.agents.enabled && !roost.agents.failed', agents: 'config.roost.agents.enabled && !roost.agents.failed', tools: 'roost.companyTools', codebaseSearch: 'config.roost.agents.enabled && !roost.agents.failed', teams: 'config.roost.teams.enabled && !roost.teams.failed',
     jira: 'config.roost.jira.enabled && !roost.jira.failed', github: 'config.roost.pullRequests.enabled && !roost.pullRequests.failed',
     parts: undefined,
   });
   // a sign-in step is done once its part says it is signed in (a context key it sets), not when its button runs
   const contexts = Object.fromEntries(w.steps.map((s) => [s.id, s.completionEvents.filter((e) => e.startsWith('onContext:'))]));
   assert.deepStrictEqual(contexts, {
-    connectClaude: ['onContext:perch.claudeConnected'], agents: ['onContext:perch.messageSent'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
+    connectClaude: ['onContext:perch.claudeConnected'], agents: ['onContext:perch.messageSent'], tools: ['onContext:roost.toolsConnected'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
   });
   assert.deepStrictEqual(w.steps.map((st) => st.id).slice(0, 2), ['connectClaude', 'agents'], 'Connect Claude first, then the agents step');
-  assert.deepStrictEqual(w.steps.map((st) => st.id), ['connectClaude', 'agents', 'codebaseSearch', 'teams', 'jira', 'github', 'parts']);
+  assert.deepStrictEqual(w.steps.map((st) => st.id), ['connectClaude', 'agents', 'tools', 'codebaseSearch', 'teams', 'jira', 'github', 'parts']);
   assert(!w.steps.some((st) => st.id === 'gateway'), 'no gateway step: Connect Claude replaces it');
   const buttonsOf = (id) => [...w.steps.find((st) => st.id === id).description.matchAll(/\(command:([\w.]+)\)/g)].map((x) => x[1]);
   assert.deepStrictEqual(buttonsOf('agents'), ['roost.newClaudeTab', 'roost.newCodexTab'], 'either agent, opened from here');
   assert.deepStrictEqual(buttonsOf('connectClaude'), ['perch.connectClaude', 'roost.connectClaudeNotNow']);
+  // Connect your tools: shown with a company file that lists servers; done when all are connected, or left for now
+  const tools = w.steps.find((st) => st.id === 'tools');
+  assert.deepStrictEqual([tools.title, tools.media.markdown], ['Connect your tools', 'media/walkthrough/tools.md']);
+  assert.strictEqual(tools.description, 'Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:roost.connectTools)\n[Not Now](command:roost.toolsNotNow)');
+  assert.deepStrictEqual(tools.completionEvents, ['onContext:roost.toolsConnected', 'onCommand:roost.toolsNotNow']);
+  assert.deepStrictEqual(buttonsOf('tools'), ['roost.connectTools', 'roost.toolsNotNow']);
+  // Teams and Jira: Roost's sign-in, which runs the matching tools row with a company file, else the part's own
+  assert.deepStrictEqual(buttonsOf('teams'), ['roost.teamsSignIn']);
+  assert.deepStrictEqual(buttonsOf('jira'), ['roost.jiraSignIn']);
+  const title = (id) => (m.contributes.commands.find((c) => c.command === id) || {}).title;
+  assert.strictEqual(title('roost.connectTools'), 'Roost: Connect Your Tools');
+  const hidden = new Set(m.contributes.menus.commandPalette.filter((e) => e.when === 'false').map((e) => e.command));
+  for (const id of ['roost.toolsNotNow', 'roost.teamsSignIn', 'roost.jiraSignIn', 'roost.connectClaudeNotNow']) assert.ok(hidden.has(id), `${id} hidden from the palette`);
+  assert.ok(!hidden.has('roost.connectTools'), 'Roost: Connect Your Tools is in the palette');
   const cc = w.steps.find((st) => st.id === 'connectClaude');
   assert.deepStrictEqual(cc.completionEvents, ['onContext:perch.claudeConnected', 'onCommand:roost.connectClaudeNotNow'], 'done when Claude is connected, or left for now');
   assert.deepStrictEqual([cc.title, cc.media.markdown], ['Connect Claude', 'media/walkthrough/connect-claude.md']);

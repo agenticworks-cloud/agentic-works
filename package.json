@@ -380,6 +380,22 @@
         "title": "Roost: Leave Connect Claude for Now"
       },
       {
+        "command": "roost.connectTools",
+        "title": "Roost: Connect Your Tools"
+      },
+      {
+        "command": "roost.toolsNotNow",
+        "title": "Roost: Leave Connect Your Tools for Now"
+      },
+      {
+        "command": "roost.teamsSignIn",
+        "title": "Roost: Sign In to Teams"
+      },
+      {
+        "command": "roost.jiraSignIn",
+        "title": "Roost: Connect Jira"
+      },
+      {
         "command": "roost.goToClaude",
         "title": "Roost: Go to Your Agent Tab"
       },
@@ -651,6 +667,18 @@
           "when": "false"
         },
         {
+          "command": "roost.toolsNotNow",
+          "when": "false"
+        },
+        {
+          "command": "roost.teamsSignIn",
+          "when": "false"
+        },
+        {
+          "command": "roost.jiraSignIn",
+          "when": "false"
+        },
+        {
           "command": "roost.newClaudeTab",
           "when": "false"
         },
@@ -889,6 +917,19 @@
             ]
           },
           {
+            "id": "tools",
+            "title": "Connect your tools",
+            "description": "Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:roost.connectTools)\n[Not Now](command:roost.toolsNotNow)",
+            "media": {
+              "markdown": "media/walkthrough/tools.md"
+            },
+            "when": "roost.companyTools",
+            "completionEvents": [
+              "onContext:roost.toolsConnected",
+              "onCommand:roost.toolsNotNow"
+            ]
+          },
+          {
             "id": "codebaseSearch",
             "title": "Search your code (optional)",
             "description": "Give Claude and Codex tabs a tool that searches the workspace, by keywords and, once installed, by meaning. Off unless you turn it on.\n[Turn On Codebase Search](command:roost.codebaseSearchOn)\n[Not Now](command:roost.codebaseSearchNotNow)",
@@ -904,7 +945,7 @@
           {
             "id": "teams",
             "title": "Sign in to Teams",
-            "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:chirp.signIn)",
+            "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:roost.teamsSignIn)",
             "media": {
               "markdown": "media/walkthrough/teams.md"
             },
@@ -916,7 +957,7 @@
           {
             "id": "jira",
             "title": "Connect Jira and Confluence",
-            "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:jay.signIn)",
+            "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:roost.jiraSignIn)",
             "media": {
               "markdown": "media/walkthrough/jira.md"
             },

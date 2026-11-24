@@ -187,22 +187,25 @@ After the PRs tab, the same first start opens Roost's walkthrough, **Get started
 (`workbench.action.openWalkthrough`, `seanahn.roost#roost.getStarted`); a failure is logged like the PRs tab's. The
 walkthrough is Roost's own (`contributes.walkthroughs` in roost.contributes.json, the one contribution point only
 Roost may use), so it also sits on VS Code's Welcome page, and **Roost: Get Started** opens it again. Its steps, each
-shown only while its part is switched on and started (`when: config.roost.<id>.enabled && !roost.<id>.failed`), have a button and a short page
-(media/walkthrough/*.md):
+shown only while its part is switched on and started (`when: config.roost.<id>.enabled && !roost.<id>.failed`; Connect
+your tools only with a company file that lists MCP servers, `when: roost.companyTools`), have a button and a short
+page (media/walkthrough/*.md). Their text is static: whatever depends on the company file is in a panel, not a step.
+In order:
 
 | Step | Button | Done when |
 |---|---|---|
+| Connect Claude | Connect Claude (Agents: Connect Claude…, a panel of the ways Claude can run: the company's gateway or an LLM gateway, a Claude subscription, an Anthropic API key, AWS Bedrock, Codex only), or Not Now (`roost.connectClaudeNotNow`, hidden from the palette) | Claude is connected (`perch.claudeConnected`), or Not Now runs. It replaced 0.3's Use an LLM gateway (optional) step and its `roost.gatewayNotNow` *(0.4)* |
 | Talk to Claude or Codex | New Claude Tab, New Codex Tab (opened beside the walkthrough, 70/30) | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: Roost's installer no longer opens a tab on first start; the user opens the one they want here; either agent works, and the page says how each signs in)* |
-| Use an LLM gateway (optional) | Set Up a Gateway (Agents: Set Up a Gateway…, a form in an editor tab that writes the gateway file), or Not Now (`roost.gatewayNotNow`, hidden from the palette) | a gateway is saved and usable (`perch.gatewayReady`, which Agents sets at start and on save), or Not Now runs *(Sean, 2026-11-24)*. The agents step has no gateway button, since a walkthrough's text cannot depend on a context key: its page names Agents: New Claude Tab on the Gateway, and the form offers that button once saved |
+| Connect your tools (only with `roost.companyTools`) | Roost: Connect Your Tools (a panel, `roost.tools`, one row per MCP server in the company file, each signed in its own way and checked, then registered with Claude Code at user scope; with no servers the command says "Your company file lists no tools."), or Not Now (`roost.toolsNotNow`, hidden) | every row is connected (`roost.toolsConnected`, which Roost sets after each change of a row: its check passed and Claude Code was given it), or Not Now runs *(0.4)* |
 | Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
-| Sign in to Teams | Teams: Sign In | Teams is signed in (`chirp.signedIn`) |
-| Connect Jira and Confluence | Connect Jira (Jira: Sign In: opens the Jira view, whose sign-in form asks for the site URL, email and API token, with a Create one link to Atlassian's API tokens page) | Jira is signed in (`jay.signedIn`) *(Sean, 2026-11-24: no input box at the top)* |
+| Sign in to Teams | Sign In to Teams (`roost.teamsSignIn`, hidden): with a company file and a tools row whose `doneWhen.file` is the expanded `teams.signIn.tokenFile`, the Connect Your Tools panel opens and runs that row's sign-in (unless it is connected already); else Teams: Sign In (`chirp.signIn`) | Teams is signed in (`chirp.signedIn`): chirp watches its token file, so a tools row's sign-in ticks it by itself |
+| Connect Jira and Confluence | Connect Jira (`roost.jiraSignIn`, hidden: the matching tools row for `jira.signIn.tokenFile` as Teams does, else Jira: Sign In, `jay.signIn`, which opens the Jira view, whose sign-in form asks for the site URL, email and API token, with a Create one link to Atlassian's API tokens page) | Jira is signed in (`jay.signedIn`) *(Sean, 2026-11-24: no input box at the top)* |
 | Sign in to GitHub | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
 | Choose your parts | Roost: Settings | that command runs |
 
-"Done" follows VS Code's own completion events. The Choose your parts step, and the two optional ones' buttons, are
-ticked when their command runs (`onCommand:`); the agents step when a message is sent, the gateway step when a
-gateway is ready (`onContext:`). The three sign-in steps are ticked only once that part is actually signed in (`onContext:`): each
+"Done" follows VS Code's own completion events. The Choose your parts step, and Search your code's two buttons, are
+ticked when their command runs (`onCommand:`); the agents step when a message is sent, Connect Claude when Claude is
+connected, Connect your tools when every tool is (`onContext:`), or their Not Now. The three sign-in steps are ticked only once that part is actually signed in (`onContext:`): each
 part sets its own context key, in its own namespace so it still works as an extension of its own, true when signed
 in and false when signed out or stopped, and sends it only when it changes. chirp sets `chirp.signedIn` when a login
 works and clears it when signed out; jay sets `jay.signedIn` while it runs with a sign-in; kestrel sets

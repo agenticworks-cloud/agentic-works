@@ -1,6 +1,10 @@
 # Connect Jira and Confluence
 
-**Connect Jira** opens the **Jira and Confluence** view in the activity bar, with a sign-in form:
+If your company has set up Roost and one of its tools keeps the Jira sign-in (`jira.signIn.tokenFile`), **Connect
+Jira** opens **Connect Your Tools** and signs in that tool's row instead. The step ticks by itself once that sign-in
+is done: Jira uses the same login.
+
+Otherwise, **Connect Jira** opens the **Jira and Confluence** view in the activity bar, with a sign-in form:
 
 1. **Site URL**: your Atlassian site, for example `https://yourcompany.atlassian.net` (filled in when `jira.site` is set).
 2. **Atlassian account email**: the email you sign in to Atlassian with.

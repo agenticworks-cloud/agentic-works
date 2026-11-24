@@ -2,7 +2,9 @@
 // A fake vscode module, installed for require('vscode'), so Roost's loader runs without VS Code. It records what
 // Roost does: context keys, error messages, the output channel, registered commands and webview serializers, setting
 // writes; tests set ui.config (and ui.inspect for the scopes a value is set at) and call ui.changeConfig(keys) to fire
-// onDidChangeConfiguration, and ui.restorePanel(viewType) to have VS Code bring back a tab of that type.
+// onDidChangeConfiguration, and ui.restorePanel(viewType) to have VS Code bring back a tab of that type. Webview panels
+// Roost opens are in ui.panels (each with .posted, the messages sent to its page, and .receive(m), a message from the
+// page, resolving once the host's listeners have); env.openExternal goes to ui.opened, the clipboard to ui.clipboard.
 const Module = require('module');
 const path = require('path');
 const origLoad = Module._load;
@@ -13,7 +15,7 @@ class Emitter {
 }
 
 function install() {
-  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve() };
+  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve(), panels: [], opened: [], clipboard: [] };
   const configChange = new Emitter();
   const terminalClose = new Emitter();
   // a terminal closing, as when its shell exits; closeListeners: how many onDidCloseTerminal listeners are left
@@ -21,6 +23,7 @@ function install() {
   ui.closeListeners = () => terminalClose.fns.length;
   ui.changeConfig = (keys) => configChange.fire({ affectsConfiguration: (s) => keys.some((k) => k === s || k.startsWith(s + '.')) });
   const Uri = {
+    parse: (s) => ({ scheme: String(s).split(':')[0], toString: () => String(s) }),
     file: (p) => ({ fsPath: p, path: p, scheme: 'file', toString: () => 'file://' + p }),
     // keeps the scheme and authority of `u`, as the real one does (a remote window's extension URI is no file: URI)
     joinPath: (u, ...parts) => {
@@ -38,7 +41,30 @@ function install() {
   const vscode = {
     Uri, EventEmitter: Emitter,
     ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+    ViewColumn: { Active: -1, Beside: -2, One: 1 },
+    env: {
+      openExternal: async (uri) => { ui.opened.push(String(uri)); return true; },
+      clipboard: { writeText: async (t) => { ui.clipboard.push(t); } },
+    },
     window: {
+      createWebviewPanel: (viewType, title, column, options) => {
+        const received = [];
+        const disposed = new Emitter();
+        const panel = {
+          viewType, title, column, options, disposed: false, revealed: 0, posted: [],
+          webview: {
+            html: '', cspSource: 'vscode-resource:',
+            postMessage: async (m) => { panel.posted.push(JSON.parse(JSON.stringify(m))); return true; },
+            onDidReceiveMessage: (fn) => { received.push(fn); return { dispose() { const i = received.indexOf(fn); if (i >= 0) received.splice(i, 1); } }; },
+          },
+          reveal() { panel.revealed++; },
+          onDidDispose: disposed.event,
+          dispose() { if (panel.disposed) return; panel.disposed = true; disposed.fire(); },
+          receive: (m) => Promise.all(received.map((fn) => fn(m))),
+        };
+        ui.panels.push(panel);
+        return panel;
+      },
       createOutputChannel: (name) => ({ name, appendLine: (l) => ui.out.push(l), show() { ui.shown++; }, dispose() {} }),
       onDidCloseTerminal: terminalClose.event,
       createTerminal: (opts) => {

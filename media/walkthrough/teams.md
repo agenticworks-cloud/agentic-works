@@ -1,8 +1,13 @@
 # Sign in to Teams
 
-**Teams: Sign In** opens your browser on Microsoft's sign-in page. Sign in with your work account, the way you do for
-Outlook or Teams on the web. Your company decides how: a password and the Authenticator app, a passkey or a security
-key; **Other ways to sign in** lists the others. Then come back to VS Code.
+If your company has set up Roost and one of its tools keeps the Teams sign-in (`teams.signIn.tokenFile`), **Sign In
+to Teams** opens **Connect Your Tools** and signs in that tool's row instead. The step ticks by itself once that
+sign-in is done: Teams uses the same login.
+
+Otherwise, **Sign In to Teams** runs **Teams: Sign In**, which opens your browser on Microsoft's sign-in page. Sign
+in with your work account, the way you do for Outlook or Teams on the web. Your company decides how: a password and
+the Authenticator app, a passkey or a security key; **Other ways to sign in** lists the others. Then come back to VS
+Code.
 
 The first time, Microsoft asks to allow **chirp**, the app Teams signs in with. If it shows **Need admin approval**
 instead, your company lets only its admins approve apps: ask your IT team to approve chirp (or use **Request
