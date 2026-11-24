@@ -477,6 +477,9 @@ class TestVSCode(_Installer):
              ["curl and ca-certificates", "gnupg", ms, "VS Code", gh_repo, "gh"]),
             ("debian, gh only", "debian", ("sudo", "apt-get", "curl", "code"), {}, [gh_repo, "gh"]),
             ("debian, no curl, Roost there", "debian", ("sudo", "apt-get", "code", "gh"), {}, None),
+            # the claude step: Anthropic's installer runs without sudo, but the curl it is downloaded with is a system install
+            ("debian, no curl, claude missing", "debian", ("sudo", "apt-get", "code", "gh", "git"), {},
+             ["curl and ca-certificates"]),
             ("debian, no curl, Roost older", "debian", ("sudo", "apt-get", "code", "gh"),
              {"CODE_EXTENSIONS": "seanahn.roost@1.0.0"}, ["curl and ca-certificates"]),
             ("rhel, VS Code only", "rhel", ("sudo", "dnf", "rpm", "curl", "gh"), {}, [ms, "VS Code"]),
@@ -501,7 +504,8 @@ class TestVSCode(_Installer):
                 args = ("--skip", "github") if name == "--skip github" else ()
                 if name == "git only, --skip git":
                     args = ("--skip", "git")
-                stubs = stubs + tuple(n for n in ("git", "claude") if n not in stubs and not name.startswith("git"))
+                if "claude missing" not in name:
+                    stubs = stubs + tuple(n for n in ("git", "claude") if n not in stubs and not name.startswith("git"))
                 rc, out = self.run_pipe(self.env(os_name, stubs, **extra), *args)
                 self.assertEqual(self.disclosed(out), want, out)
 
@@ -1353,7 +1357,11 @@ class TestGit(_Installer):
                 self.log.write_text("")
                 rc, out = self.run_pipe(self.env(os_name, self.NO_GIT))
                 self.assertEqual(rc, 0, out)
-                self.assertEqual(self.logged(f"sudo {pm} install -y git"), [f"sudo {pm} install -y git"], out)
+                if pm == "apt-get":  # updated first, and never asking: as the other apt installs are
+                    self.assertEqual(self.logged("apt-get"), ["sudo apt-get update",
+                                     "sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git"], out)
+                else:
+                    self.assertEqual(self.logged(f"sudo {pm} install -y git"), [f"sudo {pm} install -y git"], out)
                 self.assertIn("  ✓ git (installed)", out)
                 self.assertIn("  - git\n", out)  # the up-front list of what this run adds system-wide
 
@@ -1367,7 +1375,7 @@ class TestGit(_Installer):
     def test_broken_git_is_installed_over(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, GIT_BROKEN="1"))
         self.assertEqual(rc, 0, out)
-        self.assertEqual(len(self.logged("sudo apt-get install -y git")), 1, out)
+        self.assertEqual(len(self.logged("apt-get install -y git")), 1, out)
 
     def test_dry_run_prints_the_install(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", self.NO_GIT), "--dry-run")

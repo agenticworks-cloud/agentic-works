@@ -96,7 +96,8 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    `https://claude.ai/install.sh`, to a temp file with `curl` and then runs it with `bash` (downloaded first, never
    piped, as Homebrew's is; on Ubuntu/Debian curl is installed first when a minimal system has none), confirms
    `~/.local/bin/claude` exists, and says `✓ Claude Code CLI (installed)`; else `✗ Claude Code CLI: couldn't be
-   installed; see <log>`. It needs no sudo. For new terminals, `~/.local/bin` goes into Roost's marked PATH block
+   installed; see <log>`. Anthropic's installer runs as the user, without sudo; only the curl install before it does,
+   and is in the up-front sudo list when the claude step will run (final review, 0.4). For new terminals, `~/.local/bin` goes into Roost's marked PATH block
    in the login profile (inside the block that is there, the one the PATH and Homebrew steps write; a block of its own
    only when there is none) unless `ORIG_PATH` already holds it. A dry run prints the two commands. `--skip claude`
    leaves it out; `ROOST_INSTALL_CLAUDE_INSTALLER` (a test seam) replaces the URL. Skipped, with no line, when the
@@ -106,8 +107,9 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    the `gh` package on RHEL/Fedora, and probably on Debian/Ubuntu). The installer checks that `git --version`
    actually runs (on macOS `/usr/bin/git` is a stub that opens Apple's install dialog until the Command Line Tools
    are installed) and installs it when not: the Command Line Tools (`xcode-select --install`, or Homebrew's
-   `brew install git` when Homebrew is already there) on macOS, the distro's `git` package on Linux (`apt-get install
-   -y git`, `dnf install -y git`, listed in the up-front sudo list). Git counts as working when `git --version` exits
+   `brew install git` when Homebrew is already there) on macOS, the distro's `git` package on Linux (`apt-get update`, then
+   `DEBIAN_FRONTEND=noninteractive apt-get install -y git`, as the other apt installs; `dnf install -y git`; listed in
+   the up-front sudo list). Git counts as working when `git --version` exits
    0; on macOS, `/usr/bin/git` is not run at all while `xcode-select -p` fails (it would open Apple's dialog) and
    counts as missing. Without Homebrew on a Mac the step runs `xcode-select --install` and waits for `xcode-select -p`
    (600 s, `ROOST_INSTALL_CLT_WAIT`; polled every 5 s): `✗ git: finish the Command Line Tools install Apple opened,

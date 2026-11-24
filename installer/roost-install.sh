@@ -913,9 +913,9 @@ ensure_git() {
           return 0
         fi
       fi ;;
-    ubuntu|debian)
+    ubuntu|debian)  # a fresh machine's package lists may be stale or missing: updated first, as the other apt installs are
       # shellcheck disable=SC2086
-      run $SUDO apt-get install -y git || rc=1 ;;
+      { run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y git; } || rc=1 ;;
     rhel|fedora)
       # shellcheck disable=SC2086
       run $SUDO dnf install -y git || rc=1 ;;
@@ -1223,8 +1223,10 @@ roost_download_planned() {  # true when the Roost step is going to download the 
 }
 
 system_changes() {  # what the steps that are going to run add system-wide, one per line, in run order; or nothing
-  local vscode=0 gh=0 roost=0 ms_repo=0 gh_repo=0 git=0
+  local vscode=0 gh=0 roost=0 ms_repo=0 gh_repo=0 git=0 claude=0
   skip_named vscode || find_code || vscode=1
+  # the claude step runs Anthropic's installer as the user (no sudo); only the curl it downloads with may be a system install
+  skip_named claude || [ -n "$CLASH" ] || [ -e "$HOME/.local/bin/claude" ] || have claude || claude=1
   skip_named git || [ -n "$CLASH" ] || git_works || git=1
   skip_named github || have gh || gh=1
   if { [ "$vscode" = 1 ] || find_code; } && roost_download_planned; then roost=1; fi
@@ -1234,7 +1236,7 @@ system_changes() {  # what the steps that are going to run add system-wide, one 
     ubuntu|debian)
       [ "$vscode" = 1 ] && ! apt_has_source "packages.microsoft.com/repos/code" && ms_repo=1
       [ "$gh" = 1 ] && ! apt_has_source "cli.github.com/packages" && gh_repo=1
-      if ! have curl && [ "$ms_repo$gh_repo$roost" != 000 ]; then echo "curl and ca-certificates"; fi
+      if ! have curl && [ "$ms_repo$gh_repo$roost$claude" != 0000 ]; then echo "curl and ca-certificates"; fi
       if [ "$ms_repo" = 1 ] && ! have gpg; then echo "gnupg"; fi
       [ "$ms_repo" = 1 ] && echo "Microsoft's VS Code package repository and its signing key"
       [ "$vscode" = 1 ] && echo "VS Code"
