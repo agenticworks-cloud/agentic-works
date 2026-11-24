@@ -25,6 +25,10 @@
 #   ROOST_INSTALL_HELPER     roost-install-helper's path, instead of the one beside this script
 #   ROOST_INSTALL_PYTHON3    test seam only: the python3 path taken as found, instead of `command -v python3`
 #   ROOST_INSTALL_PLATFORM_PYTHON  test seam only: instead of /usr/libexec/platform-python (RHEL 8's system python)
+#   ROOST_INSTALL_GIT        test seam only: the git path taken as found, instead of `command -v git`
+#   ROOST_INSTALL_CLT_WAIT   seconds to wait for Apple's Command Line Tools after `xcode-select --install` (600)
+#   ROOST_INSTALL_CLAUDE_INSTALLER  test seam only: where Claude Code's installer is downloaded from, instead of
+#                            https://claude.ai/install.sh
 set -u
 
 # Roost's version and its .vsix's SHA-256: written in by `make release`. A copy without them refuses the Roost step.
@@ -39,11 +43,12 @@ GH_KEY="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
 GH_RPM_REPO="https://cli.github.com/packages/rpm/gh-cli.repo"
 APT_DIR=${ROOST_INSTALL_APT_DIR:-/etc/apt}
 
-STEP_NAMES="vscode path standalone roost companions github settings icons open"  # what --skip accepts, in run order
+STEP_NAMES="vscode path standalone roost companions claude git github homebrew settings icons open"  # what --skip accepts, in run order
 SUPPORTED="macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora"
 MAC_CODE="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
 DOWNLOAD_URL="https://code.visualstudio.com/download"
 HOMEBREW_INSTALLER="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+CLAUDE_INSTALLER=${ROOST_INSTALL_CLAUDE_INSTALLER:-"https://claude.ai/install.sh"}
 MS_KEY="https://packages.microsoft.com/keys/microsoft.asc"
 ORIG_PATH=$PATH  # the PATH a new terminal would have, before this run adds to it
 
@@ -64,6 +69,7 @@ CLASH=""  # why Roost can't go in beside the standalone four; when set, Roost fa
 VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
 INLINED_HELPER=""  # the released script's own copy of the helper, written to a private temp file at start
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
+HOMEBREW_USED=0  # 1 once this run installed Homebrew or installed anything through it
 SUDO_FAILED=0  # 1 when the up-front `sudo -v` failed: on a Mac, an account that isn't an administrator
 
 # ---- the checklist -------------------------------------------------------------------------------------------
@@ -326,6 +332,7 @@ ensure_homebrew() {  # macOS: Homebrew, from its own installer (which needs an a
     HOMEBREW_STATE=failed
     return 1
   fi
+  HOMEBREW_USED=1
 }
 
 homebrew_failure() {  # why ensure_homebrew failed, for a step's line
@@ -441,6 +448,7 @@ ensure_vscode() {
         step_end failed "Homebrew $(homebrew_failure); see $LOG, or download VS Code from $DOWNLOAD_URL"
         return 0
       fi
+      HOMEBREW_USED=1
       run "$(brew_bin)" install --cask visual-studio-code ;;
     ubuntu|debian) install_vscode_apt ;;
     rhel|fedora) install_vscode_dnf ;;
@@ -481,7 +489,7 @@ ensure_path() {  # `code` on PATH for this run and, through one marked block in 
   step_begin "$label"
   profile=$(shell_profile)
   short=${profile#"$HOME"/}
-  if [ -f "$profile" ] && grep -qF "$PATH_MARK" "$profile"; then
+  if [ -f "$profile" ] && grep -qxF "$PATH_MARK" "$profile"; then
     step_end already "$short"
     return 0
   fi
@@ -777,6 +785,150 @@ ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and co
   fi
 }
 
+# ---- Claude Code's command-line tool, for a terminal ---------------------------------------------------------
+
+profile_block_add() {  # $1 = profile, $2 = a line: into Roost's PATH block (made when there is none); false on failure
+  # The block is the one whose marker is a whole line "# added by roost-install": the Homebrew block's marker
+  # ("...: Homebrew") is another block, and the line never goes into it.
+  local profile=$1 line=$2 text="" row start=0 end=0 i=0 n=0
+  if [ -f "$profile" ]; then
+    while IFS= read -r row || [ -n "$row" ]; do
+      i=$((i + 1))
+      if [ "$start" = 0 ]; then
+        [ "$row" = "$PATH_MARK" ] && start=$i
+      elif [ "$end" = 0 ] && [ "$row" = "$PATH_END" ]; then
+        end=$i
+      fi
+    done < "$profile"
+  fi
+  if [ "$start" = 0 ] || [ "$end" = 0 ]; then
+    printf '\n%s\n%s\n%s\n' "$PATH_MARK" "$line" "$PATH_END" >> "$profile"
+    return
+  fi
+  while IFS= read -r row || [ -n "$row" ]; do
+    n=$((n + 1))
+    [ "$n" = "$end" ] && text="$text$line"$'\n'
+    text="$text$row"$'\n'
+  done < "$profile"
+  printf '%s' "$text" > "$profile"  # in place: the file's mode and any symlink stay
+}
+
+claude_local_bin_planned() {  # true when ~/.local/bin isn't on the PATH a new terminal gets
+  case ":$ORIG_PATH:" in *":$HOME/.local/bin:"*) return 1 ;; esac
+  return 0
+}
+
+ensure_claude_path() {  # ~/.local/bin on the PATH for this run and, in Roost's block, for new terminals; false on failure
+  local dir="$HOME/.local/bin" profile line
+  case ":$PATH:" in *":$dir:"*) ;; *) PATH="$dir:$PATH" ;; esac
+  claude_local_bin_planned || return 0
+  profile=$(shell_profile)
+  line="case \":\$PATH:\" in *\":$dir:\"*) ;; *) export PATH=\"$dir:\$PATH\" ;; esac"
+  if [ -f "$profile" ] && grep -qF "$line" "$profile"; then return 0; fi
+  if [ "$DRY_RUN" = 1 ]; then
+    step_say "\$ add to $profile, inside Roost's block:"
+    step_say "$line"
+    return 0
+  fi
+  profile_block_add "$profile" "$line" 2>> "$LOG"
+}
+
+ensure_claude() {  # Claude Code's CLI, from Anthropic's installer (user-level: no sudo): `claude` in a terminal
+  local label="Claude Code CLI" tmp rc
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  skipped claude "$label" && return 0
+  step_begin "$label"
+  if [ -e "$HOME/.local/bin/claude" ]; then
+    if ensure_claude_path; then
+      step_end already
+    else
+      step_end failed "claude is in ~/.local/bin, but $(shell_profile) couldn't be written"
+    fi
+    return 0
+  fi
+  if have claude; then
+    step_end already
+    return 0
+  fi
+  case $OS in ubuntu|debian) apt_prereqs curl ;; esac  # not in a minimal system
+  tmp=$(mktemp "${TMPDIR:-/tmp}/roost-install-claude.XXXXXX") || { step_end failed "couldn't make a temp file; see $LOG"; return 0; }
+  # Downloaded first, then run, as Homebrew's is: a failed download stops here rather than running an empty script.
+  run curl -fsSL -o "$tmp" "$CLAUDE_INSTALLER" && run bash "$tmp"
+  rc=$?
+  rm -f "$tmp"
+  if [ "$DRY_RUN" = 1 ]; then
+    ensure_claude_path
+    step_end done "dry run"
+  elif [ "$rc" != 0 ] || [ ! -e "$HOME/.local/bin/claude" ]; then
+    step_end failed "couldn't be installed; see $LOG"
+  elif ensure_claude_path; then
+    step_end done "installed"
+  else
+    step_end failed "installed in ~/.local/bin, but $(shell_profile) couldn't be written, so a new terminal won't find it"
+  fi
+}
+
+# ---- git, which Claude Code, Codex and the PRs part expect to run --------------------------------------------
+
+git_works() {  # true when `git --version` runs; on a Mac, Apple's /usr/bin/git shim without the CLT is never run
+  local git=${ROOST_INSTALL_GIT:-}
+  [ -n "$git" ] || git=$(command -v git 2> /dev/null) || return 1
+  if [ "$OS" = macos ] && [ "$git" = /usr/bin/git ] && ! xcode-select -p > /dev/null 2>&1; then
+    return 1  # the shim would open Apple's install dialog
+  fi
+  printf '$ %s --version\n' "$git" >> "$LOG"
+  "$git" --version < /dev/null >> "$LOG" 2>&1
+}
+
+wait_for_clt() {  # up to ROOST_INSTALL_CLT_WAIT seconds for Apple's Command Line Tools; polled every 5 s (1 s if short)
+  local wait=${ROOST_INSTALL_CLT_WAIT:-600} step=5 elapsed=0
+  case $wait in ''|*[!0-9]*) wait=600 ;; esac
+  [ "$wait" -lt 10 ] && step=1
+  while ! xcode-select -p > /dev/null 2>&1; do
+    [ "$elapsed" -ge "$wait" ] && return 1
+    sleep "$step"
+    elapsed=$((elapsed + step))
+  done
+}
+
+ensure_git() {
+  local rc=0
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  skipped git "git" && return 0
+  step_begin "git"
+  if git_works; then
+    step_end already
+    return 0
+  fi
+  case $OS in
+    macos)
+      if find_brew || [ "$HOMEBREW_STATE" = planned ]; then
+        HOMEBREW_USED=1
+        run "$(brew_bin)" install git || rc=1
+      else
+        step_say "git needs Apple's Command Line Tools; Apple's installer window opens next"
+        run xcode-select --install || rc=1
+        if [ "$rc" = 0 ] && [ "$DRY_RUN" != 1 ] && ! wait_for_clt; then
+          step_end failed "finish the Command Line Tools install Apple opened, then run git --version"
+          return 0
+        fi
+      fi ;;
+    ubuntu|debian)  # a fresh machine's package lists may be stale or missing: updated first, as the other apt installs are
+      # shellcheck disable=SC2086
+      { run $SUDO apt-get update && run $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y git; } || rc=1 ;;
+    rhel|fedora)
+      # shellcheck disable=SC2086
+      run $SUDO dnf install -y git || rc=1 ;;
+  esac
+  if [ "$DRY_RUN" = 1 ]; then
+    step_end done "dry run"
+  elif [ "$rc" != 0 ]; then
+    step_end failed "couldn't be installed; see $LOG"
+  else
+    step_end done "installed"
+  fi
+}
+
 # ---- GitHub, for kestrel's PRs panel -------------------------------------------------------------------------
 
 GH_REPO_ADDED=0  # 1 once install_gh has added GitHub's package repository
@@ -785,6 +937,7 @@ install_gh() {  # GitHub's CLI: Homebrew; GitHub's apt or rpm repository; Fedora
   case $OS in
     macos)
       ensure_homebrew || return 1
+      HOMEBREW_USED=1
       run "$(brew_bin)" install gh ;;
     ubuntu|debian)
       # shellcheck disable=SC2086
@@ -874,6 +1027,43 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
     step_say "\`gh auth login\` may have set git's credential helper in ~/.gitconfig"
   else
     step_end failed "${installed}gh auth login didn't finish; run \`gh auth login\` to see your pull requests"
+  fi
+}
+
+ensure_homebrew_path() {  # macOS: Homebrew's shellenv in the login profile, when this run used Homebrew or a tool comes from it
+  local label="Homebrew on the PATH" profile short brew dir tool found=0 lines
+  [ "$OS" = macos ] || return 0
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  skipped homebrew "$label" && return 0
+  brew=$(brew_bin)
+  dir=$(dirname "$brew")
+  if [ "$HOMEBREW_USED" = 1 ]; then
+    found=1
+  elif find_brew; then
+    for tool in code gh git; do
+      [ "$(dirname "$(command -v "$tool" 2> /dev/null || echo /nonexistent/x)")" = "$dir" ] && found=1
+    done
+  fi
+  [ "$found" = 1 ] || return 0  # Homebrew wasn't used: no line at all
+  step_begin "$label"
+  profile=$(shell_profile)
+  short=${profile#"$HOME"/}
+  if [ -f "$profile" ] && grep -q 'brew shellenv' "$profile"; then
+    step_end already
+    return 0
+  fi
+  case ":$ORIG_PATH:" in *":$dir:"*) step_end already; return 0 ;; esac
+  lines="[ -x $brew ] && eval \"\$($brew shellenv)\""
+  if [ "$DRY_RUN" = 1 ]; then
+    step_say "\$ append to $profile:"
+    step_say "$lines"
+    step_end done "dry run"
+    return 0
+  fi
+  if printf '\n%s\n%s\n%s\n' "$PATH_MARK: Homebrew" "$lines" "$PATH_END" >> "$profile"; then
+    step_end done "$short"
+  else
+    step_end failed "couldn't write $profile"
   fi
 }
 
@@ -1033,8 +1223,11 @@ roost_download_planned() {  # true when the Roost step is going to download the 
 }
 
 system_changes() {  # what the steps that are going to run add system-wide, one per line, in run order; or nothing
-  local vscode=0 gh=0 roost=0 ms_repo=0 gh_repo=0
+  local vscode=0 gh=0 roost=0 ms_repo=0 gh_repo=0 git=0 claude=0
   skip_named vscode || find_code || vscode=1
+  # the claude step runs Anthropic's installer as the user (no sudo); only the curl it downloads with may be a system install
+  skip_named claude || [ -n "$CLASH" ] || [ -e "$HOME/.local/bin/claude" ] || have claude || claude=1
+  skip_named git || [ -n "$CLASH" ] || git_works || git=1
   skip_named github || have gh || gh=1
   if { [ "$vscode" = 1 ] || find_code; } && roost_download_planned; then roost=1; fi
   case $OS in
@@ -1043,10 +1236,11 @@ system_changes() {  # what the steps that are going to run add system-wide, one 
     ubuntu|debian)
       [ "$vscode" = 1 ] && ! apt_has_source "packages.microsoft.com/repos/code" && ms_repo=1
       [ "$gh" = 1 ] && ! apt_has_source "cli.github.com/packages" && gh_repo=1
-      if ! have curl && [ "$ms_repo$gh_repo$roost" != 000 ]; then echo "curl and ca-certificates"; fi
+      if ! have curl && [ "$ms_repo$gh_repo$roost$claude" != 0000 ]; then echo "curl and ca-certificates"; fi
       if [ "$ms_repo" = 1 ] && ! have gpg; then echo "gnupg"; fi
       [ "$ms_repo" = 1 ] && echo "Microsoft's VS Code package repository and its signing key"
       [ "$vscode" = 1 ] && echo "VS Code"
+      [ "$git" = 1 ] && echo "git"
       [ "$gh_repo" = 1 ] && echo "GitHub's gh package repository and its signing key"
       [ "$gh" = 1 ] && echo "gh" ;;
     rhel|fedora)
@@ -1054,6 +1248,7 @@ system_changes() {  # what the steps that are going to run add system-wide, one 
       if ! skip_named vscode && fedora_needs_ssl; then
         echo "OpenSSL 3 (Fedora, for VS Code's extension signature checks)"
       fi
+      [ "$git" = 1 ] && echo "git"
       if [ "$gh" = 1 ] && [ "$OS" = rhel ]; then
         echo "GitHub's gh package repository and its signing key (with dnf's config-manager plugin)"
       fi
@@ -1177,7 +1372,10 @@ main() {  # the steps, in order
   check_standalone
   ensure_roost
   ensure_companions
+  ensure_claude
+  ensure_git
   ensure_github
+  ensure_homebrew_path
   apply_settings
   apply_icons
   finish

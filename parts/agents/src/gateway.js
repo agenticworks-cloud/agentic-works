@@ -125,15 +125,25 @@ const TRAFFIC_VAR = 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC';
  * sets them, for the same reason: a Bedrock id the file pins for the window is no name the subscription knows.
  * @param {boolean} bedrock  true for API / Bedrock, false for the subscription
  * @param {Record<string,string|undefined>} [inherited]  the environment the tab's Claude Code inherits (this process's)
+ * @param {{ region?: string, profile?: string }} [aws]  Bedrock's region and profile, as Connect Claude saved them: set
+ *   as AWS_REGION and AWS_PROFILE when given
  * @returns {{ env: Record<string,string> }}
  */
-function ownBackendSettings(bedrock, inherited = process.env) {
+function ownBackendSettings(bedrock, inherited = process.env, aws = {}) {
   const env = { CLAUDE_CODE_USE_BEDROCK: bedrock ? '1' : '0' };
   for (const k of OFF_GATEWAY_VARS) {
     const v = typeof inherited[k] === 'string' ? inherited[k] : '';
     env[k] = (bedrock || !PROVIDER_MODEL.test(v)) ? v : '';
   }
-  return { env };
+  return { env: Object.assign(env, awsEnv(aws)) };
+}
+
+/** AWS_REGION and AWS_PROFILE from Connect Claude's Bedrock choice, each only when set. */
+function awsEnv(aws) {
+  const a = aws || {}, out = {};
+  if (typeof a.region === 'string' && a.region) out.AWS_REGION = a.region;
+  if (typeof a.profile === 'string' && a.profile) out.AWS_PROFILE = a.profile;
+  return out;
 }
 
 /**
@@ -146,15 +156,18 @@ function ownBackendSettings(bedrock, inherited = process.env) {
  * subscription the gateway's traffic switch (TRAFFIC_VAR) goes back the same way: to the machine's own export, else to ''.
  * @param {boolean} bedrock  true for API / Bedrock, false for the subscription
  * @param {Record<string,string|undefined>} [inherited]  the environment the tab's Claude Code inherits (this process's)
+ * @param {{ region?: string, profile?: string }} [aws]  Bedrock's region and profile, as Connect Claude saved them: set
+ *   as AWS_REGION and AWS_PROFILE when given, as ownBackendSettings does
  * @returns {{ env: Record<string,string>, apiKeyHelper: string, model: string }}
  */
-function offGatewaySettings(bedrock, inherited = process.env) {
+function offGatewaySettings(bedrock, inherited = process.env, aws = {}) {
   const env = { CLAUDE_CODE_USE_BEDROCK: bedrock ? '1' : '0', ANTHROPIC_BASE_URL: '' };
   for (const k of OFF_GATEWAY_VARS) {
     const v = typeof inherited[k] === 'string' ? inherited[k] : '';
     env[k] = (bedrock || !PROVIDER_MODEL.test(v)) ? v : '';
   }
   if (!bedrock) env[TRAFFIC_VAR] = typeof inherited[TRAFFIC_VAR] === 'string' ? inherited[TRAFFIC_VAR] : '';
+  Object.assign(env, awsEnv(aws));
   return { env, apiKeyHelper: '', model: '' };
 }
 
@@ -180,10 +193,11 @@ function gatewayModels(vars) {
 const NAME_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const CLAUDE_ORDER = ['opus', 'fable', 'sonnet', 'haiku'];
 const GROUP_ORDER = ['Claude', 'OpenAI', 'Other', 'Routers'];
-function groupOf(base) {
+/** A model's menu group; `routerPrefixes` (the company file's gateway.routerPrefixes) name the gateway's routers. */
+function groupOf(base, routerPrefixes = []) {
   if (CLAUDE_ORDER.includes(base)) return 'Claude';
   if (/^gpt-/.test(base)) return 'OpenAI';
-  if (/^nexus-auto/.test(base)) return 'Routers';
+  if (routerPrefixes.some((p) => typeof p === 'string' && p && base.startsWith(p))) return 'Routers';
   return 'Other';
 }
 
@@ -192,11 +206,15 @@ function groupOf(base) {
  * effort variants (`opus-high`) folded into its efforts, the `anthropic/` duplicates dropped, grouped Claude, OpenAI,
  * other, routers. Each is sent as `anthropic/<name>[1m]`, which Claude Code passes through as it is; the effort chosen
  * goes into the name (gatewayModelName), since the variants are how the gateway pins effort. The default stays the
- * file's ANTHROPIC_MODEL, sent by no name at all, so it offers no effort.
+ * file's ANTHROPIC_MODEL, sent by no name at all, so it offers no effort. Routers are the names starting with one of
+ * `routerPrefixes` (none by default: everything not Claude or OpenAI is other).
  * @param {string[]} ids  the gateway's model ids
  * @param {Record<string,string>} [vars]  the gateway file's variables
+ * @param {{ routerPrefixes?: string[] }} [opts]  the company's gateway.routerPrefixes
  */
-function gatewayCatalog(ids, vars) {
+function gatewayCatalog(ids, vars, opts = {}) {
+  const prefixes = Array.isArray(opts.routerPrefixes) ? opts.routerPrefixes : [];
+  const groupOfName = (b) => groupOf(b, prefixes);
   const names = new Set((ids || []).filter((s) => typeof s === 'string' && s).map((s) => s.replace(/^anthropic\//, '')));
   const efforts = new Map();
   for (const n of names) {
@@ -204,10 +222,10 @@ function gatewayCatalog(ids, vars) {
     if (m && names.has(m[1])) continue;               // a variant: counted under its model below
     efforts.set(n, NAME_EFFORTS.filter((e) => names.has(`${n}-${e}`)));
   }
-  const rank = (b) => [GROUP_ORDER.indexOf(groupOf(b)), groupOf(b) === 'Claude' ? CLAUDE_ORDER.indexOf(b) : 0, b];
+  const rank = (b) => [GROUP_ORDER.indexOf(groupOfName(b)), groupOfName(b) === 'Claude' ? CLAUDE_ORDER.indexOf(b) : 0, b];
   const bases = [...efforts.keys()].sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || (x[2] < y[2] ? -1 : x[2] > y[2] ? 1 : 0); });
   const models = bases.map((b) => {
-    const group = groupOf(b);
+    const group = groupOfName(b);
     const description = group === 'Claude' ? `${b} on the gateway`
       : group === 'Routers' ? 'The gateway picks a model for each request'
       : 'Not a Claude model: the gateway translates, and tools or thinking may behave differently in Claude Code';
@@ -326,7 +344,8 @@ function checkForm({ baseUrl, token, keepToken } = {}) {
  * The directory is made for its owner only, and the file is left readable by its owner only, since it holds the token.
  * An empty token keeps the one the file has.
  * @param {string} file
- * @param {{ baseUrl: string, token?: string, models?: Record<string,string> }} form
+ * A company's `env` (company.json's gateway.env) is written the same way as the model names, as `export K=V` lines.
+ * @param {{ baseUrl: string, token?: string, models?: Record<string,string>, env?: Record<string,string> }} form
  * @returns {{ file: string, exists: boolean, ok: boolean, error: string|null, vars: Record<string,string> }} the file read back
  */
 function saveGateway(file, form) {
@@ -340,11 +359,48 @@ function saveGateway(file, form) {
   const values = { [URL_VAR]: String(f.baseUrl).trim() };
   if (token) values[tokenVar(vars)] = token;
   for (const k of MODEL_VARS) if (f.models && typeof f.models[k] === 'string') values[k] = f.models[k];
+  for (const [k, v] of Object.entries(f.env || {})) if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && typeof v === 'string') values[k] = v;
   const out = updateEnvText(text, values);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, out, { mode: 0o600 });
   if (process.platform !== 'win32') fs.chmodSync(file, 0o600);   // an existing file keeps its mode through a write
   return readGateway(file);
+}
+
+/**
+ * A secret in a file of its own: `value` and a newline, the file for its owner only (0600, set again after the write,
+ * since an existing file keeps its mode through one), and its directory made for its owner only (0700) when it is not
+ * there. A directory that is there already is left as it is.
+ */
+function writeSecretFile(file, value) {
+  const dir = path.dirname(file);
+  const made = fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (made && process.platform !== 'win32') fs.chmodSync(dir, 0o700);   // the umask may have taken from it
+  fs.writeFileSync(file, String(value) + '\n', { mode: 0o600 });
+  if (process.platform !== 'win32') fs.chmodSync(file, 0o600);
+}
+
+/** The key, trimmed, into each of a company's keyFiles (other tools of the company read it there). @returns {string[]} the paths written */
+function saveKeyFiles(files, key) {
+  const k = String(key || '').trim();
+  if (!k) throw new Error('A key is needed.');
+  const written = [];
+  for (const f of Array.isArray(files) ? files : []) { writeSecretFile(f, k); written.push(f); }
+  return written;
+}
+
+/**
+ * A base URL as compared with another: the host in lower case (URL does that), and no trailing slash. '' for one that
+ * does not parse.
+ */
+function normalBaseUrl(u) {
+  try { return new URL(String(u || '').trim()).href.replace(/\/+$/, ''); } catch (_) { return ''; }
+}
+
+/** Whether `url` is one of `baseUrls`, compared as normalBaseUrl has them. */
+function isOneOf(url, baseUrls) {
+  const n = normalBaseUrl(url);
+  return !!n && (Array.isArray(baseUrls) ? baseUrls : []).some((b) => normalBaseUrl(b) === n);
 }
 
 /** What the form is shown of the file: everything but the token, of which only whether there is one. */
@@ -355,4 +411,4 @@ function formState(gw) {
   return { file: gw ? gw.file : '', exists: !!(gw && gw.exists), ok: !!(gw && gw.ok), baseUrl: v[URL_VAR] || '', tokenSet: TOKEN_VARS.some((k) => v[k]), models };
 }
 
-module.exports = { MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };
+module.exports = { normalBaseUrl, isOneOf, writeSecretFile, saveKeyFiles, MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };

@@ -14,6 +14,8 @@ const vals = (list) => list.map((o) => o.value);
 const CLAUDE_LOGIN = `/opt/claude --settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}' auth login`;
 const OFF_BEDROCK = '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}';
 /** `p`, or 'timed out' if it has not settled within `ms`: a wait that never ends must fail the test, not end it unseen */
+/** Wait for an answer that takes some ticks (a check with the gateway), up to two seconds. */
+const until = async (pred) => { for (let i = 0; i < 400 && !pred(); i++) await wait(5); };
 const within = (p, ms = 2000) => Promise.race([p, wait(ms).then(() => 'timed out')]);
 /** Run `f` as if on `platform`, for code that asks process.platform as it runs */
 const onPlatform = (platform, f) => { const was = Object.getOwnPropertyDescriptor(process, 'platform'); Object.defineProperty(process, 'platform', { value: platform }); try { return f(); } finally { Object.defineProperty(process, 'platform', was); } };
@@ -1473,7 +1475,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       { kind: 'claude', id: 'c-old', title: 'gate run', named: true, updatedAt: NOW - 2 * MIN, file: '/home/me/.claude/projects/-w/c-old.jsonl' },
       { kind: 'codex', id: 'x-old', title: 'hello', named: false, updatedAt: NOW - 26 * MIN },
     ] };
-    const SKILL = { name: 'c3-acls', source: 'folder', description: 'ACLs on C3.', file: '/w/.claude/skills/c3-acls/SKILL.md' };
+    const SKILL = { name: 'example-skill', source: 'folder', description: 'An example skill.', file: '/w/.claude/skills/example-skill/SKILL.md' };
     const MCP = { name: 'jira', source: 'folder', description: '/bin/jira-mcp', file: '/w/.mcp.json', line: 8 }, AGENT = { name: 'reviewer', source: 'folder', description: 'Reviews.', file: '/w/.claude/agents/reviewer.md' }, CMD = { name: '/ship', source: 'folder', description: 'Ship it.', file: '/w/.claude/commands/ship.md' };
     const m = install(undefined, { past }); await flush(); Object.assign(m.box, { skills: [SKILL], mcp: [MCP], agents: [AGENT], commands: [CMD] });
     const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush(); await flush();
@@ -1805,7 +1807,8 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
   {
     const fs = require('fs'), os = require('os'), path = require('path');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gwform-')), file = path.join(dir, 'conf', 'env');
-    const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: false });
+    // a gateway that takes any key: Check and save writes the file
+    const realFetch = globalThis.fetch; globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: 'router' }] }), json: async () => ({ data: [{ id: 'router' }] }) });
     try {
       const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
       assert.deepStrictEqual(m.ui.contexts.filter((c) => c[0] === 'perch.gatewayReady'), [['perch.gatewayReady', false]], 'no gateway at the start: the walkthrough step is not done');
@@ -1817,7 +1820,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert(/Content-Security-Policy[^>]*script-src 'nonce-[0-9a-f]{32}'/.test(p.webview.html), 'its script runs by nonce only');
       const last = () => p.got[p.got.length - 1];
       p.fire({ type: 'ready' });
-      assert.deepStrictEqual(last(), { type: 'state', state: { file, exists: false, ok: false, baseUrl: '', tokenSet: false, models: { ANTHROPIC_MODEL: '', ANTHROPIC_DEFAULT_OPUS_MODEL: '', ANTHROPIC_DEFAULT_SONNET_MODEL: '', ANTHROPIC_DEFAULT_HAIKU_MODEL: '' } } }, 'the file as it is: none yet');
+      assert.deepStrictEqual(last(), { type: 'state', state: { file, exists: false, ok: false, baseUrl: '', tokenSet: false, models: { ANTHROPIC_MODEL: '', ANTHROPIC_DEFAULT_OPUS_MODEL: '', ANTHROPIC_DEFAULT_SONNET_MODEL: '', ANTHROPIC_DEFAULT_HAIKU_MODEL: '' }, preset: null } }, 'the file as it is: none yet');
       // what is wrong is said on the page, and nothing is written
       p.fire({ type: 'save', baseUrl: 'gw.example.com', token: 'sk-secret', models: {} });
       assert.deepStrictEqual([last(), fs.existsSync(file)], [{ type: 'error', text: 'The base URL must be an http:// or https:// address.' }, false]);
@@ -1825,7 +1828,9 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert.deepStrictEqual(last(), { type: 'error', text: 'A token is needed.' });
       // saved: the file from the template, for its owner only; the page shows Saved, and the walkthrough's key flips
       p.fire({ type: 'save', baseUrl: 'https://gw.example.com/llm-api', token: 'sk-secret', models: { ANTHROPIC_MODEL: 'router[1m]', ANTHROPIC_DEFAULT_OPUS_MODEL: '' } });
+      await until(() => last().type !== 'error');
       assert.strictEqual(last().type, 'saved');
+      assert.strictEqual(last().answeredAt, 'https://gw.example.com/llm-api', 'the address that answered the check');
       assert.deepStrictEqual([last().state.ok, last().state.tokenSet, last().state.baseUrl, last().state.models.ANTHROPIC_MODEL], [true, true, 'https://gw.example.com/llm-api', 'router[1m]']);
       const gw = require('../src/gateway').readGateway(file);
       assert.deepStrictEqual([gw.ok, gw.vars.ANTHROPIC_AUTH_TOKEN, gw.vars.ENABLE_PROMPT_CACHING_1H], [true, 'sk-secret', '1']);
@@ -1841,7 +1846,9 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       p.fire({ type: 'ready' });
       assert.deepStrictEqual([last().type, last().state.tokenSet], ['state', true]);
       // no token given: the one in the file stays
+      const n = p.got.length;
       p.fire({ type: 'save', baseUrl: 'https://other.example.com', token: '', models: { ANTHROPIC_MODEL: '' } });
+      await until(() => p.got.length > n);
       const again = require('../src/gateway').readGateway(file);
       assert.deepStrictEqual([last().type, again.vars.ANTHROPIC_BASE_URL, again.vars.ANTHROPIC_AUTH_TOKEN, 'ANTHROPIC_MODEL' in again.vars], ['saved', 'https://other.example.com', 'sk-secret', false]);
       assert(!JSON.stringify(p.got).includes('sk-secret'), 'the token is never sent to the page');
@@ -1852,6 +1859,423 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       m.perch.dispose();
       assert.strictEqual(forms().length, 0, 'and goes with Perch');
     } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- Check and save: the key is checked with the gateway before anything is written
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gwcheck-')), file = path.join(dir, 'env');
+    const realFetch = globalThis.fetch;
+    const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
+    try {
+      // no company file: a gateway answering 404 is unexpected, and Save anyway is offered
+      globalThis.fetch = async () => reply(404, {});
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
+      m.commands['perch.setUpGateway'](); const p = m.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0]; const last = () => p.got[p.got.length - 1];
+      p.fire({ type: 'ready' });
+      assert.strictEqual(last().state.preset, null, 'no company gateway: no preset');
+      p.fire({ type: 'save', baseUrl: 'https://gw.example.com', token: 'sk-x', models: {} });
+      await until(() => last().type === 'verdict');
+      assert.deepStrictEqual([last(), fs.existsSync(file)], [{ type: 'verdict', text: 'The gateway gave an unexpected answer (HTTP 404).', canForce: true }, false]);
+      p.fire({ type: 'save', baseUrl: 'https://gw.example.com', token: 'sk-x', models: {}, force: true });
+      await until(() => last().type === 'saved');
+      assert.deepStrictEqual([last().type, require('../src/gateway').readGateway(file).vars.ANTHROPIC_AUTH_TOKEN], ['saved', 'sk-x'], 'Save anyway saves unchecked');
+      // a key the gateway refuses: no Save anyway, and the file is left as it was
+      globalThis.fetch = async () => reply(401, {});
+      p.fire({ type: 'save', baseUrl: 'https://gw.example.com', token: 'sk-y', models: {} });
+      await until(() => last().type === 'verdict');
+      assert.deepStrictEqual([last(), require('../src/gateway').readGateway(file).vars.ANTHROPIC_AUTH_TOKEN], [{ type: 'verdict', text: 'The gateway rejected the key.', canForce: false }, 'sk-x']);
+      // the key kept: the saved one is checked
+      const sent = []; globalThis.fetch = async (url, init) => { sent.push(init.headers['x-api-key']); return reply(200, { data: [{ id: 'x' }] }); };
+      p.fire({ type: 'save', baseUrl: 'https://gw.example.com', token: '', models: {} });
+      await until(() => last().type === 'saved');
+      assert.deepStrictEqual(sent, ['sk-x'], 'Check and save with the key kept checks the saved one');
+      assert(!JSON.stringify(p.got).includes('sk-x') && !JSON.stringify(p.got).includes('sk-y'), 'no key reaches the page');
+      m.perch.dispose(); fs.rmSync(file, { force: true });
+
+      // a company gateway: its form, its addresses, its env and keyFiles
+      const company = path.join(dir, 'company.json'), keyFile = path.join(dir, 'keys', 'token');
+      const PRIVATE = 'https://private.example.com/llm-api', PUBLIC = 'https://public.example.com/llm-api', KEY_PAGE = 'https://ai.example.com/api-access';
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PRIVATE, PUBLIC], keyPage: KEY_PAGE, requiredModel: 'router-auto', env: { ANTHROPIC_MODEL: 'router-auto' }, keyFiles: [keyFile] } }));
+      const asked = [];
+      globalThis.fetch = async (url, init) => {
+        asked.push(url);
+        if (url.startsWith(PRIVATE)) throw new TypeError('fetch failed');   // off the VPN
+        return init.headers['x-api-key'] === 'sk-good' ? reply(200, { data: [{ id: 'anthropic/router-auto' }] }) : reply(401, {});
+      };
+      const c = install(undefined, { config: { 'claude.gatewayEnv': file }, company }); await flush();
+      assert.strictEqual(process.env.ROOST_COMPANY_FILE, company);
+      assert.strictEqual(c.perch.companyGateway().name, 'Example Gateway');
+      const savedGw = []; c.perch.onGatewaySaved.add((gw) => savedGw.push(gw.vars.ANTHROPIC_BASE_URL));
+      c.commands['perch.setUpGateway'](); const q = c.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0]; const qlast = () => q.got[q.got.length - 1];
+      q.fire({ type: 'ready' });
+      assert.deepStrictEqual(qlast().state.preset, { name: 'Example Gateway', keyPage: KEY_PAGE, baseUrl: '' });
+      q.fire({ type: 'getKey' }); await flush();
+      assert.deepStrictEqual(c.ui.external, [KEY_PAGE], 'Get a key opens the key page');
+      q.fire({ type: 'save', baseUrl: '', token: 'sk-bad', models: {} });
+      await until(() => qlast().type === 'verdict');
+      assert.deepStrictEqual([qlast(), fs.existsSync(file), fs.existsSync(keyFile)], [{ type: 'verdict', text: 'Example Gateway rejected the key.', canForce: false }, false, false]);
+      const k = q.got.length;
+      q.fire({ type: 'save', baseUrl: '', token: 'sk-bad', models: {}, force: true });
+      await until(() => q.got.length > k);
+      assert.deepStrictEqual([qlast().type, fs.existsSync(file)], ['verdict', false], 'a company gateway is never saved unchecked');
+      q.fire({ type: 'save', baseUrl: '', token: ' sk-good\n', models: {} });
+      await until(() => qlast().type === 'saved');
+      const gw = require('../src/gateway').readGateway(file);
+      assert.deepStrictEqual([gw.vars.ANTHROPIC_BASE_URL, gw.vars.ANTHROPIC_MODEL, gw.vars.ANTHROPIC_AUTH_TOKEN], [PUBLIC, 'router-auto', 'sk-good'], 'the address that answered, the company\'s env, the key trimmed');
+      assert.deepStrictEqual([qlast().answeredAt, qlast().state.preset.baseUrl], [PUBLIC, PUBLIC]);
+      assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'sk-good\n');
+      if (process.platform !== 'win32') assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600);
+      assert.deepStrictEqual(c.ui.contexts.filter((x) => x[0] === 'perch.gatewayReady').pop(), ['perch.gatewayReady', true]);
+      assert.deepStrictEqual(savedGw, [PUBLIC], 'onGatewaySaved, after the save');
+      assert(!JSON.stringify(q.got).includes('sk-good') && !JSON.stringify(q.got).includes('sk-bad'), 'no page message holds the key');
+      assert(!c.ui.traces.some((l) => /sk-good|sk-bad/.test(l)), 'nor the output channel');
+      // a Claude tab on the gateway: the company's addresses go with it, to be re-checked as it starts
+      const v = fakeView(); c.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      v.fire({ type: 'new', kind: 'claude' }); const sid = v.lastTabs().active;
+      v.fire({ type: 'setBackend', sid, value: 'gateway' });
+      const n0 = created.length;
+      v.fire({ type: 'send', sid, text: 'hello' });
+      assert.deepStrictEqual(created[n0].o.gateway, { target: PUBLIC, candidates: [PRIVATE, PUBLIC], key: 'sk-good' });
+      // the agent's probe found an address: onGatewayResolved hears it
+      const resolved = []; c.perch.onGatewayResolved.add((u) => resolved.push(u));
+      created[n0].emit({ kind: 'gatewayResolved', baseUrl: PRIVATE });
+      assert.deepStrictEqual(resolved, [PRIVATE]);
+      assert(!v.events(sid).some((e) => e.kind === 'gatewayResolved'), 'nothing for the page');
+      // the file holds a company address (written another way: its host in capitals, a trailing slash): probed, and switched
+      // to the one that answers, as the real agent would with these options
+      const { resolveGatewayTarget } = require('../src/claudeAgent.js');
+      const tabOn = async (base) => {
+        fs.writeFileSync(file, `export ANTHROPIC_BASE_URL=${base}\nexport ANTHROPIC_AUTH_TOKEN=sk-good\n`);
+        v.fire({ type: 'new', kind: 'claude' }); const t = v.lastTabs().active;
+        v.fire({ type: 'setBackend', sid: t, value: 'gateway' });
+        const before = created.length; v.fire({ type: 'send', sid: t, text: 'hello' });
+        return created[before].o.gateway;
+      };
+      const PUBLIC_ODD = 'https://PUBLIC.example.com/llm-api/';
+      let o = await tabOn(PUBLIC_ODD);
+      assert.deepStrictEqual(o, { target: PUBLIC_ODD, candidates: [PRIVATE, PUBLIC], key: 'sk-good' }, 'a company address: its addresses go with the tab');
+      asked.length = 0;
+      assert.strictEqual(await resolveGatewayTarget(o, { fetch: globalThis.fetch }), PUBLIC, 'probed, and switched to the one that answers');
+      assert.deepStrictEqual(asked, [PRIVATE + '/v1/models', PUBLIC + '/v1/models']);
+      // the file holds another gateway: the company's hosts are never sent its token, and the file's address is used
+      const OTHER = 'https://other.example.com/llm-api';
+      o = await tabOn(OTHER);
+      assert.deepStrictEqual(o, { target: OTHER, candidates: [], key: 'sk-good' }, 'another gateway: no candidates');
+      asked.length = 0;
+      assert.strictEqual(await resolveGatewayTarget(o, { fetch: globalThis.fetch }), OTHER, 'the file\'s address');
+      assert.deepStrictEqual(asked, [], 'no probe');
+      // the form, with the file on the user's own gateway: its key is not offered, and a save with no key sends nothing
+      fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://own.example.net\nexport ANTHROPIC_AUTH_TOKEN=t\n');
+      q.fire({ type: 'ready' });
+      assert.deepStrictEqual([qlast().type, qlast().state.tokenSet], ['state', false], 'another gateway\'s key: the page asks for one');
+      asked.length = 0;
+      const k2 = q.got.length;
+      q.fire({ type: 'save', baseUrl: '', token: '', models: {} });
+      await until(() => q.got.length > k2);
+      assert.deepStrictEqual([qlast(), asked], [{ type: 'error', text: 'A key is needed.' }, []], 'no fetch to the company\'s addresses with another gateway\'s key');
+      assert.strictEqual(require('../src/gateway').readGateway(file).vars.ANTHROPIC_AUTH_TOKEN, 't', 'the file is left as it was');
+      // on one of the company's addresses (written another way): its key is kept, and checked
+      fs.writeFileSync(file, `export ANTHROPIC_BASE_URL=${PUBLIC_ODD}\nexport ANTHROPIC_AUTH_TOKEN=sk-good\n`);
+      q.fire({ type: 'ready' });
+      assert.strictEqual(qlast().state.tokenSet, true, 'the company\'s own key: kept');
+      q.fire({ type: 'save', baseUrl: '', token: '', models: {} });
+      await until(() => qlast().type === 'saved');
+      assert.strictEqual(require('../src/gateway').readGateway(file).vars.ANTHROPIC_BASE_URL, PUBLIC);
+      c.perch.dispose();
+    } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- terminal claude: the gateway's address in ~/.claude/settings.json kept to the one that answers, when Roost wrote it
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-term-'));
+    const realFetch = globalThis.fetch;
+    try {
+      const file = path.join(dir, 'gateway-env'), company = path.join(dir, 'company.json'), claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      const PRIVATE = 'https://private.example.com/llm-api', PUBLIC = 'https://public.example.com/llm-api';
+      fs.mkdirSync(claudeDir);
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PRIVATE, PUBLIC], keyPage: 'https://ai.example.com/keys' } }));
+      fs.writeFileSync(file, `export ANTHROPIC_BASE_URL=${PRIVATE}\nexport ANTHROPIC_AUTH_TOKEN=sk-term\n`);
+      const settingsWith = (url) => fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: url, OTHER: 'x' }, apiKeyHelper: "cat '/k'" }));
+      const baseNow = () => JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_BASE_URL;
+      const written = { 'env.ANTHROPIC_BASE_URL': PRIVATE, apiKeyHelper: "cat '/k'" };
+      // at activation: the company's addresses probed once, with the gateway file's key, in the background
+      const asked = []; let release; const gate = new Promise((r) => { release = r; });
+      globalThis.fetch = async (url, init) => { asked.push([url, init.headers['x-api-key']]); await gate; if (url.startsWith(PRIVATE)) throw new TypeError('fetch failed'); return { ok: true, status: 200, text: async () => '{"data":[]}' }; };
+      settingsWith(PRIVATE);
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': written } });
+      assert.strictEqual(baseNow(), PRIVATE, 'activation does not wait for the probe');
+      release(); await until(() => baseNow() === PUBLIC);
+      assert.deepStrictEqual([baseNow(), asked, m.globalState._dump()['perch.terminal.written']], [PUBLIC, [[PRIVATE + '/v1/models', 'sk-term'], [PUBLIC + '/v1/models', 'sk-term']], Object.assign({}, written, { 'env.ANTHROPIC_BASE_URL': PUBLIC })],
+        'the address that answered, in settings.json and in the record');
+      assert(!m.ui.traces.some((l) => /sk-term/.test(l)), 'the key is not traced');
+      // a tab start's probe resolved another: settings.json follows
+      m.perch.onGatewayResolved.forEach((f) => f(PRIVATE));
+      assert.deepStrictEqual([baseNow(), m.globalState._dump()['perch.terminal.written']['env.ANTHROPIC_BASE_URL']], [PRIVATE, PRIVATE], 'a resolved address updates settings.json when Roost wrote it');
+      // the user's own address since: left
+      settingsWith('https://mine.example.com');
+      m.perch.onGatewayResolved.forEach((f) => f(PUBLIC));
+      assert.strictEqual(baseNow(), 'https://mine.example.com');
+      m.perch.dispose();
+      // Roost never wrote the address: no probe at activation
+      asked.length = 0; settingsWith(PRIVATE);
+      const n = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': { apiKeyHelper: "cat '/k'" } } }); await flush(); await wait(20);
+      assert.deepStrictEqual([asked, baseNow()], [[], PRIVATE], 'nothing asked, nothing written');
+      n.perch.onGatewayResolved.forEach((f) => f(PUBLIC));
+      assert.strictEqual(baseNow(), PRIVATE, 'nor on a tab start');
+      n.perch.dispose();
+      // the gateway file names another gateway: its key is not sent to the company's hosts
+      fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://other.example.com\nexport ANTHROPIC_AUTH_TOKEN=sk-other\n');
+      const o = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': written } }); await flush(); await wait(20);
+      assert.deepStrictEqual(asked, [], 'no probe with another gateway\'s key');
+      o.perch.dispose();
+    } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- a machine whose settings.json has an apiKeyHelper, with no base URL: pinned, so a subscription tab is taken off it
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-pin-'));
+    try {
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      fs.mkdirSync(claudeDir); fs.writeFileSync(settingsPath, JSON.stringify({ apiKeyHelper: 'cat x' }));
+      const m = install(undefined, { meter: { claudeDir, settingsPath } }); await flush();
+      assert.strictEqual(m.perch.machinePinned(), true);
+      const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      v.fire({ type: 'new', kind: 'claude' }); const sid = v.lastTabs().active;
+      const n0 = created.length; v.fire({ type: 'send', sid, text: 'hello' });
+      assert.deepStrictEqual(created[n0].o.offGateway, { bedrock: false }, 'a subscription tab off the pinned machine');
+      // Bedrock chosen in Connect Claude, on the pinned machine: the tab's settings carry the profile and region saved there
+      m.globalState.update('perch.claude.connection', 'bedrock');
+      m.globalState.update('perch.claude.bedrock', { profile: 'dev', region: 'eu-west-1' });
+      const bt = m.commands['perch.newClaude']();
+      assert.strictEqual(bt.own, 'api');
+      const n1 = created.length; v.fire({ type: 'send', sid: bt.id, text: 'hello' });
+      assert.deepStrictEqual(created[n1].o.offGateway, { bedrock: true, aws: { profile: 'dev', region: 'eu-west-1' } });
+      const pinnedEnv = require('../src/gateway').offGatewaySettings(created[n1].o.offGateway.bedrock, {}, created[n1].o.offGateway.aws).env;   // as claudeAgent applies it
+      assert.deepStrictEqual([pinnedEnv.AWS_REGION, pinnedEnv.AWS_PROFILE, pinnedEnv.CLAUDE_CODE_USE_BEDROCK], ['eu-west-1', 'dev', '1']);
+      m.perch.dispose();
+      fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'https://gw.example' } }));
+      const q = install(undefined, { meter: { claudeDir, settingsPath } }); await flush();
+      assert.strictEqual(q.perch.machinePinned(), false, 'a base URL alone does not pin');
+      q.perch.dispose();
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- Agents: Connect Claude…: one panel, five ways; each recorded, and terminal claude written only when asked
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-connect-'));
+    const realFetch = globalThis.fetch, realHome = process.env.HOME;
+    const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
+    try {
+      process.env.HOME = dir;   // the key file is ~/.config/roost/anthropic-key, and the AWS profiles ~/.aws's
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json'), keyFile = path.join(dir, '.config', 'roost', 'anthropic-key');
+      const m = install(undefined, { meter: { claudeDir, settingsPath, login: false, apiCreds: false } }); await flush();
+      const connected = () => m.ui.contexts.filter((c) => c[0] === 'perch.claudeConnected');
+      assert.deepStrictEqual(connected(), [['perch.claudeConnected', false]], 'nothing to run Claude with: not connected');
+      m.commands['perch.connectClaude']();
+      const panels = () => m.ui.panels.filter((x) => x.viewType === 'perch.connectClaude' && !x.disposed);
+      const p = panels()[0];
+      assert(p, 'a panel in an editor tab');
+      assert.strictEqual(p.title, 'Connect Claude');
+      m.commands['perch.connectClaude']();
+      assert.strictEqual(panels().length, 1, 'one at a time');
+      const last = () => p.got[p.got.length - 1];
+      // fire a message, and wait for the panel's next answer of that type
+      const ask = async (msg, type) => { const n = p.got.length; p.fire(msg); await until(() => p.got.slice(n).some((x) => x.type === type)); };
+      p.fire({ type: 'ready' });
+      assert.deepStrictEqual(last(), { type: 'state', state: { company: null, connection: null, connected: false, terminal: { on: false, offered: true }, apiKeySet: false, profiles: [], bedrock: { profile: '', region: 'us-east-1' }, loggedIn: false } });
+
+      // the API key: checked with Anthropic first; a refused one is said, and nothing is written
+      const asked = [];
+      globalThis.fetch = async (url, init) => { asked.push([url, init.headers['x-api-key']]); return reply(401, {}); };
+      await ask({ type: 'apiKey', key: 'sk-bad' }, 'verdict');
+      assert.deepStrictEqual([last(), fs.existsSync(keyFile)], [{ type: 'verdict', way: 'apiKey', text: 'Anthropic rejected the key.', ok: false, canForce: false }, false]);
+      // one that works, pasted with a space and a newline: trimmed, checked, kept for its owner only, and recorded
+      globalThis.fetch = async (url, init) => { asked.push([url, init.headers['x-api-key']]); return reply(200, { data: [{ id: 'claude-x' }] }); };
+      await ask({ type: 'apiKey', key: ' sk-ant-1\n' }, 'saved');
+      assert.deepStrictEqual(last(), { type: 'saved', way: 'apiKey', terminalNote: '' });
+      assert.deepStrictEqual(asked.pop(), ['https://api.anthropic.com/v1/models', 'sk-ant-1'], 'checked trimmed');
+      assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'sk-ant-1\n');
+      if (process.platform !== 'win32') assert.deepStrictEqual([fs.statSync(keyFile).mode & 0o777, fs.statSync(path.dirname(keyFile)).mode & 0o777], [0o600, 0o700]);
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'apiKey');
+      assert.deepStrictEqual(connected().pop(), ['perch.claudeConnected', true], 'the walkthrough\'s step is done');
+      assert(!JSON.stringify(p.got).includes('sk-ant-1') && !JSON.stringify(p.got).includes('sk-bad'), 'no key reaches the page');
+      assert(!m.ui.traces.some((l) => /sk-ant-1|sk-bad/.test(l)), 'nor the output channel');
+      assert.strictEqual(fs.existsSync(settingsPath), false, 'terminal box off: settings.json untouched');
+      p.fire({ type: 'ready' });
+      const st = p.got[p.got.length - 2].state;
+      assert.deepStrictEqual([st.connection, st.connected, st.apiKeySet, last()], ['apiKey', true, true, { type: 'saved', way: 'apiKey', terminalNote: '' }], 'the state, then Saved again');
+      // a new Claude tab runs on the key: in its process's environment, never its arguments
+      const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      const s = m.commands['perch.newClaude']();
+      assert.deepStrictEqual([s.own, s.gateway], ['apiKey', false]);
+      let n0 = created.length; v.fire({ type: 'send', sid: s.id, text: 'hello' });
+      assert.strictEqual(created.length, n0 + 1, 'the key counts as something to run with');
+      assert.deepStrictEqual([created[n0].o.env.ANTHROPIC_API_KEY, created[n0].o.backend], ['sk-ant-1', { bedrock: false }]);
+      assert.strictEqual(v.lastTabs().tabs.find((x) => x.id === s.id).own, 'apiKey');
+      // a backend picked in a tab's footer: the user's later choice wins over the recorded one
+      v.fire({ type: 'setBackend', sid: s.id, value: 'subscription' });
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], undefined);
+      assert.deepStrictEqual(connected().pop(), ['perch.claudeConnected', false], 'none recorded, and nothing can run');
+
+      // Codex only
+      await ask({ type: 'codex' }, 'saved');
+      assert.deepStrictEqual([last(), m.globalState._dump()['perch.claude.connection']], [{ type: 'saved', way: 'codex', terminalNote: '' }, 'codex']);
+      assert.strictEqual(m.commands['perch.newClaude']().own, '', 'Codex only: a Claude tab as before');
+
+      // Bedrock, with the terminal box ticked: a value of the user's in settings.json is shown, and Keep keeps it
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.writeFileSync(settingsPath, JSON.stringify({ env: { AWS_REGION: 'eu-west-1' } }));
+      const runs = []; m.perch.runArgv = async (argv) => { runs.push(argv); return { code: 0, stdout: JSON.stringify({ modelSummaries: [{ modelId: 'anthropic.claude-x' }] }), stderr: '' }; };
+      p.fire({ type: 'terminal', on: true });
+      await ask({ type: 'bedrock', profile: '', region: 'us-west-2', force: false }, 'conflicts');
+      assert.deepStrictEqual(runs.pop(), ['aws', 'bedrock', 'list-foundation-models', '--by-provider', 'anthropic', '--region', 'us-west-2', '--output', 'json']);
+      assert.deepStrictEqual(last(), { type: 'conflicts', way: 'bedrock', list: [{ key: 'env.AWS_REGION', from: 'eu-west-1', to: 'us-west-2' }] });
+      assert.deepStrictEqual([m.globalState._dump()['perch.claude.connection'], m.globalState._dump()['perch.claude.bedrock']], ['bedrock', { profile: '', region: 'us-west-2' }], 'recorded at once');
+      await ask({ type: 'keep' }, 'saved');
+      assert.deepStrictEqual(last(), { type: 'saved', way: 'bedrock', terminalNote: '' });
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), { env: { AWS_REGION: 'eu-west-1', CLAUDE_CODE_USE_BEDROCK: '1' } }, 'the user\'s region kept, Bedrock on');
+      assert.deepStrictEqual(m.globalState._dump()['perch.terminal.written'], { 'env.CLAUDE_CODE_USE_BEDROCK': '1' }, 'Roost\'s record: its own value only');
+      // a new Claude tab on Bedrock, with the region and profile chosen
+      m.box.apiCreds = true;
+      const b = m.commands['perch.newClaude']();
+      assert.strictEqual(b.own, 'api');
+      n0 = created.length; v.fire({ type: 'send', sid: b.id, text: 'hello' });
+      assert.deepStrictEqual(created[n0].o.backend, { bedrock: true, aws: { profile: '', region: 'us-west-2' } });
+      // Replace: the conflicting value is Roost's from then on
+      await ask({ type: 'bedrock', profile: 'dev', region: 'us-west-2', force: false }, 'conflicts');
+      await ask({ type: 'replace', keys: ['env.AWS_REGION'] }, 'saved');
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env, { AWS_REGION: 'us-west-2', CLAUDE_CODE_USE_BEDROCK: '1', AWS_PROFILE: 'dev' });
+      assert.deepStrictEqual(m.globalState._dump()['perch.terminal.written'], { 'env.CLAUDE_CODE_USE_BEDROCK': '1', 'env.AWS_REGION': 'us-west-2', 'env.AWS_PROFILE': 'dev' });
+      // a settings file that isn't plain JSON: the connection is recorded, the file left byte for byte, and the panel says why
+      fs.writeFileSync(settingsPath, '// x\n{}');
+      m.globalState.update('perch.claude.connection', 'codex');
+      await ask({ type: 'bedrock', profile: '', region: 'us-west-2', force: false }, 'saved');
+      assert.deepStrictEqual(last(), { type: 'saved', way: 'bedrock', terminalNote: "~/.claude/settings.json isn't plain JSON, so it was left alone." });
+      assert.strictEqual(fs.readFileSync(settingsPath, 'utf8'), '// x\n{}');
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'bedrock');
+      // no AWS CLI: Save anyway, and only then
+      m.perch.runArgv = async () => { throw Object.assign(new Error('spawn aws ENOENT'), { code: 'ENOENT' }); };
+      p.fire({ type: 'terminal', on: false });
+      m.globalState.update('perch.claude.connection', 'codex');
+      await ask({ type: 'bedrock', profile: '', region: 'ap-south-1', force: false }, 'verdict');
+      assert.deepStrictEqual(last(), { type: 'verdict', way: 'bedrock', text: "The AWS CLI isn't installed, so this can't be checked here.", ok: false, canForce: true });
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'codex', 'not saved unchecked unless asked');
+      await ask({ type: 'bedrock', profile: '', region: 'ap-south-1', force: true }, 'saved');
+      assert.deepStrictEqual([m.globalState._dump()['perch.claude.connection'], m.globalState._dump()['perch.claude.bedrock']], ['bedrock', { profile: '', region: 'ap-south-1' }]);
+      // an AWS sign-in that ran out: said, with no Save anyway
+      m.perch.runArgv = async () => ({ code: 255, stdout: '', stderr: 'Error when retrieving token from sso: Token has expired and refresh failed' });
+      await ask({ type: 'bedrock', profile: 'dev', region: 'us-west-2', force: true }, 'verdict');
+      assert.deepStrictEqual(last(), { type: 'verdict', way: 'bedrock', text: 'AWS needs a sign-in first: run aws sso login --profile dev in a terminal.', ok: false, canForce: false });
+
+      // the subscription: Claude Code's sign-in, recorded once it lands
+      const logins = []; let landed;
+      m.perch.meter.login = async () => { logins.push(1); return true; };
+      m.perch.meter.waitForLogin = () => new Promise((r) => { landed = r; });
+      p.fire({ type: 'subscription' }); await until(() => logins.length);
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'bedrock', 'not until the login lands');
+      const before = p.got.length; m.box.login = true; landed(true);
+      await until(() => p.got.slice(before).some((x) => x.type === 'saved'));
+      assert.deepStrictEqual([last().way, m.globalState._dump()['perch.claude.connection']], ['subscription', 'subscription']);
+      // logged in already: at once
+      m.globalState.update('perch.claude.connection', 'codex');
+      p.fire({ type: 'subscription' }); await until(() => m.globalState._dump()['perch.claude.connection'] === 'subscription');
+      assert.strictEqual(logins.length, 1, 'no second sign-in');
+      assert.strictEqual(m.commands['perch.newClaude']().own, 'subscription');
+
+      // New Claude Tab: Roost's, beside the walkthrough
+      p.fire({ type: 'newTab' }); await flush();
+      assert(m.ui.executed.includes('roost.newClaudeTab'));
+      m.perch.dispose();
+      assert.strictEqual(panels().length, 0, 'and it goes with Perch');
+    } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- Connect Claude with a company gateway: recommended, terminal claude on by default, recorded when the gateway is saved
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-connect-co-'));
+    const realFetch = globalThis.fetch, realHome = process.env.HOME;
+    try {
+      process.env.HOME = dir;
+      const file = path.join(dir, 'gateway-env'), company = path.join(dir, 'company.json'), keyFile = path.join(dir, 'keys', 'token');
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      const PUBLIC = 'https://public.example.com/llm-api';
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PUBLIC], keyPage: 'https://ai.example.com/keys', env: { ANTHROPIC_MODEL: 'router-auto' }, keyFiles: [keyFile], terminal: true } }));
+      globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: 'router-auto' }] }), json: async () => ({ data: [{ id: 'router-auto' }] }) });
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath } }); await flush();
+      m.commands['perch.connectClaude']();
+      const p = m.ui.panels.filter((x) => x.viewType === 'perch.connectClaude' && !x.disposed)[0], last = () => p.got[p.got.length - 1];
+      p.fire({ type: 'ready' });
+      assert.deepStrictEqual([last().state.company, last().state.terminal], [{ gatewayName: 'Example Gateway' }, { on: true, offered: true }], 'the company\'s gateway, and terminal claude on by default');
+      // the gateway way: the gateway form; its save, while this panel is open, is the choice
+      p.fire({ type: 'gateway' });
+      const form = m.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0];
+      assert(form, 'the gateway way opens Agents: Set Up a Gateway…');
+      form.fire({ type: 'save', baseUrl: '', token: 'sk-good', models: {} });
+      await until(() => last().type === 'saved');
+      assert.deepStrictEqual(last(), { type: 'saved', way: 'gateway', terminalNote: '' });
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'gateway');
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), { env: { ANTHROPIC_MODEL: 'router-auto', ANTHROPIC_BASE_URL: PUBLIC, CLAUDE_CODE_USE_BEDROCK: '0' }, apiKeyHelper: `cat '${keyFile}'` }, 'terminal claude on the gateway, its key read from the company\'s key file');
+      assert.strictEqual(m.globalState._dump()['perch.terminal.written']['env.ANTHROPIC_BASE_URL'], PUBLIC, 'the record the address re-check follows');
+      assert.deepStrictEqual(m.ui.contexts.filter((c) => c[0] === 'perch.claudeConnected').pop(), ['perch.claudeConnected', true]);
+      assert(!JSON.stringify(JSON.parse(fs.readFileSync(settingsPath, 'utf8'))).includes('sk-good'), 'the key itself is not in settings.json');
+      const s = m.commands['perch.newClaude']();
+      assert.deepStrictEqual([s.gateway, s.own], [true, ''], 'new Claude tabs on the gateway');
+      m.perch.dispose();
+    } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- Connect Claude's conflicts survive its page being hidden (the gateway form in front), and are asked again when the file changed
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-connect-hide-'));
+    const realFetch = globalThis.fetch, realHome = process.env.HOME;
+    try {
+      process.env.HOME = dir;
+      const file = path.join(dir, 'gateway-env'), company = path.join(dir, 'company.json'), keyFile = path.join(dir, 'keys', 'token');
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      const PUBLIC = 'https://public.example.com/llm-api';
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PUBLIC], keyPage: 'https://ai.example.com/keys', env: { ANTHROPIC_MODEL: 'router-auto' }, keyFiles: [keyFile], terminal: true } }));
+      fs.mkdirSync(claudeDir); fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_MODEL: 'mine' } }));
+      globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: 'router-auto' }] }), json: async () => ({ data: [{ id: 'router-auto' }] }) });
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath } }); await flush();
+      m.commands['perch.connectClaude']();
+      const p = m.ui.panels.filter((x) => x.viewType === 'perch.connectClaude' && !x.disposed)[0], last = () => p.got[p.got.length - 1];
+      p.fire({ type: 'ready' });
+      p.fire({ type: 'gateway' });
+      const form = m.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0];
+      assert.strictEqual(form.viewColumn, 2, 'the gateway form opens beside the panel');
+      // the panel hidden: VS Code delivers nothing to its page
+      const deliver = p.webview.postMessage; let hidden = true;
+      p.webview.postMessage = (msg) => (hidden ? Promise.resolve(false) : deliver(msg));
+      const n = p.got.length;
+      form.fire({ type: 'save', baseUrl: '', token: 'sk-good', models: {} });
+      await until(() => m.globalState._dump()['perch.claude.connection'] === 'gateway' && m.perch.connect.pending);
+      await flush();
+      assert.strictEqual(p.got.length, n, 'nothing reached the hidden page');
+      // shown again: a page made anew asks, and is shown the state, then the conflict
+      hidden = false;
+      p.fire({ type: 'ready' });
+      assert.deepStrictEqual(p.got.slice(n).map((x) => x.type), ['state', 'conflicts']);
+      assert.deepStrictEqual(last(), { type: 'conflicts', way: 'gateway', list: [{ key: 'env.ANTHROPIC_MODEL', from: 'mine', to: 'router-auto' }] });
+      // the user's value changed since: Replace writes nothing over it, and asks again with the value there now
+      fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_MODEL: 'mine-too' } }));
+      const k = p.got.length;
+      p.fire({ type: 'replace', keys: ['env.ANTHROPIC_MODEL'] }); await until(() => p.got.length > k);
+      assert.deepStrictEqual(last(), { type: 'conflicts', way: 'gateway', list: [{ key: 'env.ANTHROPIC_MODEL', from: 'mine-too', to: 'router-auto' }] });
+      assert.strictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_MODEL, 'mine-too', 'not replaced unasked');
+      assert.strictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_BASE_URL, PUBLIC, 'the rest of the plan written');
+      p.fire({ type: 'replace', keys: ['env.ANTHROPIC_MODEL'] }); await until(() => last().type === 'saved');
+      assert.strictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_MODEL, 'router-auto', 'replaced once asked again');
+      // and Saved, with its note, is shown again to a page made anew
+      p.fire({ type: 'ready' });
+      assert.deepStrictEqual(p.got.slice(-2).map((x) => x.type), ['state', 'saved']);
+      m.perch.dispose();
+    } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
   // ---- the model pill on the gateway: the gateway's names, from the file; a model of Claude's catalog is let go when a tab moves there
@@ -1880,18 +2304,20 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
   // ---- a gateway that lists its models: one entry per model, grouped, the effort sent as part of the model's name
   {
     const fs = require('fs'), os = require('os'), path = require('path');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gw-')); const file = path.join(dir, 'env');
-    fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://gw.example/llm-api\nexport ANTHROPIC_AUTH_TOKEN=t\nexport ANTHROPIC_MODEL=nexus-auto-bargain[1m]\n');
-    const ids = ['opus', 'opus-high', 'opus-max', 'fable', 'fable-high', 'gpt-sol', 'gpt-sol-low', 'nexus-auto', 'anthropic/opus', 'anthropic/opus-high'];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gw-')); const file = path.join(dir, 'env'), company = path.join(dir, 'company.json');
+    fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://gw.example/llm-api\nexport ANTHROPIC_AUTH_TOKEN=t\nexport ANTHROPIC_MODEL=example-router-bargain[1m]\n');
+    // the company file names the gateway's routers: they get a group of their own
+    fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: ['https://gateway.example.com'], keyPage: 'https://gateway.example.com/keys', routerPrefixes: ['example-router'] } }));
+    const ids = ['opus', 'opus-high', 'opus-max', 'fable', 'fable-high', 'gpt-sol', 'gpt-sol-low', 'example-router', 'anthropic/opus', 'anthropic/opus-high'];
     const asked = []; const realFetch = globalThis.fetch;
     globalThis.fetch = async (url) => { asked.push(url); return { ok: true, json: async () => ({ data: ids.map((id) => ({ id })) }) }; };
-    const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
+    const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company }); await flush();
     const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
     v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active;
     v.fire({ type: 'setBackend', sid: x, value: 'gateway' }); await flush(); await flush();
     assert.strictEqual(asked[0], 'https://gw.example/llm-api/v1/models', 'the gateway is asked for its models');
     const t = v.tab(x);
-    assert.deepStrictEqual(t.models.map((o) => [o.value, o.label, o.group || '']), [['', 'default · nexus-auto-bargain[1m]', ''], ['anthropic/opus[1m]', 'opus', 'Claude'], ['anthropic/fable[1m]', 'fable', 'Claude'], ['anthropic/gpt-sol[1m]', 'gpt-sol', 'OpenAI'], ['anthropic/nexus-auto[1m]', 'nexus-auto', 'Routers']], 'one entry per model, by family');
+    assert.deepStrictEqual(t.models.map((o) => [o.value, o.label, o.group || '']), [['', 'default · example-router-bargain[1m]', ''], ['anthropic/opus[1m]', 'opus', 'Claude'], ['anthropic/fable[1m]', 'fable', 'Claude'], ['anthropic/gpt-sol[1m]', 'gpt-sol', 'OpenAI'], ['anthropic/example-router[1m]', 'example-router', 'Routers']], 'one entry per model, by family');
     v.fire({ type: 'setModel', sid: x, value: 'anthropic/opus[1m]' }); await flush();
     assert.deepStrictEqual(v.tab(x).efforts.map((e) => e.value), ['', 'high', 'max'], 'only the levels the gateway names');
     v.fire({ type: 'setEffort', sid: x, value: 'high' }); await flush();
@@ -3344,7 +3770,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
       // no file yet: nothing offers a tab on the gateway, but the command and the footer's menu still lead to one
       assert.deepStrictEqual(v.lastTabs().gateway, { file, exists: false, ok: false }, 'every tabs message says where the file is and whether there is one');
-      assert.deepStrictEqual(m.ui.contexts, [['perch.gateway', false], ['perch.gatewayReady', false]], 'the title menus are told to hide their gateway entry, and the walkthrough that no gateway is ready');
+      assert.deepStrictEqual(m.ui.contexts, [['perch.claudeConnected', true], ['perch.gateway', false], ['perch.gatewayReady', false]], 'the title menus are told to hide their gateway entry, and the walkthrough that no gateway is ready (Claude can run: connected)');
       m.picks.push((i) => i.gateway); assert.strictEqual(await m.commands['perch.new'](), null, 'the quick pick has no gateway entry');
       await m.commands['perch.newClaudeGateway']();
       let t = v.lastTabs(); const g = t.tabs[0].id;
@@ -3387,7 +3813,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const agent = created[n0];
       assert.deepStrictEqual(agent.o.env, { CLAUDE_CODE_USE_BEDROCK: '0', ANTHROPIC_BASE_URL: 'https://gw.example.com/llm-api', ANTHROPIC_AUTH_TOKEN: 'tok', ANTHROPIC_MODEL: 'router-auto[1m]' }, 'the file\'s variables, and Bedrock off');
       assert.strictEqual(agent.o.model, undefined, 'the tab on default sends no model: the file\'s ANTHROPIC_MODEL decides');
-      assert.deepStrictEqual(agent.o.gateway, { target: 'https://gw.example.com/llm-api' }, 'the process runs through the relay to the file\'s base URL');
+      assert.deepStrictEqual(agent.o.gateway, { target: 'https://gw.example.com/llm-api', candidates: [], key: 'tok' }, 'the process runs through the relay to the file\'s base URL');
       t = v.lastTabs();
       assert.deepStrictEqual([t.tabs[0].backend, t.tabs[0].gatewayWarn, t.tabs[0].started, t.gateway.ok, t.tabs[0].cache.minutes], ['gateway', false, true, true, 5]);
       // what answered: the relay's word on each response, counted for the turn and put on the result; the last one on the tab
@@ -3430,7 +3856,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert.strictEqual(v.lastTabs().tabs[2].gateway, true, 'the + menu opens a tab on the gateway');
       v.fire({ type: 'new', kind: 'claude', gateway: true }); const g3 = v.lastTabs().tabs[3].id;
       v.fire({ type: 'send', sid: g3, text: 'x' }); await flush(); await flush();
-      assert.deepStrictEqual([created.length, created[n0 + 2].o.gateway, created[n0 + 2].o.env.CLAUDE_CODE_USE_BEDROCK, v.events(g3).some((e) => e.kind === 'note' && /settings\.json/.test(e.text))], [n0 + 3, { target: 'https://gw.example.com/llm-api' }, '0', false], 'a process starts through the relay, though the window is on API / Bedrock');
+      assert.deepStrictEqual([created.length, created[n0 + 2].o.gateway, created[n0 + 2].o.env.CLAUDE_CODE_USE_BEDROCK, v.events(g3).some((e) => e.kind === 'note' && /settings\.json/.test(e.text))], [n0 + 3, { target: 'https://gw.example.com/llm-api', candidates: [], key: 'tok' }, '0', false], 'a process starts through the relay, though the window is on API / Bedrock');
       v.fire({ type: 'close', sid: g3 }); await flush();
       assert.strictEqual(v.lastTabs().tabs.length, 3);
       v.fire({ type: 'meterToggle' }); await flush(); await flush();
@@ -3727,10 +4153,11 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     const m = install(undefined, { config: { newTabs: 'editor', 'secretCheck.ignore': ['TRC[0-9a-f]{20}', '(unclosed', 7] } }); await flush();
     const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
     const told = (got) => got.filter((x) => x.type === 'secretCheck');
-    assert.deepStrictEqual(told(v.got), [{ type: 'secretCheck', enabled: true, ignore: ['TRC[0-9a-f]{20}'], allowed: [] }], 'a ready page is told: on by default, the valid expressions only, nothing allowed yet');
+    assert.deepStrictEqual(told(v.got), [{ type: 'secretCheck', enabled: true, ignore: ['TRC[0-9a-f]{20}'], allowed: [], perTab: {} }], 'a ready page is told: on by default, the valid expressions only, nothing allowed yet');
     await m.commands['perch.newClaude']();
     const p1 = m.ui.panels[0]; p1.fire({ type: 'ready' }); await flush();
-    assert.deepStrictEqual(told(p1.got).pop(), { type: 'secretCheck', enabled: true, ignore: ['TRC[0-9a-f]{20}'], allowed: [] }, 'an editor tab too');
+    const sid0 = p1.lastTabs().tabs[0].id;
+    assert.deepStrictEqual(told(p1.got).pop(), { type: 'secretCheck', enabled: true, ignore: ['TRC[0-9a-f]{20}'], allowed: [], perTab: { [sid0]: { enabled: true, ignore: ['TRC[0-9a-f]{20}'] } } }, 'an editor tab too, with each tab\'s own');
     // "Not a secret": the hash is stored and every page hears of it
     p1.fire({ type: 'secretAllow', hash: H1 }); await flush();
     assert.deepStrictEqual(m.globalState._dump()['perch.secretCheck.allowed'], [H1], 'kept in globalState');
@@ -3756,7 +4183,55 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     assert(notes()[0].text.includes('(unclosed'), 'naming it: ' + notes()[0].text);
     // switched off, and the list changed: every page is told at once
     m.changeConfig({ 'secretCheck.enabled': false, 'secretCheck.ignore': ['BLD-[0-9]+'] }); await flush();
-    assert.deepStrictEqual(told(v.got).pop(), { type: 'secretCheck', enabled: false, ignore: ['BLD-[0-9]+'], allowed: [] }, 'a settings change reaches the pages');
+    assert.deepStrictEqual(told(v.got).pop(), { type: 'secretCheck', enabled: false, ignore: ['BLD-[0-9]+'], allowed: [], perTab: { [sid]: { enabled: false, ignore: ['BLD-[0-9]+'] } } }, 'a settings change reaches the pages');
+    m.perch.dispose();
+  }
+
+  // per repo (note 110, Sean 2026-11-24): a folder's own setting decides for the tabs working in it, and only those
+  {
+    const m = install(undefined, { workspaceFolders: ['/w/fennets', '/w/lattice'] }); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    const told = () => v.got.filter((x) => x.type === 'secretCheck');
+    const a = m.perch.addSession('claude'), b = m.perch.addSession('claude', { dir: '/w/lattice/src' }), c = m.perch.addSession('codex', { dir: '/elsewhere' });
+    await flush();
+    assert.deepStrictEqual(Object.keys(told().pop().perTab), [a.id, b.id, c.id], 'a new tab is told to the pages at once');
+    m.ui.folderConfig['/w/lattice'] = { 'secretCheck.enabled': false, 'secretCheck.ignore': ['LAT-[0-9]+'] };
+    m.changeConfig({ 'secretCheck.enabled': true }); await flush();
+    const last = told().pop();
+    assert.deepStrictEqual([last.enabled, last.perTab[a.id], last.perTab[b.id], last.perTab[c.id]],
+      [true, { enabled: true, ignore: [] }, { enabled: false, ignore: ['LAT-[0-9]+'] }, { enabled: true, ignore: [] }],
+      'off for the tab working in lattice only; the tab in fennets (the window\'s first folder) and the one outside every folder keep the check');
+
+    // the commands: the active tab's folder, in its own settings (the WorkspaceFolder target), with a word naming it
+    m.ui.configUpdates.length = 0; m.ui.infos.length = 0;
+    m.perch.activeId = a.id;
+    await m.commands['perch.secretCheck.offForFolder']();
+    assert.deepStrictEqual(m.ui.configUpdates, [['secretCheck.enabled', false, 3, '/w/fennets']], 'written for fennets, at the WorkspaceFolder target');
+    assert.deepStrictEqual(m.ui.infos.pop(), 'Perch: the secret check is off for fennets.');
+    assert.strictEqual(told().pop().perTab[a.id].enabled, false, 'and the pages are told');
+    // a tab outside every folder: the user picks one
+    m.perch.activeId = c.id; m.ui.configUpdates.length = 0;
+    m.picks.push((i) => i.label === 'lattice');
+    await m.commands['perch.secretCheck.onForFolder']();
+    assert.deepStrictEqual(m.ui.configUpdates, [['secretCheck.enabled', true, 3, '/w/lattice']], 'the folder picked');
+    assert.deepStrictEqual(m.ui.infos.pop(), 'Perch: the secret check is on for lattice.');
+    m.ui.configUpdates.length = 0;
+    await m.commands['perch.secretCheck.onForFolder']();
+    assert.deepStrictEqual(m.ui.configUpdates, [], 'no pick, nothing written');
+
+    // "Off for this repo" in a tab's strip: that tab's folder, then the message the page sends itself goes as usual
+    m.ui.configUpdates.length = 0;
+    m.ui.folderConfig['/w/lattice'] = {};
+    v.fire({ type: 'secretFolderOff', sid: b.id }); await flush();
+    assert.deepStrictEqual(m.ui.configUpdates, [['secretCheck.enabled', false, 3, '/w/lattice']], 'the strip\'s tab\'s folder');
+    m.perch.dispose();
+  }
+  // a window of one folder: the Workspace target
+  {
+    const m = install(undefined, { workspaceFolders: ['/w/only'] }); await flush();
+    m.perch.addSession('claude', { location: 'sidebar' });
+    await m.commands['perch.secretCheck.offForFolder']();
+    assert.deepStrictEqual(m.ui.configUpdates.filter((u) => u[0] === 'secretCheck.enabled'), [['secretCheck.enabled', false, 2, '/w/only']], 'one folder: the Workspace target');
     m.perch.dispose();
   }
 

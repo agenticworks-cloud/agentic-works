@@ -84,4 +84,19 @@ assert.deepStrictEqual(permissionResult('Bash', cmd, { decision: 'always' }, [{ 
   assert.deepStrictEqual(out.filter((e) => e.kind === 'tool_use').map((e) => [e.id, e.sub]), [['m1', false], ['s1', true]]);
 }
 
-console.log('CLAUDE AGENT OK');
+// ---- The gateway's address, re-checked at each tab start: the first of the company's addresses that answers, else the file's
+(async () => {
+  const { resolveGatewayTarget } = require('../src/claudeAgent.js');
+  const A = 'https://a.example.com', B = 'https://b.example.com', FILE = 'https://file.example.com';
+  const asked = [];
+  const onlyB = async (url) => { asked.push(url); if (url.startsWith(B)) return { ok: false, status: 404, text: async () => '' }; throw new TypeError('fetch failed'); };
+  const none = async () => { throw new TypeError('fetch failed'); };
+  const probed = [];
+  assert.strictEqual(await resolveGatewayTarget({ target: FILE, candidates: [A, B], key: 'k' }, { fetch: onlyB, onProbed: (u) => probed.push(u) }), B, 'the address that answers');
+  assert.deepStrictEqual([asked, probed], [[A + '/v1/models', B + '/v1/models'], [B]]);
+  assert.strictEqual(await resolveGatewayTarget({ target: FILE, candidates: [A, B], key: 'k' }, { fetch: none, onProbed: (u) => probed.push(u) }), FILE, 'none answers: the file\'s');
+  assert.deepStrictEqual(probed, [B], 'no probe answered: no hook');
+  assert.strictEqual(await resolveGatewayTarget({ target: FILE, candidates: [], key: 'k' }, { fetch: onlyB }), FILE, 'no candidates: the file\'s');
+  assert.strictEqual(await resolveGatewayTarget({ target: FILE }, { fetch: onlyB }), FILE);
+  console.log('CLAUDE AGENT OK');
+})().catch((e) => { console.error(e); process.exit(1); });

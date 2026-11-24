@@ -187,22 +187,25 @@ After the PRs tab, the same first start opens Roost's walkthrough, **Get started
 (`workbench.action.openWalkthrough`, `seanahn.roost#roost.getStarted`); a failure is logged like the PRs tab's. The
 walkthrough is Roost's own (`contributes.walkthroughs` in roost.contributes.json, the one contribution point only
 Roost may use), so it also sits on VS Code's Welcome page, and **Roost: Get Started** opens it again. Its steps, each
-shown only while its part is switched on and started (`when: config.roost.<id>.enabled && !roost.<id>.failed`), have a button and a short page
-(media/walkthrough/*.md):
+shown only while its part is switched on and started (`when: config.roost.<id>.enabled && !roost.<id>.failed`; Connect
+your tools only with a company file that lists MCP servers, `when: roost.companyTools`), have a button and a short
+page (media/walkthrough/*.md). Their text is static: whatever depends on the company file is in a panel, not a step.
+In order:
 
 | Step | Button | Done when |
 |---|---|---|
+| Connect Claude | Connect Claude (Agents: Connect Claude…, a panel of the ways Claude can run: the company's gateway or an LLM gateway, a Claude subscription, an Anthropic API key, AWS Bedrock, Codex only), or Not Now (`roost.connectClaudeNotNow`, hidden from the palette) | Claude is connected (`perch.claudeConnected`), or Not Now runs. It replaced 0.3's Use an LLM gateway (optional) step and its `roost.gatewayNotNow` *(0.4)* |
 | Talk to Claude or Codex | New Claude Tab, New Codex Tab (opened beside the walkthrough, 70/30) | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: Roost's installer no longer opens a tab on first start; the user opens the one they want here; either agent works, and the page says how each signs in)* |
-| Use an LLM gateway (optional) | Set Up a Gateway (Agents: Set Up a Gateway…, a form in an editor tab that writes the gateway file), or Not Now (`roost.gatewayNotNow`, hidden from the palette) | a gateway is saved and usable (`perch.gatewayReady`, which Agents sets at start and on save), or Not Now runs *(Sean, 2026-11-24)*. The agents step has no gateway button, since a walkthrough's text cannot depend on a context key: its page names Agents: New Claude Tab on the Gateway, and the form offers that button once saved |
+| Connect your tools (only with `roost.companyTools`) | Roost: Connect Your Tools (a panel, `roost.tools`, one row per MCP server in the company file, each signed in its own way and checked, then registered with Claude Code at user scope; with no servers the command says "Your company file lists no tools."), or Not Now (`roost.toolsNotNow`, hidden) | every row is connected (`roost.toolsConnected`, which Roost sets after each change of a row: its check passed and Claude Code was given it), or Not Now runs *(0.4)* |
 | Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
-| Sign in to Teams | Teams: Sign In | Teams is signed in (`chirp.signedIn`) |
-| Connect Jira and Confluence | Connect Jira (Jira: Sign In: opens the Jira view, whose sign-in form asks for the site URL, email and API token, with a Create one link to Atlassian's API tokens page) | Jira is signed in (`jay.signedIn`) *(Sean, 2026-11-24: no input box at the top)* |
+| Sign in to Teams | Sign In to Teams (`roost.teamsSignIn`, hidden): with a company file and a tools row whose `doneWhen.file` is the expanded `teams.signIn.tokenFile`, the Connect Your Tools panel opens and runs that row's sign-in (unless it is connected already); else Teams: Sign In (`chirp.signIn`) | Teams is signed in (`chirp.signedIn`): chirp watches its token file, so a tools row's sign-in ticks it by itself |
+| Connect Jira and Confluence | Connect Jira (`roost.jiraSignIn`, hidden: the matching tools row for `jira.signIn.tokenFile` as Teams does, else Jira: Sign In, `jay.signIn`, which opens the Jira view, whose sign-in form asks for the site URL, email and API token, with a Create one link to Atlassian's API tokens page) | Jira is signed in (`jay.signedIn`) *(Sean, 2026-11-24: no input box at the top)* |
 | Sign in to GitHub | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
 | Choose your parts | Roost: Settings | that command runs |
 
-"Done" follows VS Code's own completion events. The Choose your parts step, and the two optional ones' buttons, are
-ticked when their command runs (`onCommand:`); the agents step when a message is sent, the gateway step when a
-gateway is ready (`onContext:`). The three sign-in steps are ticked only once that part is actually signed in (`onContext:`): each
+"Done" follows VS Code's own completion events. The Choose your parts step, and Search your code's two buttons, are
+ticked when their command runs (`onCommand:`); the agents step when a message is sent, Connect Claude when Claude is
+connected, Connect your tools when every tool is (`onContext:`), or their Not Now. The three sign-in steps are ticked only once that part is actually signed in (`onContext:`): each
 part sets its own context key, in its own namespace so it still works as an extension of its own, true when signed
 in and false when signed out or stopped, and sends it only when it changes. chirp sets `chirp.signedIn` when a login
 works and clears it when signed out; jay sets `jay.signedIn` while it runs with a sign-in; kestrel sets
@@ -391,8 +394,9 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
 - **Teams: a company's own Microsoft app — Built (0.3.0)** *(Sean, 2026-11-24; design below, then what was built)*. Both of chirp's sign-ins, the
   editor's and the sign-in code, use chirp's own app (`5d0faf94…`, "chirp, unverified"; the editor sign-in passes it
   in VS Code's `VSCODE_CLIENT_ID` scope, so it is not VS Code's app). A company that lets only admins approve apps,
-  as C3 does, stops a first-time user at Microsoft's "Need admin approval" (Sean's first-time run, 2026-11-24). C3
-  people got in through C3's own approved app, by way of `ms365-mcp`'s token file (c3securitytools note 801). Roost
+  as Sean's company does, stops a first-time user at Microsoft's "Need admin approval" (Sean's first-time run,
+  2026-11-24). Its people got in through the company's own approved app, by way of `ms365-mcp`'s token file (noted in
+  that company's installer, kept outside this repo). Roost
   cannot find a company's approved app itself (Microsoft has no lookup for it), so it makes the choice visible to
   the user who hits the wall and easy to set for the person who sets machines up:
   - **Settings** `teams.signIn.clientId` and `teams.signIn.tenant`, defaults chirp's app and `organizations`. With
@@ -407,7 +411,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     the Application (client) ID and the Directory (tenant) ID, checks they are GUIDs, writes both settings at the
     user level, and signs in again.
   - **Installer:** `--teams-app <clientId>:<tenantId>` writes the two settings (only when absent, like the rest),
-    so a company's own setup, such as C3's (note 802 in c3securitytools), passes its IDs in one flag. Company IDs
+    so a company's own installer (kept outside this repo) passes its IDs in one flag. Company IDs
     never go into Roost's public repo or installer.
   - Until it is built, the walkthrough's Teams page says that the app to approve is chirp, and what "Need admin
     approval" means.
@@ -449,7 +453,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     your company's app (0123abcd…) · Change*. **Signed in**, the command shows "Sign out first to change the app
     Teams signs in with." rather than a form under the account line (the form lives only in the signed-out page);
     while a sign-in is waiting, the command cancels it and opens the form.
-- **Agents: a company's gateway, ready but for the key (design, for 0.4)** *(Sean, 2026-11-24)*. A company LLM
+- **Agents: a company's gateway, ready but for the key (Built, 0.4.0; superseded in shape by the company file below)** *(Sean, 2026-11-24)*. A company LLM
   gateway usually needs a personal key that each person makes on a web page of the company's. Today a company
   installer has to ask for it in the terminal before VS Code ever opens. Instead the installer prepares everything
   but the key, and the walkthrough is where the person gets the key and pastes it. Roost stays generic: what a
@@ -481,12 +485,158 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     static); without one, the optional *Use an LLM gateway* stays where it is. With a working gateway, the first
     step's **New Claude Tab** opens on the gateway (Perch's choice of backend; the first-start order already prefers a
     usable gateway).
-  - **What a company installer then does** (C3's: note 802 in its own repo): writes the preset; points the terminal's
+  - **What a company installer then does** (one company's is noted in its own repo, outside this one): writes the preset; points the terminal's
     `claude` at the gateway with Claude Code's `apiKeyHelper` reading the key file (so it works as soon as the
     walkthrough saves the key; to confirm against the real gateway); no longer asks for the key in the terminal,
     keeping an optional flag for scripted installs.
   - **Open:** whether `apiKeyHelper` with a key that doesn't exist yet fails gently in a terminal `claude` started
     before the walkthrough; whether a VPN-off machine should prefer the public address silently or say so.
+
+- **A company file, Connect Claude, and Connect your tools (Built, 0.4.0; supersedes the preset above)**
+  *(Sean, 2026-11-24, designing a company installer on Roost: "the walkthrough walks through everything except
+  what's already determined" for the company; subscription, API, Bedrock and Codex must work as well as the
+  company's gateway; the company's MCP servers get a walkthrough step; one sign-in serves an MCP server and the
+  matching part)*. Company details stay out of this repo; they come from one file the company's installer writes.
+  - **The company file**, `~/.config/roost/company.json`: `name`; `gateway` (the preset above: `name`, `baseUrls`,
+    `keyPage`, `requiredModel`, `env`, `keyFiles`, plus `terminal`: write terminal `claude`'s settings by default, and
+    `routerPrefixes`: model-id prefixes the gateway menu groups as Routers, default none);
+    `mcpServers`: a list of `{ id, name, about, register, connect }`, where `register` is what Claude Code is
+    given (`http` with a URL and headers, `${token}` standing for the token; or `stdio` with a command and env) and
+    `connect` is how it gets signed in: `tokenPage` (a page to open, the token pasted, a check request), `command`
+    (a sign-in command run in a terminal, done when a file appears), `mcpTool` (the server's own sign-in tool: Roost
+    starts the server over stdio, calls the tool, shows what it returns, such as a device code, then calls it again
+    with the `complete` arguments; for servers whose sign-in is a tool, with no command of its own), or `none`; and
+    an optional `check` (a request, an MCP tool call that needs the sign-in, or a status command): a row is
+    connected only once its check passes, not because a file exists. Read at start; context key
+    `roost.company` when valid; a note in the Roost output channel when it doesn't parse.
+  - **Connect Claude** replaces *Use an LLM gateway (optional)* and comes first. One step, a small panel with the
+    ways Claude can run: the company's gateway when the file has one (recommended: the preset form above, **Get a
+    key**, **Check and save**; the address re-checked each time a Claude tab starts on the gateway, so a laptop
+    moving on and off a VPN keeps working), a generic LLM gateway otherwise (today's form), **Claude subscription** (Agents: Log
+    in to Claude), **Anthropic API key** (pasted, checked with `GET /v1/models`, kept in a file of the user's, mode
+    600), **AWS Bedrock** (a profile or SSO already on the machine, and a region; checked with a model list), or
+    **Codex only**. Ticked when one is set up, or **Not Now**. New Claude Tab then opens with that connection.
+    **Terminal `claude`**, when asked ("use for `claude` in the terminal too", on by default when the company file's
+    `gateway.terminal` is true, off otherwise): the choice is written to `~/.claude/settings.json` (gateway:
+    `env.ANTHROPIC_BASE_URL` the address that answered, model env and `apiKeyHelper` reading the key file; API key:
+    `apiKeyHelper`; Bedrock: `CLAUDE_CODE_USE_BEDROCK=1`, region; subscription: nothing). A value the user already
+    has there is shown and replaced only when they agree. The gateway's address then follows the company address that
+    answers: each time a Claude tab's start finds one, and once at activation (the company's `baseUrls` probed in the
+    background with the gateway file's key, only when that file names one of them), `env.ANTHROPIC_BASE_URL` is
+    rewritten to it, only while it still holds the address Roost wrote there; a value the user changed is theirs, and
+    the key is never added. *(Sean, 2026-11-24: no launcher; Roost's installer installs the claude CLI, at
+    `~/.local/bin/claude`, which Claude Code's updater rewrites.)*
+  - **Connect your tools** *(company file with `mcpServers` only)*, after *Talk to Claude or Codex*: a panel, one
+    row per server (name, what it gives the agent, connected or not, a button). `tokenPage`: open, paste, check,
+    save; `command`: run in a VS Code terminal, connected when its file appears; then the server is registered
+    with Claude Code at user scope, as `claude mcp add` would. Ticked when every row is connected, or **Not Now**.
+  - **One sign-in, two uses:** a company installer can point Teams' and Jira's token-file settings at the files
+    the matching MCP servers' sign-ins write. Those steps then tick by themselves after *Connect your tools*; with a
+    company file, their buttons run the matching tools row instead of the part's own sign-in.
+  - **A company installer layered on Roost's** must never pass `--yes` (it would answer "uninstall the standalone
+    four?" for the user), and should refuse a machine it wasn't meant for rather than migrate it.
+  - Also: the installer installs `git` explicitly, when `git --version` doesn't run (note 102, step 4a).
+  - Also found: the installer adds Homebrew's `brew shellenv` to the login profile only when VS Code came from
+    Homebrew; it should whenever Homebrew was used (`gh` from Homebrew is otherwise not on new terminals' PATH, nor
+    VS Code's, on a Mac whose profile lacks it).
+  - **Settled while planning 0.4** *(my calls, 2026-11-24; plan `docs/superpowers/plans/2026-11-24-roost-0.4-company.md`)*:
+    - *Company file.* `ROOST_COMPANY_FILE` overrides the path. Any error makes the whole file invalid (the note names
+      the path, `mcpServers[1].connect.kind: …`); unknown keys are ignored; `~` expands in key files, commands and
+      `doneWhen` files; `${token}` is allowed only in a `tokenPage` server's `register`. `check` and `doneWhen` sit
+      inside `connect`. A second context key, `roost.companyTools`, gates *Connect your tools*. The Agents part reads
+      the file through its own copy of `src/company.js` (a part never requires Roost's `src/`), checked identical.
+    - *Key check.* A probe or check waits 3 s per address at a tab start, 10 s in a form. A 401/403 from the first
+      address is final. `requiredModel` matches with a leading `anthropic/` ignored. Without a company gateway the
+      form checks too, and only on an *unexpected answer* (a gateway with no `/v1/models`) offers **Save anyway**.
+      At a tab start with no address answering, the tab uses the gateway file's address, with no note.
+    - *Terminal `claude`* is written only when a connection is saved, so `apiKeyHelper` never points at a key that
+      doesn't exist yet (the first *Open* above). There is no launcher (Sean, 2026-11-24: Roost's installer installs
+      the claude CLI at `~/.local/bin/claude`, and its updater rewrites that path): `settings.json` gets the address
+      that answered, kept current as above (`syncTerminalBaseUrl`; the record of what Roost wrote is globalState's
+      `perch.terminal.written`). The key file for `apiKeyHelper` is `keyFiles[0]`, else
+      `~/.config/roost/gateway-key`. Roost records what it wrote: a later choice removes Roost's own values and treats
+      any other value as the user's (shown, masked when its name says token, key or secret, and replaced only on
+      **Replace**). A settings file that isn't a plain JSON object is never rewritten. Agents treats any `apiKeyHelper`
+      in `settings.json` as a pinned machine (non-gateway tabs then take it off).
+    - *Connect Claude* is an Agents panel (`perch.connectClaude`); its gateway way opens the gateway form. The choice is
+      recorded (`perch.claude.connection`) and new Claude tabs follow it until a tab's footer picks a backend. The
+      Anthropic API key lives in `~/.config/roost/anthropic-key` and reaches a tab as `ANTHROPIC_API_KEY` (a third
+      tab backend, `apiKey`; the footer's menu is unchanged). Bedrock is checked with the AWS CLI
+      (`aws bedrock list-foundation-models --by-provider anthropic`); without the CLI it offers **Save anyway**; an
+      expired SSO sign-in names `aws sso login`. With nothing recorded, the step counts as done when a gateway is ready
+      or Claude can already run.
+    - *Connect your tools* lives in Roost's `src/`, not a part. Registration writes `~/.claude.json`'s `mcpServers`
+      directly (re-read just before, atomic), rather than running `claude mcp add`, so a token is never in argv; a
+      different entry of the same name is replaced only on **Replace**. `tokenPage` tokens are kept in
+      `~/.config/roost/tokens/<id>`. With no `check`, a row is connected when its `doneWhen` file exists (`none`:
+      always). `mcpTool` uses one server process for both calls (60 s, then 15 minutes for `complete`); the code and
+      link are picked from the tool's text. Checks run when the panel opens and after a sign-in, not at start (VS
+      Code keeps a ticked step).
+    - *Teams and Jira buttons* find their tools row by file: the row whose `doneWhen` file is the part's
+      `signIn.tokenFile`.
+    - *Order:* Connect Claude, Talk to Claude or Codex, Connect your tools, Search your code, Teams, Jira, GitHub,
+      Choose your parts. `roost.gatewayNotNow` becomes `roost.connectClaudeNotNow`.
+    - *Installer:* git is checked without running Apple's `/usr/bin/git` shim when the Command Line Tools are missing;
+      on a Mac without Homebrew it runs `xcode-select --install` and waits up to 10 minutes. "Homebrew was used" means
+      this run installed something with it, or `code`, `gh` or `git` comes from it; its shellenv goes in a block of
+      its own, step `homebrew`, with no line when Homebrew wasn't used.
+
+  - **Built (0.4.0), rulings made during the build and the final fixes** *(Sean's and mine, 2026-11-24; each: the
+    ruling, why, and the cost if wrong)*:
+    - *R1, no launcher.* Nothing is put at `~/.local/bin/claude`: Claude Code's CLI lives there and its updater
+      rewrites it. Terminal `claude`'s address is kept current by Roost instead (`syncTerminalBaseUrl`, after each
+      successful re-probe at a gateway tab start and at activation), and only while the value is the one Roost wrote.
+      `desiredSettings('gateway')` always sets `env.ANTHROPIC_BASE_URL`. Sean chose it. If wrong: off the VPN with VS
+      Code closed, terminal `claude` points at the last address until VS Code starts.
+    - *R2, the installer installs the Claude Code CLI.* Step `claude` (after companions) downloads Anthropic's
+      official installer and runs it (as Homebrew's is), when `claude` isn't on the PATH; `~/.local/bin` joins Roost's
+      PATH block when it isn't on the original PATH. Note 102 has the step; a company installer need not install it.
+      Sean's call. If wrong: an extra download of about 100 MB for users who never use a terminal. The up-front
+      list of system-wide changes counts the curl and ca-certificates this step may need.
+    - *R3, never `--yes` for company layers.* An earlier line of note 102 said a company installer passes `--yes`;
+      this note's rule wins (it would answer "uninstall the standalone four?" for the user), and 102 was fixed.
+    - *R4, the final review ran before closing.* The whole-branch review needed the plan, so the plan was deleted
+      only afterwards, with the final fixes folded in here.
+    - *R5, company mentions removed.* Pre-existing company mentions were removed from the current files in one
+      separate commit, with no history rewrite (the repo is public, nothing secret, the history already public, and
+      SHAs are referenced elsewhere). The gateway menu's Routers grouping, once a fixed prefix, now follows the company
+      file's `gateway.routerPrefixes` (default none). A guard test, `test/noCompanyNames.test.js`, run by `make
+      test`, scans the tracked files for company names (stored encoded, so it doesn't name them) and fails on a
+      hit. If wrong: a user with no company file loses the Routers grouping, and the company's own file
+      must add `routerPrefixes` (until it does its routers show under Other).
+    - *Task 3, whose address is probed.* The company's addresses are probed, and the gateway file's key sent to them,
+      only when the file's `ANTHROPIC_BASE_URL` is one of the company's `baseUrls` (normalized); otherwise no address
+      is tried. A key for a user's own gateway must not go to the company's hosts. The company form follows the same
+      rule: it reuses the file's key only for a company address (`companyKeyKept`), else shows the key field and
+      answers "A key is needed." with no request. If wrong: a company gateway saved under an address variant is
+      not re-probed.
+    - *Task 2, `company.js` copies.* `src/company.js` and `parts/agents/src/company.js` stay two byte-identical
+      copies, since a part never requires Roost's `src/` (as with `settingsCarryOver.js`); a test catches drift. If
+      wrong: a later edit must touch both.
+    - *Task 5, the walkthrough table.* This note's *First start* table was stale after the order changed; the task
+      that owns the walkthrough order updates it, and this closing pass checked it against the shipped manifest.
+    - *Task 6, "connected" and secrets.* A row is connected only when its registration succeeded with no conflict or
+      reason, and *Connect your tools* is ticked only when all are. A `${token}` is allowed only in a `tokenPage`
+      server's http headers or stdio env, never in args or the command (the argv rule); `company.js` validation
+      (both copies) and registration refuse otherwise, so a server that wants the token as an argument must take it
+      from env. `~/.claude.json` is Claude Code's file in `$HOME`: the rule there is a 0600 file, the 0700-directory
+      rule doesn't apply.
+    - *Final fixes.* (1) the company form no longer sends a key kept from another gateway (above). (2) Connect Claude's
+      conflicts and Saved are remembered by the host and resent when its page is shown again, and the gateway form
+      opens beside the panel, because a hidden webview drops messages. (3) `writeSettings` re-reads the file and
+      applies each change only if the key still holds its `from`; a key that changed since the plan is returned as a
+      conflict and asked again; a `kept` entry that changed is dropped from the record. (4) The installer's git
+      step on Ubuntu and Debian runs `apt-get update` and then a non-interactive `apt-get install -y git`; the
+      `claude` step's sudo (curl and ca-certificates) is listed up front. (5) A `command` sign-in's row says "If the
+      sign-in failed, close its terminal to try again." while its terminal is open.
+  - **Built (0.4.0), not checked live.** Everything above was run by the offline tests only (`make test`, the
+    installer's tests: 127 run, 4 skipped on this machine). Not run: hidden webviews in a real VS Code (the resend
+    after a hidden page is covered by a stub that drops messages); a real gateway (the key check, the re-probe, the
+    `routerPrefixes` grouping); a real installer run on a fresh machine (the `claude` and git steps, the PATH
+    block); and `make test-package`'s size check, which cannot run in a worktree because `node_modules` is a
+    symlink there.
+  - **Plan:** `docs/superpowers/plans/2026-11-24-roost-0.4-company.md`, last at bb25a76.
+    Built: branch `feat/roost-0.4`, merged directly, with no PR. The plan is deleted; this note is the record.
 
 ## Left to the builder
 
@@ -510,7 +660,7 @@ What was asked:
 
 What was found (2026-11-23):
 
-  - **0.3.3, from Sean's first-time run with C3's app ("agent-connect"):** listing chirp's scopes stopped at "Need
+  - **0.3.3, from Sean's first-time run with his company's own app:** listing chirp's scopes stopped at "Need
     admin approval" over one the app lacks (`User.ReadBasic.All`; it has `User.Read.All`), since the tenant lets no
     user consent. With a company app chirp now asks for `https://graph.microsoft.com/.default` (plus
     `offline_access` for the sign-in code): exactly what the app was approved for, never a consent prompt. Channels

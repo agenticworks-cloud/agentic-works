@@ -7,8 +7,8 @@ Either agent works the same way. A Claude tab is a real Claude Code session, a C
 editor tab: it reads and edits your workspace, runs commands when you allow it, and keeps its history across reloads.
 
 - More tabs: **New Claude tab** or **New Codex tab** in the **Perch** view, or **Agents: New Claude Tab** and
-  **Agents: New Codex Tab** in the Command Palette. With a gateway set up (the next step),
-  **Agents: New Claude Tab on the Gateway** opens a Claude tab on it.
+  **Agents: New Codex Tab** in the Command Palette. New Claude tabs run the way chosen in **Connect Claude** (the
+  step before this one); with a gateway set up, **Agents: New Claude Tab on the Gateway** opens a Claude tab on it.
 - Each tab's footer shows which backend it uses and the usage left.
 - The **Perch** view in the activity bar lists your tabs and past sessions.
 

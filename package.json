@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.3.12",
+  "version": "0.4.0",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -105,6 +105,10 @@
       {
         "command": "perch.setUpGateway",
         "title": "Agents: Set Up a Gateway…"
+      },
+      {
+        "command": "perch.connectClaude",
+        "title": "Agents: Connect Claude…"
       },
       {
         "command": "perch.newCodex",
@@ -213,6 +217,14 @@
       {
         "command": "perch.clearSecretExceptions",
         "title": "Agents: Clear Secret-Check Exceptions"
+      },
+      {
+        "command": "perch.secretCheck.offForFolder",
+        "title": "Agents: Turn the Secret Check Off for This Folder"
+      },
+      {
+        "command": "perch.secretCheck.onForFolder",
+        "title": "Agents: Turn the Secret Check On for This Folder"
       },
       {
         "command": "perch.voice.setup",
@@ -364,8 +376,24 @@
         "title": "Roost: Leave Codebase Search Off"
       },
       {
-        "command": "roost.gatewayNotNow",
-        "title": "Roost: Leave the Gateway for Now"
+        "command": "roost.connectClaudeNotNow",
+        "title": "Roost: Leave Connect Claude for Now"
+      },
+      {
+        "command": "roost.connectTools",
+        "title": "Roost: Connect Your Tools"
+      },
+      {
+        "command": "roost.toolsNotNow",
+        "title": "Roost: Leave Connect Your Tools for Now"
+      },
+      {
+        "command": "roost.teamsSignIn",
+        "title": "Roost: Sign In to Teams"
+      },
+      {
+        "command": "roost.jiraSignIn",
+        "title": "Roost: Connect Jira"
       },
       {
         "command": "roost.goToClaude",
@@ -412,6 +440,10 @@
         },
         {
           "command": "perch.setUpGateway",
+          "when": "config.roost.agents.enabled && !roost.agents.failed"
+        },
+        {
+          "command": "perch.connectClaude",
           "when": "config.roost.agents.enabled && !roost.agents.failed"
         },
         {
@@ -492,6 +524,14 @@
         },
         {
           "command": "perch.clearSecretExceptions",
+          "when": "config.roost.agents.enabled && !roost.agents.failed"
+        },
+        {
+          "command": "perch.secretCheck.offForFolder",
+          "when": "config.roost.agents.enabled && !roost.agents.failed"
+        },
+        {
+          "command": "perch.secretCheck.onForFolder",
           "when": "config.roost.agents.enabled && !roost.agents.failed"
         },
         {
@@ -623,7 +663,19 @@
           "when": "false"
         },
         {
-          "command": "roost.gatewayNotNow",
+          "command": "roost.connectClaudeNotNow",
+          "when": "false"
+        },
+        {
+          "command": "roost.toolsNotNow",
+          "when": "false"
+        },
+        {
+          "command": "roost.teamsSignIn",
+          "when": "false"
+        },
+        {
+          "command": "roost.jiraSignIn",
           "when": "false"
         },
         {
@@ -840,6 +892,19 @@
         "description": "Claude and Codex tabs, Teams, Jira and Confluence, and your pull requests, in one place.",
         "steps": [
           {
+            "id": "connectClaude",
+            "title": "Connect Claude",
+            "description": "Choose how Claude runs: your company's gateway when it has one, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
+            "media": {
+              "markdown": "media/walkthrough/connect-claude.md"
+            },
+            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "completionEvents": [
+              "onContext:perch.claudeConnected",
+              "onCommand:roost.connectClaudeNotNow"
+            ]
+          },
+          {
             "id": "agents",
             "title": "Talk to Claude or Codex",
             "description": "Open a tab and type a message. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[New Claude Tab](command:roost.newClaudeTab)\n[New Codex Tab](command:roost.newCodexTab)",
@@ -852,16 +917,16 @@
             ]
           },
           {
-            "id": "gateway",
-            "title": "Use an LLM gateway (optional)",
-            "description": "Run Claude tabs through an Anthropic-compatible endpoint, such as a company's LLM proxy. Claude Code's own settings stay as they are.\n[Set Up a Gateway](command:perch.setUpGateway)\n[Not Now](command:roost.gatewayNotNow)",
+            "id": "tools",
+            "title": "Connect your tools",
+            "description": "Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:roost.connectTools)\n[Not Now](command:roost.toolsNotNow)",
             "media": {
-              "markdown": "media/walkthrough/gateway.md"
+              "markdown": "media/walkthrough/tools.md"
             },
-            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "when": "roost.companyTools",
             "completionEvents": [
-              "onContext:perch.gatewayReady",
-              "onCommand:roost.gatewayNotNow"
+              "onContext:roost.toolsConnected",
+              "onCommand:roost.toolsNotNow"
             ]
           },
           {
@@ -880,7 +945,7 @@
           {
             "id": "teams",
             "title": "Sign in to Teams",
-            "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:chirp.signIn)",
+            "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:roost.teamsSignIn)",
             "media": {
               "markdown": "media/walkthrough/teams.md"
             },
@@ -892,7 +957,7 @@
           {
             "id": "jira",
             "title": "Connect Jira and Confluence",
-            "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:jay.signIn)",
+            "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:roost.jiraSignIn)",
             "media": {
               "markdown": "media/walkthrough/jira.md"
             },
@@ -1039,7 +1104,8 @@
           "agents.secretCheck.enabled": {
             "type": "boolean",
             "default": true,
-            "description": "Before a message is sent, look in it for something that looks like a password or key (a GitHub token, an AWS key, a password in a URL, a long random string…). If one is found the message waits, and you choose: Send anyway, Not a secret, or Edit. The check runs in the page, on the text alone."
+            "description": "Before a message is sent, look in it for something that looks like a password or key (a GitHub token, an AWS key, a password in a URL, a long random string…). If one is found the message waits, and you choose: Send anyway, Not a secret, Off for this repo, or Edit. The check runs in the page, on the text alone. In a workspace of several folders, a folder's own .vscode/settings.json decides for the tabs working in it (Agents: Turn the Secret Check Off for This Folder).",
+            "scope": "resource"
           },
           "agents.secretCheck.ignore": {
             "type": "array",
@@ -1047,7 +1113,8 @@
               "type": "string"
             },
             "default": [],
-            "description": "Regular expressions for values the secret check never flags, such as a trace-id or build-id format. A value is let through when one of them matches it in full. An invalid expression is skipped, with a note in the tab."
+            "description": "Regular expressions for values the secret check never flags, such as a trace-id or build-id format. A value is let through when one of them matches it in full. An invalid expression is skipped, with a note in the tab. A folder's own .vscode/settings.json decides for the tabs working in it.",
+            "scope": "resource"
           },
           "agents.codebaseIndex.enabled": {
             "type": "boolean",

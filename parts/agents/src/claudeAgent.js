@@ -6,6 +6,7 @@
 const { randomUUID } = require('crypto');
 const { Relay } = require('./relay');
 const { gatewaySettings, offGatewaySettings, ownBackendSettings } = require('./gateway');
+const { probeBaseUrls } = require('./gatewayCheck');
 
 class AsyncQueue {
   constructor() { this.items = []; this.waiters = []; this.closed = false; }
@@ -35,8 +36,11 @@ class AsyncQueue {
  * @param {string} [opts.executable]                  path to claude CLI
  * @param {number} [opts.costBefore]                   the session's cost so far, as last reported, so the first turn's own cost is known
  * @param {Record<string,string>} [opts.env]           variables added to the process's environment: a gateway's ANTHROPIC_BASE_URL and token
- * @param {{target: string}} [opts.gateway]            run the process through a relay to this base URL, so each response's model is seen (events of kind `relay`)
- * @param {{bedrock: boolean}} [opts.backend]           a backend of this tab's own (API / Bedrock, or the subscription), as the process's settings, whatever the window's file says
+ * @param {{target: string, candidates?: string[], key?: string}} [opts.gateway]  run the process through a relay to this base URL, so each
+ *   response's model is seen (events of kind `relay`); with candidates (a company's addresses), to the first of them that
+ *   answers as the process starts, said in an event of kind `gatewayResolved`, else to `target` (resolveGatewayTarget)
+ * @param {{bedrock: boolean, aws?: {region?: string, profile?: string}}} [opts.backend]  a backend of this tab's own (API / Bedrock, or the
+ *   subscription or an Anthropic API key), as the process's settings, whatever the window's file says; on Bedrock, the region and profile
  * @param {{command: string, args: string[], env?: object}} [opts.search]  the codebase search MCP server (src/codeIndex.js)
  */
 class ClaudeAgent {
@@ -66,7 +70,10 @@ class ClaudeAgent {
     const env = Object.assign({}, process.env, this.opts.env || {}, { CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' });
     if (this.opts.gateway) {
       // through the relay, which forwards to the gateway and reads which model each response came from
-      try { this.relay = new Relay({ target: this.opts.gateway.target, onCall: (c) => this.emit(Object.assign({ kind: 'relay' }, c)) }); await this.relay.start(); env.ANTHROPIC_BASE_URL = this.relay.url(); }
+      // a company's gateway can have more than one address (one on the VPN, one off it): the first that answers now
+      const target = await resolveGatewayTarget(this.opts.gateway, { onProbed: (baseUrl) => this.emit({ kind: 'gatewayResolved', baseUrl }) });
+      if (this.abort.signal.aborted) { this.emit({ kind: 'busy', busy: false }); return; }   // the tab closed while the addresses were asked
+      try { this.relay = new Relay({ target, onCall: (c) => this.emit(Object.assign({ kind: 'relay' }, c)) }); await this.relay.start(); env.ANTHROPIC_BASE_URL = this.relay.url(); }
       catch (err) { this.emit({ kind: 'error', text: 'the gateway relay could not start: ' + String(err && err.message || err) }); this.emit({ kind: 'busy', busy: false }); return; }
     }
     const options = {
@@ -79,8 +86,8 @@ class ClaudeAgent {
       // Gateway: this process's own gateway variables. Otherwise (subscription / API / Bedrock): clear a pinned gateway
       // so the tab is truly on the chosen backend, not the gateway the machine sets for every Claude Code.
       ...(this.opts.gateway ? { settings: gatewaySettings(this.opts.env, env.ANTHROPIC_BASE_URL) }
-        : this.opts.offGateway ? { settings: offGatewaySettings(this.opts.offGateway.bedrock) }
-        : this.opts.backend ? { settings: ownBackendSettings(this.opts.backend.bedrock) } : {}),
+        : this.opts.offGateway ? { settings: offGatewaySettings(this.opts.offGateway.bedrock, process.env, this.opts.offGateway.aws) }
+        : this.opts.backend ? { settings: ownBackendSettings(this.opts.backend.bedrock, process.env, this.opts.backend.aws) } : {}),
       stderr: (d) => this.emit({ kind: 'stderr', text: String(d) }),
       canUseTool: async (toolName, input, { suggestions }) => {
         const id = randomUUID();
@@ -370,4 +377,22 @@ function permissionResult(toolName, input, ans, suggestions) {
   return { behavior: 'deny', message: question ? 'The user did not answer.' : 'Denied by user in perch', interrupt: true };
 }
 
-module.exports = { ClaudeAgent, AsyncQueue, permissionResult };
+/**
+ * Where a tab on the gateway sends its requests: the first of the company's addresses (`candidates`) that gives any
+ * answer to GET /v1/models now, at most 3 s each (gatewayCheck.probeBaseUrls), else the gateway file's (`target`), so a
+ * tab off the VPN with no address answering starts all the same. `onProbed` is told the address a probe found.
+ * @param {{ target: string, candidates?: string[], key?: string }} gateway
+ * @param {{ fetch?: Function, onProbed?: (baseUrl: string) => void }} [opts]
+ * @returns {Promise<string>}
+ */
+async function resolveGatewayTarget(gateway, { fetch, onProbed } = {}) {
+  const g = gateway || {};
+  const candidates = Array.isArray(g.candidates) ? g.candidates.filter((u) => typeof u === 'string' && u) : [];
+  if (!candidates.length) return g.target;
+  const found = await probeBaseUrls(candidates, { key: g.key || '', fetch });
+  if (!found) return g.target;
+  if (onProbed) { try { onProbed(found); } catch (_) { /* a listener's failure is not the tab's */ } }
+  return found;
+}
+
+module.exports = { ClaudeAgent, AsyncQueue, permissionResult, resolveGatewayTarget };

@@ -68,6 +68,7 @@ function setup(config = {}) {
   };
   fake.parts = {};
   fake.calls = [];
+  process.env.ROOST_COMPANY_FILE = path.join(root, 'no-company.json');   // none, unless a test writes one
   return { ui, extension, root, base };
 }
 
@@ -98,6 +99,8 @@ test('enabled parts start, disabled do not', async () => {
     'roost.jira.failed': false,
     'roost.pullRequests.failed': false,
     'roost.agents.failed': false,
+    'roost.company': false,
+    'roost.companyTools': false,
   });
   assert.strictEqual(roost.state('teams'), 'off');
   assert.strictEqual(roost.state('agents'), 'on');
@@ -134,7 +137,7 @@ test('every failed key is cleared before any part starts', async () => {
   fake.parts.pullRequests = { activate: () => { throw new Error('boom'); } };
   await activate(extension, base);
   await ui.applied;
-  assert.deepStrictEqual(sentBefore, [
+  assert.deepStrictEqual(sentBefore.filter(([k]) => k.endsWith('.failed')), [
     ['roost.agents.failed', false],
     ['roost.jira.failed', false],
     ['roost.pullRequests.failed', false],
@@ -145,6 +148,8 @@ test('every failed key is cleared before any part starts', async () => {
     'roost.jira.failed': false,
     'roost.pullRequests.failed': true,
     'roost.agents.failed': false,
+    'roost.company': false,
+    'roost.companyTools': false,
   }, 'and none of those lands after its part was marked failed');
   await extension.deactivate();
 });
@@ -626,7 +631,7 @@ test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh
   await extension.deactivate();
 });
 
-test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never off; Not Now does nothing; so does the gateway step\'s Not Now', async () => {
+test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never off; Not Now does nothing; so does Connect Claude\'s Not Now', async () => {
   const { ui, extension, base } = setup({});
   await (await activate(extension, base)).firstStarted;
   const toggled = [];
@@ -638,7 +643,8 @@ test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never 
   assert.strictEqual(toggled.length, 1, 'already on: not toggled off');
   await ui.vscode.commands.executeCommand('roost.codebaseSearchNotNow');
   assert.strictEqual(toggled.length, 1);
-  await ui.vscode.commands.executeCommand('roost.gatewayNotNow');   // the gateway step's Not Now: registered, and does nothing
+  await ui.vscode.commands.executeCommand('roost.connectClaudeNotNow');   // Connect Claude's Not Now: registered, and does nothing
+  await assert.rejects(() => ui.vscode.commands.executeCommand('roost.gatewayNotNow'), /not found|gatewayNotNow/, 'the gateway step\'s Not Now is gone');
   assert.strictEqual(toggled.length, 1);
   const opened = [];
   ui.commands['perch.open'] = () => opened.push(1);
@@ -660,6 +666,258 @@ test('first start: does not hold up activation or the parts', async () => {
   assert.notStrictEqual(roost, 'timed out');
   assert.strictEqual(await within(roost.ready), undefined, 'the parts start');
   await env.extension.deactivate();
+});
+
+const COMPANY = { name: 'Example Co', mcpServers: [{ id: 'docs', name: 'Example Docs', about: 'the docs', register: { type: 'http', url: 'https://mcp.example.com/mcp' }, connect: { kind: 'none' } }] };
+function withCompanyFile(content) {
+  const env = setup();
+  const file = path.join(env.root, 'company.json');
+  fs.writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content));
+  process.env.ROOST_COMPANY_FILE = file;
+  return { ...env, file };
+}
+
+test('roost.company and roost.companyTools follow the company file', async () => {
+  let env = withCompanyFile(COMPANY);
+  let roost = await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], true);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], true);
+  assert.strictEqual(roost.company.ok, true);
+  assert.strictEqual(roost.company.company.name, 'Example Co');
+  await env.extension.deactivate();
+
+  env = withCompanyFile({ ...COMPANY, mcpServers: [] });
+  await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], true);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  await env.extension.deactivate();
+});
+
+test('an invalid company file is logged once and both keys are false', async () => {
+  const env = withCompanyFile({ name: '' });
+  await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], false);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  const lines = env.ui.out.filter((l) => l.includes('not a valid company file'));
+  assert.strictEqual(lines.length, 1, env.ui.out.join('\n'));
+  assert.ok(lines[0].includes(env.file));
+  await env.extension.deactivate();
+});
+
+test('no company file: both keys false and nothing logged', async () => {
+  const env = setup();
+  const roost = await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], false);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  assert.strictEqual(roost.company.missing, true);
+  assert.ok(!env.ui.out.some((l) => l.includes('not a valid company file')));
+  await env.extension.deactivate();
+});
+
+test('a company context key that cannot be set is logged', async () => {
+  const env = withCompanyFile(COMPANY);
+  env.ui.failSetContext = 100;
+  await activate(env.extension, env.base);
+  assert.ok(env.ui.out.some((l) => l.includes('roost.company could not be set')), env.ui.out.join('\n'));
+  await env.extension.deactivate();
+});
+
+// Connect Your Tools: a fake Tools (makeTools, Roost's constructor option) whose rows follow the company file's servers
+const EXAMPLE = require('./fixtures/exampleCompany');
+const expandHome = (p) => (p === '~' ? os.homedir() : p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p);
+function fakeTools() {
+  const made = [];
+  const makeTools = ({ company, onChange }) => {
+    const rows = company.mcpServers.map((s) => ({ id: s.id, name: s.name, about: s.about, kind: s.connect.kind, page: s.connect.page || '',
+      state: 'notConnected', reason: 'Not signed in yet.', prompt: null, conflict: false, signedIn: false }));
+    const find = (id) => rows.find((r) => r.id === id);
+    const t = {
+      calls: [], company,
+      rows: () => rows.map((r) => ({ ...r })),
+      allConnected: () => rows.length > 0 && rows.every((r) => r.state === 'connected'),
+      rowForTokenFile: (file) => {
+        const want = path.resolve(expandHome(String(file || '')));
+        const s = company.mcpServers.find((x) => x.connect.doneWhen && path.resolve(x.connect.doneWhen.file) === want);
+        return s ? s.id : null;
+      },
+      set: (id, patch) => { Object.assign(find(id), patch); onChange(t.rows()); return { ...find(id) }; },
+      checkAll: async () => { t.calls.push(['checkAll']); },
+      check: async (id) => { t.calls.push(['check', id]); return { ...find(id) }; },
+      saveToken: async (id, token) => { t.calls.push(['saveToken', id, token]); return t.set(id, { state: 'connected', signedIn: true }); },
+      connectCommand: async (id, opts) => { t.calls.push(['connectCommand', id]); t.runInTerminal = opts.runInTerminal; return { ...find(id) }; },
+      connectMcpTool: async (id, opts) => { t.calls.push(['connectMcpTool', id, typeof opts.onPrompt]); return { ...find(id) }; },
+      connectNone: async (id) => { t.calls.push(['connectNone', id]); return { ...find(id) }; },
+      replaceRegistration: async (id) => { t.calls.push(['replaceRegistration', id]); return t.set(id, { conflict: false }); },
+      dispose: () => { t.calls.push(['dispose']); },
+    };
+    made.push(t);
+    return t;
+  };
+  return { made, makeTools };
+}
+async function toolsSetup(company = EXAMPLE, config = {}) {
+  const env = company ? withCompanyFile(company) : setup();
+  Object.assign(env.ui.config, config);
+  const fakes = fakeTools();
+  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools });
+  await roost.ready;
+  const signIns = [];
+  env.ui.commands['chirp.signIn'] = () => signIns.push('chirp');
+  env.ui.commands['jay.signIn'] = () => signIns.push('jay');
+  return { ...env, roost, fakes, signIns, run: (id, ...a) => env.ui.vscode.commands.executeCommand(id, ...a) };
+}
+
+test('Roost: Connect Your Tools opens one roost.tools panel, checks every row once, and sends the rows', async () => {
+  const s = await toolsSetup();
+  await s.run('roost.connectTools');
+  await s.run('roost.connectTools');
+  assert.strictEqual(s.ui.panels.length, 1, 'one at a time');
+  const [panel] = s.ui.panels;
+  assert.deepStrictEqual([panel.viewType, panel.title, panel.options.enableScripts], ['roost.tools', 'Connect Your Tools', true]);
+  assert.strictEqual(panel.revealed, 1, 'the second time, the open one is shown');
+  assert.match(panel.webview.html, /script-src 'nonce-[0-9a-f]+'/);
+  assert.strictEqual(s.fakes.made.length, 1);
+  const [t] = s.fakes.made;
+  assert.deepStrictEqual(t.calls, [['checkAll']], 'checkAll once, when it opens');
+  assert.strictEqual(t.company.name, 'Example Co', "the company's servers");
+  await panel.receive({ type: 'ready' });
+  const sent = panel.posted.filter((m) => m.type === 'rows').pop();
+  assert.deepStrictEqual(sent.rows.map((r) => r.id), ['docs', 'mail', 'tickets']);
+  // the panel closed and opened again: a new panel, the same Tools, checked again
+  panel.dispose();
+  await s.run('roost.connectTools');
+  assert.strictEqual(s.ui.panels.length, 2);
+  assert.strictEqual(s.fakes.made.length, 1);
+  assert.deepStrictEqual(t.calls, [['checkAll'], ['checkAll']]);
+  await s.extension.deactivate();
+  assert.ok(t.calls.some((c) => c[0] === 'dispose'), 'Tools disposed when Roost stops');
+});
+
+test('roost.toolsConnected follows allConnected after each change', async () => {
+  const s = await toolsSetup();
+  await s.run('roost.connectTools');
+  const [t] = s.fakes.made;
+  t.set('docs', { state: 'connected' });
+  assert.strictEqual(s.ui.contexts['roost.toolsConnected'], false);
+  t.set('mail', { state: 'connected' });
+  t.set('tickets', { state: 'connected' });
+  await tick();
+  assert.strictEqual(s.ui.contexts['roost.toolsConnected'], true);
+  const [panel] = s.ui.panels;
+  assert.strictEqual(panel.posted.filter((m) => m.type === 'rows').pop().rows.every((r) => r.state === 'connected'), true, 'each change sent to the page');
+  await s.extension.deactivate();
+});
+
+test('the page\'s messages: connect by kind, the token, the page, Copy code and open, Replace; no token sent back', async () => {
+  const s = await toolsSetup();
+  await s.run('roost.connectTools');
+  const [t] = s.fakes.made;
+  const [panel] = s.ui.panels;
+  t.calls.length = 0;
+  for (const id of ['docs', 'mail', 'tickets']) await panel.receive({ type: 'connect', id });
+  assert.deepStrictEqual(t.calls, [['check', 'docs'], ['connectMcpTool', 'mail', 'function'], ['connectCommand', 'tickets']]);
+  t.calls.length = 0;
+  await panel.receive({ type: 'token', id: 'docs', token: 'secret-token-1' });
+  assert.deepStrictEqual(t.calls, [['saveToken', 'docs', 'secret-token-1']]);
+  assert.ok(!JSON.stringify(panel.posted).includes('secret-token-1'), 'the token never goes to the page');
+  assert.ok(!s.ui.out.some((l) => l.includes('secret-token-1')), 'nor to the output channel');
+  await panel.receive({ type: 'openPage', id: 'docs' });
+  assert.deepStrictEqual(s.ui.opened, ['https://mcp.example.com/token']);
+  t.set('mail', { prompt: { text: 'Open https://login.example.com/device and enter code: ABCD-1234', url: 'https://login.example.com/device', code: 'ABCD-1234' } });
+  await panel.receive({ type: 'copyAndOpen', id: 'mail' });
+  assert.deepStrictEqual(s.ui.clipboard, ['ABCD-1234']);
+  assert.deepStrictEqual(s.ui.opened, ['https://mcp.example.com/token', 'https://login.example.com/device']);
+  t.set('mail', { prompt: { text: 'Enter code: WXYZ-9876', url: '', code: 'WXYZ-9876' } });
+  await panel.receive({ type: 'copyAndOpen', id: 'mail' });
+  assert.deepStrictEqual([s.ui.clipboard.length, s.ui.opened.length], [2, 2], 'a code alone: copied, nothing opened');
+  await panel.receive({ type: 'replace', id: 'tickets' });
+  assert.deepStrictEqual(t.calls.pop(), ['replaceRegistration', 'tickets']);
+  await panel.receive({ type: 'connect', id: 'nope' });   // a stale page: nothing happens, nothing thrown
+  await s.extension.deactivate();
+});
+
+test('a command sign-in runs in a terminal named after the server, argv shell-quoted, and its closed promise follows the terminal', async () => {
+  const s = await toolsSetup();
+  await s.run('roost.connectTools');
+  const [t] = s.fakes.made;
+  await s.ui.panels[0].receive({ type: 'connect', id: 'tickets' });
+  const listeners = s.ui.closeListeners();
+  const handle = t.runInTerminal(['/opt/t/login', '--site', "it's here", 'plain-arg_1.2']);
+  assert.strictEqual(s.ui.terminals.length, 1);
+  const [term] = s.ui.terminals;
+  assert.strictEqual(term.name, 'Example Tickets');
+  assert.ok(term.shown);
+  assert.deepStrictEqual(term.sent, ["/opt/t/login --site 'it'\\''s here' plain-arg_1.2 && exit"]);
+  let closed = false;
+  handle.closed.then(() => { closed = true; });
+  s.ui.closeTerminal({ name: 'another' });
+  await tick();
+  assert.strictEqual(closed, false, 'another terminal closing does nothing');
+  s.ui.closeTerminal(term);
+  await tick();
+  assert.strictEqual(closed, true);
+  assert.strictEqual(s.ui.closeListeners(), listeners, 'the listener is disposed');
+  await s.extension.deactivate();
+});
+
+test('no company tools: Roost: Connect Your Tools says so and opens nothing', async () => {
+  for (const company of [null, { ...EXAMPLE, mcpServers: [] }]) {
+    const s = await toolsSetup(company);
+    await s.run('roost.connectTools');
+    assert.deepStrictEqual(s.ui.panels, []);
+    assert.deepStrictEqual(s.ui.infos, ['Your company file lists no tools.']);
+    assert.deepStrictEqual(s.fakes.made, []);
+    await s.extension.deactivate();
+  }
+});
+
+test('roost.teamsSignIn runs the tools row whose doneWhen file is teams.signIn.tokenFile, else chirp.signIn', async () => {
+  let s = await toolsSetup(EXAMPLE, { 'teams.signIn.tokenFile': '~/.example-token.json' });
+  await s.run('roost.teamsSignIn');
+  assert.strictEqual(s.ui.panels.length, 1, 'the panel opens');
+  const [t] = s.fakes.made;
+  assert.deepStrictEqual(t.calls, [['checkAll'], ['connectMcpTool', 'mail', 'function']], 'checked, then the mail row signs in');
+  assert.deepStrictEqual(s.signIns, [], 'not chirp.signIn');
+  await s.extension.deactivate();
+
+  s = await toolsSetup(EXAMPLE, { 'teams.signIn.tokenFile': '~/.example-token.json' });
+  await s.run('roost.connectTools');
+  s.fakes.made[0].set('mail', { state: 'connected' });
+  await s.run('roost.teamsSignIn');
+  assert.deepStrictEqual(s.fakes.made[0].calls, [['checkAll']], 'already connected: shown, not signed in again');
+  assert.deepStrictEqual(s.signIns, []);
+  await s.extension.deactivate();
+
+  for (const [company, config, why] of [
+    [null, { 'teams.signIn.tokenFile': '~/.example-token.json' }, 'no company file'],
+    [EXAMPLE, {}, 'no token file set'],
+    [EXAMPLE, { 'teams.signIn.tokenFile': '~/.other-token.json' }, 'a token file no row writes'],
+  ]) {
+    s = await toolsSetup(company, config);
+    await s.run('roost.teamsSignIn');
+    assert.deepStrictEqual(s.signIns, ['chirp'], why);
+    assert.deepStrictEqual(s.ui.panels, [], why);
+    await s.extension.deactivate();
+  }
+});
+
+test('roost.jiraSignIn likewise, with jira.signIn.tokenFile, else jay.signIn', async () => {
+  let s = await toolsSetup(EXAMPLE, { 'jira.signIn.tokenFile': '~/.t/credentials.json' });
+  await s.run('roost.jiraSignIn');
+  assert.deepStrictEqual(s.fakes.made[0].calls, [['checkAll'], ['connectCommand', 'tickets']]);
+  assert.deepStrictEqual(s.signIns, []);
+  await s.extension.deactivate();
+  s = await toolsSetup(null, { 'jira.signIn.tokenFile': '~/.t/credentials.json' });
+  await s.run('roost.jiraSignIn');
+  assert.deepStrictEqual(s.signIns, ['jay']);
+  await s.extension.deactivate();
+});
+
+test('roost.toolsNotNow is registered and does nothing', async () => {
+  const s = await toolsSetup();
+  await s.run('roost.toolsNotNow');
+  assert.deepStrictEqual([s.ui.panels.length, s.fakes.made.length], [0, 0]);
+  await s.extension.deactivate();
 });
 
 (async () => {

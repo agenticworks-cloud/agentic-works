@@ -21,7 +21,8 @@ host({ type: 'state', state: { file: '/home/u/.config/gateway-claude/env', exist
 assert.deepStrictEqual([$('file').textContent, $('tokenSet').hidden, $('token').hidden, $('saved').hidden], ['/home/u/.config/gateway-claude/env', true, false, true]);
 $('baseUrl').value = ' https://gw.example.com '; $('token').value = 'sk-1'; $('ANTHROPIC_MODEL').value = 'router[1m]';
 submit();
-assert.deepStrictEqual(out.pop(), { type: 'save', baseUrl: 'https://gw.example.com', token: 'sk-1', models: models({ ANTHROPIC_MODEL: 'router[1m]' }) });
+assert.deepStrictEqual(out.pop(), { type: 'save', baseUrl: 'https://gw.example.com', token: 'sk-1', models: models({ ANTHROPIC_MODEL: 'router[1m]' }), force: false });
+assert.deepStrictEqual([d.querySelector('h1').textContent, $('save').textContent, $('baseUrl').hidden, $('models').hidden, $('getKey').hidden], ['Set up an LLM gateway', 'Check and save', false, false, true], 'no company gateway: today\'s fields');
 host({ type: 'error', text: 'A token is needed.' });
 assert.deepStrictEqual([$('error').textContent, $('saved').hidden], ['A token is needed.', true], 'what is wrong, on the page');
 
@@ -42,5 +43,29 @@ assert.strictEqual(out.pop().token, 'sk-2');
 host({ type: 'saved', state: { file: '/f', exists: true, ok: true, baseUrl: 'https://gw.example.com', tokenSet: true, models: models() } });
 $('baseUrl').dispatchEvent(new w.Event('input', { bubbles: true }));
 assert.strictEqual($('saved').hidden, true);
+
+
+// a verdict: its text; Save anyway only when the host allows it, and it saves unchecked
+host({ type: 'verdict', text: 'x', canForce: true });
+assert.deepStrictEqual([$('error').textContent, $('force').hidden], ['x', false]);
+$('force').click();
+assert.deepStrictEqual([out.length && out[out.length - 1].type, out[out.length - 1].force], ['save', true], 'Save anyway saves unchecked');
+host({ type: 'verdict', text: 'y', canForce: false });
+assert.deepStrictEqual([$('error').textContent, $('force').hidden], ['y', true]);
+submit(); assert.strictEqual(out.pop().force, false);
+
+// a company's gateway: no base URL, no model names; Get a key, a Key, Check and save
+host({ type: 'state', state: { file: '/f', exists: false, ok: false, baseUrl: '', tokenSet: false, models: models(), preset: { name: 'Example Gateway', keyPage: 'https://ai.example.com/api-access', baseUrl: '' } } });
+assert.deepStrictEqual([$('baseUrl').hidden, $('models').hidden, d.querySelector('h1').textContent, $('save').textContent, $('getKey').hidden, $('force').hidden, $('token').type],
+  [true, true, 'Connect to Example Gateway', 'Check and save', false, true, 'password']);
+assert(!d.querySelector('label[for="baseUrl"]') || d.querySelector('label[for="baseUrl"]').hidden, 'nor its label');
+$('getKey').click(); assert.deepStrictEqual(out.pop(), { type: 'getKey' });
+$('token').value = ' sk-c '; submit();
+assert.deepStrictEqual(out.pop(), { type: 'save', baseUrl: '', token: 'sk-c', models: {}, force: false });
+host({ type: 'saved', state: { file: '/f', exists: true, ok: true, baseUrl: 'https://b.example.com', tokenSet: true, models: models(), preset: { name: 'Example Gateway', keyPage: 'https://ai.example.com/api-access', baseUrl: 'https://b.example.com' } }, answeredAt: 'https://b.example.com' });
+assert.deepStrictEqual([$('saved').hidden, $('answered').textContent, $('tokenSet').hidden], [false, 'Answered at https://b.example.com.', false]);
+// back to no company: the fields return
+host({ type: 'state', state: { file: '/f', exists: true, ok: true, baseUrl: 'https://gw.example.com', tokenSet: true, models: models(), preset: null } });
+assert.deepStrictEqual([$('baseUrl').hidden, $('models').hidden, d.querySelector('h1').textContent, $('getKey').hidden], [false, false, 'Set up an LLM gateway', true]);
 
 console.log('gatewayForm tests passed');

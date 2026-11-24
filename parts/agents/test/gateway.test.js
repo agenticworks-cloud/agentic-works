@@ -92,27 +92,31 @@ try {
     assert.deepStrictEqual(G.gatewayModels(undefined).models, []);
   }
 
-  // the gateway's own list (GET /v1/models), as ai-gateway.c3ci.cloud gave it on 2026-11-10: 100 names, 13 models
+  // the gateway's own list (GET /v1/models), shaped as one company's gateway gave it on 2026-11-10: 100 names, 13 models
   {
     const E = ['low', 'medium', 'high', 'xhigh', 'max'];
     const bare = [];
     const add = (b, effs) => { bare.push(b); for (const e of effs) bare.push(`${b}-${e}`); };
     for (const b of ['fable', 'gpt-astra', 'gpt-sol', 'gpt-terra', 'haiku', 'opus']) add(b, E);
     add('gpt-luna', ['high', 'xhigh', 'max']); add('sonnet', ['medium', 'high', 'xhigh', 'max']);
-    for (const r of ['nexus-auto', 'nexus-auto-bargain', 'nexus-auto-fixed', 'nexus-auto-quality', 'nexus-auto-unlimited']) add(r, []);
+    for (const r of ['example-router', 'example-router-bargain', 'example-router-fixed', 'example-router-quality', 'example-router-unlimited']) add(r, []);
     const ids = [...bare, ...bare.map((n) => 'anthropic/' + n)];
     assert.strictEqual(ids.length, 100);
-    const c = G.gatewayCatalog(ids, { ANTHROPIC_MODEL: 'nexus-auto-bargain[1m]' });
-    assert.deepStrictEqual(c.models.map((m) => m.label), ['opus', 'fable', 'sonnet', 'haiku', 'gpt-astra', 'gpt-luna', 'gpt-sol', 'gpt-terra', 'nexus-auto', 'nexus-auto-bargain', 'nexus-auto-fixed', 'nexus-auto-quality', 'nexus-auto-unlimited'], 'one entry per model, Claude first, routers last');
+    const c = G.gatewayCatalog(ids, { ANTHROPIC_MODEL: 'example-router-bargain[1m]' }, { routerPrefixes: ['example-router'] });
+    assert.deepStrictEqual(c.models.map((m) => m.label), ['opus', 'fable', 'sonnet', 'haiku', 'gpt-astra', 'gpt-luna', 'gpt-sol', 'gpt-terra', 'example-router', 'example-router-bargain', 'example-router-fixed', 'example-router-quality', 'example-router-unlimited'], 'one entry per model, Claude first, routers last');
     assert.deepStrictEqual([...new Set(c.models.map((m) => m.group))], ['Claude', 'OpenAI', 'Routers']);
+    // the company file names no router prefixes (the default): no Routers group, the routers are other models
+    const plain = G.gatewayCatalog(ids, {});
+    assert.deepStrictEqual([...new Set(plain.models.map((m) => m.group))], ['Claude', 'OpenAI', 'Other']);
+    assert.deepStrictEqual(plain.models.find((m) => m.label === 'example-router').group, 'Other');
     const by = (l) => c.models.find((m) => m.label === l);
     assert.deepStrictEqual([by('opus').value, by('opus').efforts, by('opus').effortInName], ['anthropic/opus[1m]', E, true], 'sent with the prefix Claude Code passes through, and the 1M window');
     assert.deepStrictEqual(by('sonnet').efforts, ['medium', 'high', 'xhigh', 'max'], 'only the levels the gateway names');
     assert.deepStrictEqual(by('gpt-luna').efforts, ['high', 'xhigh', 'max']);
-    assert.deepStrictEqual(by('nexus-auto').efforts, [], 'a router has no effort');
+    assert.deepStrictEqual(by('example-router').efforts, [], 'a router has no effort');
     assert(/Not a Claude model/.test(by('gpt-sol').description));
-    assert.deepStrictEqual([c.defaultModel.label, c.defaultModel.efforts], ['nexus-auto-bargain[1m]', []], 'the default is still the file\'s, sent by no name, so no effort');
-    assert.deepStrictEqual(G.gatewayCatalog(['nexus-auto-x-high'], {}).models.map((m) => [m.label, m.efforts]), [['nexus-auto-x-high', []]], 'a suffix with no model of that name is part of the name');
+    assert.deepStrictEqual([c.defaultModel.label, c.defaultModel.efforts], ['example-router-bargain[1m]', []], 'the default is still the file\'s, sent by no name, so no effort');
+    assert.deepStrictEqual(G.gatewayCatalog(['example-router-x-high'], {}).models.map((m) => [m.label, m.efforts]), [['example-router-x-high', []]], 'a suffix with no model of that name is part of the name');
     assert.deepStrictEqual(G.gatewayCatalog(undefined, {}).models, []);
   }
 
@@ -155,6 +159,10 @@ try {
   // a backend of one tab's own, whatever the window's file says: only the switch and the model slots, nothing of a gateway touched
   assert.deepStrictEqual(G.ownBackendSettings(true, {}), { env: { CLAUDE_CODE_USE_BEDROCK: '1', ...noSlots } }, 'API/Bedrock for this tab: no base URL, helper or model cleared, since no gateway is pinned');
   assert.deepStrictEqual([G.ownBackendSettings(false, pod).env.CLAUDE_CODE_USE_BEDROCK, G.ownBackendSettings(false, pod).env.ANTHROPIC_MODEL, G.ownBackendSettings(true, pod).env.ANTHROPIC_MODEL], ['0', '', 'us.anthropic.claude-sonnet-4-6'], 'subscription for this tab: a Bedrock id the machine pins is not carried over; on Bedrock it is');
+  assert.deepStrictEqual(G.ownBackendSettings(true, {}, { region: 'eu-west-1', profile: 'dev' }).env, { CLAUDE_CODE_USE_BEDROCK: '1', ...noSlots, AWS_REGION: 'eu-west-1', AWS_PROFILE: 'dev' }, 'Bedrock with Connect Claude\'s region and profile');
+  assert.deepStrictEqual(G.ownBackendSettings(true, {}, { region: 'eu-west-1', profile: '' }).env, { CLAUDE_CODE_USE_BEDROCK: '1', ...noSlots, AWS_REGION: 'eu-west-1' }, 'default credentials: no profile');
+  assert.deepStrictEqual([G.offGatewaySettings(true, {}, { region: 'eu-west-1', profile: 'dev' }).env.AWS_REGION, G.offGatewaySettings(true, {}, { region: 'eu-west-1', profile: 'dev' }).env.AWS_PROFILE, G.offGatewaySettings(true, {}, { region: 'eu-west-1', profile: 'dev' }).apiKeyHelper], ['eu-west-1', 'dev', ''], 'off a pinned machine, onto Bedrock with Connect Claude\'s region and profile');
+  assert.deepStrictEqual(['AWS_REGION' in G.offGatewaySettings(true, {}).env, 'AWS_PROFILE' in G.offGatewaySettings(true, {}, { region: 'eu-west-1' }).env], [false, false], 'none given: none set');
 
   // ---- writing the file, from the set-up form: values quoted as a shell reads them back
   for (const v of ['https://gw.example.com/llm-api', 'sk-abc=def', 'router-auto[1m]', 'a b', 'it\'s', 'x#y', '#lead', '$HOME', 'a"b', '']) {
@@ -220,6 +228,34 @@ try {
   assert.deepStrictEqual(st, { file: saved, exists: true, ok: true, baseUrl: 'https://other.example', tokenSet: true, models: { ANTHROPIC_MODEL: '', ANTHROPIC_DEFAULT_OPUS_MODEL: '', ANTHROPIC_DEFAULT_SONNET_MODEL: '', ANTHROPIC_DEFAULT_HAIKU_MODEL: '' } });
   assert(!JSON.stringify(st).includes('sk-1'), 'the token is not in it');
   assert.deepStrictEqual(G.formState(G.readGateway(path.join(tmp, 'none'))).tokenSet, false);
+
+  // ---- a company's env, written as export lines like the model names
+  const withEnv = path.join(tmp, 'company-env');
+  got = G.saveGateway(withEnv, { baseUrl: 'https://gw.example.com/llm-api', token: 'k', env: { ANTHROPIC_MODEL: 'router-auto', EXTRA: 'a b' } });
+  assert.deepStrictEqual([got.ok, got.vars.ANTHROPIC_MODEL, got.vars.EXTRA, got.vars.ANTHROPIC_AUTH_TOKEN], [true, 'router-auto', 'a b', 'k']);
+  assert(/^export EXTRA='a b'$/m.test(fs.readFileSync(withEnv, 'utf8')), 'quoted as a shell reads it');
+
+  // ---- base URLs compared: the host's case and a trailing slash do not count; the path does
+  assert.strictEqual(G.isOneOf('https://GW.Example.com/llm-api/', ['https://a.example.com', 'https://gw.example.com/llm-api']), true);
+  assert.strictEqual(G.isOneOf('https://gw.example.com/other', ['https://gw.example.com/llm-api']), false);
+  assert.strictEqual(G.isOneOf('https://other.example.com', ['https://gw.example.com']), false);
+  assert.strictEqual(G.isOneOf('', ['https://gw.example.com']), false);
+  assert.strictEqual(G.isOneOf('not a url', ['not a url']), false);
+
+  // ---- keyFiles: the key alone, for its owner only, in a directory for its owner only
+  const keyFile = path.join(tmp, 'x', 'token');
+  assert.deepStrictEqual(G.saveKeyFiles([keyFile], 'k'), [keyFile], 'the paths written');
+  assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'k\n');
+  if (process.platform !== 'win32') {
+    assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600);
+    assert.strictEqual(fs.statSync(path.dirname(keyFile)).mode & 0o777, 0o700);
+  }
+  fs.chmodSync(keyFile, 0o644);
+  G.writeSecretFile(keyFile, 'k2');
+  assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'k2\n');
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600, 'an existing file is put back to 0600');
+  assert.deepStrictEqual(G.saveKeyFiles([], 'k'), []);
+  G.saveKeyFiles([keyFile], ' k3\n'); assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'k3\n', 'the key trimmed');
 
   console.log('gateway tests passed');
 } finally { fs.rmSync(tmp, { recursive: true, force: true }); }

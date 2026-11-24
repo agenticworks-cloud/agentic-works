@@ -37,7 +37,8 @@ DOWNLOAD = "https://code.visualstudio.com/download"
 # The system tools the script may use; everything else on PATH is a stub.
 SYSTEM = ("bash", "sh", "dirname", "uname", "mkdir", "chmod", "mv", "rm", "mktemp", "cat", "tr", "grep", "env",
           "id", "sha256sum", "shasum", "sleep")
-ALL_PRESENT = ("brew", "curl", "gpg", "code", "sudo", "apt-get", "dnf", "rpm", "gh", "python3", "xcode-select")
+ALL_PRESENT = ("brew", "curl", "gpg", "code", "sudo", "apt-get", "dnf", "rpm", "gh", "python3", "xcode-select",
+               "git", "claude")
 
 VERSION = "1.2.3"  # what the test copy of the script is stamped with
 VSIX = b"PK roost 1.2.3, as released"
@@ -80,6 +81,8 @@ esac
 STUB_EXTRA = {
     "python3": PYTHON3,
     "xcode-select": '[ -z "${XCODE_SELECT_FAIL:-}" ] || exit 2\n',
+    # git fails while $GIT_BROKEN is set.
+    "git": '[ -z "${GIT_BROKEN:-}" ] || exit 1\n',
     "curl": '[ -n "${CURL_FAIL_ON:-}" ] && case "$*" in *"$CURL_FAIL_ON"*) exit 22 ;; esac\n' + WRITE_O,
     "gpg": WRITE_O,
     # rpm -q finds every package, except ones matching $RPM_MISSING.
@@ -332,7 +335,7 @@ class TestVSCode(_Installer):
     def test_mac_without_admin(self) -> None:
         """Homebrew can't be installed: VS Code is ✗ with the download page, the run goes on, exit 1."""
         env = self.no_admin(self.env("macos", ("curl", "sudo"), CURL_FAIL_ON="Homebrew"))
-        rc, out = self.run_pipe(env, "--skip", "github")
+        rc, out = self.run_pipe(env, "--skip", "github", "--skip", "claude", "--skip", "git")
         self.assertEqual(rc, 1, out)
         failed = [line for line in out.splitlines() if line.startswith("  ✗ VS Code: ")]
         self.assertEqual(len(failed), 1, out)
@@ -347,7 +350,7 @@ class TestVSCode(_Installer):
     def test_mac_without_admin_vscode_there(self) -> None:
         """VS Code installed, gh missing, no administrator account: the GitHub line says why, as VS Code's would."""
         env = self.no_admin(self.env("macos", ("curl", "sudo", "code"), CURL_BODY="exit 1"))
-        rc, out = self.run_pipe(env)
+        rc, out = self.run_pipe(env, "--skip", "claude", "--skip", "git")
         self.assertEqual(rc, 1, out)
         self.assertIn("  ✓ VS Code (already)", out)
         failed = [mark for mark in self.marks(out) if mark.startswith("✗ GitHub: ")]
@@ -356,7 +359,8 @@ class TestVSCode(_Installer):
                                              "account; see "), failed)
 
         # With administrator rights, but a Homebrew install that fails: no word of administrators.
-        rc, out = self.run_pipe(self.env("macos", ("curl", "sudo", "code"), CURL_BODY="exit 1"))
+        rc, out = self.run_pipe(self.env("macos", ("curl", "sudo", "code"), CURL_BODY="exit 1"),
+                                "--skip", "claude", "--skip", "git")
         failed = [mark for mark in self.marks(out) if mark.startswith("✗ GitHub: ")]
         self.assertTrue(failed[0].startswith("✗ GitHub: gh comes through Homebrew, which couldn't be installed; see "),
                         failed)
@@ -364,7 +368,7 @@ class TestVSCode(_Installer):
     def test_homebrew_script_failure(self) -> None:
         """The downloaded Homebrew installer exits 1: the line says so and points at the log, not at admin rights."""
         env = self.env("macos", ("curl", "sudo"), CURL_BODY="exit 1")
-        rc, out = self.run_pipe(env, "--skip", "github")
+        rc, out = self.run_pipe(env, "--skip", "github", "--skip", "claude", "--skip", "git")
         self.assertEqual(rc, 1, out)
         failed = [line for line in out.splitlines() if line.startswith("  ✗ VS Code: ")]
         self.assertEqual(len(failed), 1, out)
@@ -388,7 +392,7 @@ class TestVSCode(_Installer):
         """Homebrew's installer runs sudo itself, and can outlast sudo's timestamp: a background `sudo -n -v` loop
         runs while it does, and is gone (with its sleep) once it has finished, or the run is stopped."""
         env = self.env("macos", ("curl", "sudo"), CURL_BODY="sleep 1")
-        rc, out = self.run_pipe(env, "--skip", "github")
+        rc, out = self.run_pipe(env, "--skip", "github", "--skip", "claude", "--skip", "git")
         self.assertEqual(rc, 1, out)  # this Homebrew gives no brew
         loops = {line.split()[1] for line in self.logged("keepalive-ppid ")}
         self.assertEqual(len(loops), 1, self.stub_log())
@@ -398,8 +402,8 @@ class TestVSCode(_Installer):
 
         # Stopped (SIGTERM) while Homebrew installs: cleanup ends the loop.
         self.log.write_text("")
-        proc = subprocess.Popen([shutil.which("bash"), str(self.script), "--skip", "github"],
-                                env={**env, "CURL_BODY": "sleep 2"}, stdin=subprocess.DEVNULL,
+        proc = subprocess.Popen([shutil.which("bash"), str(self.script), "--skip", "github", "--skip", "claude",
+                                 "--skip", "git"], env={**env, "CURL_BODY": "sleep 2"}, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             for _ in range(100):
@@ -418,8 +422,8 @@ class TestVSCode(_Installer):
 
         # A dry run, or root (no sudo): no loop.
         self.log.write_text("")
-        self.run_pipe(env, "--dry-run", "--skip", "github")
-        self.run_sourced(env, 'id() { echo 0; }; main --skip github')
+        self.run_pipe(env, "--dry-run", "--skip", "github", "--skip", "claude", "--skip", "git")
+        self.run_sourced(env, 'id() { echo 0; }; main --skip github --skip claude --skip git')
         self.assertEqual(self.logged("keepalive-ppid"), [])
 
     def test_existing_microsoft_source_is_kept(self) -> None:
@@ -473,6 +477,9 @@ class TestVSCode(_Installer):
              ["curl and ca-certificates", "gnupg", ms, "VS Code", gh_repo, "gh"]),
             ("debian, gh only", "debian", ("sudo", "apt-get", "curl", "code"), {}, [gh_repo, "gh"]),
             ("debian, no curl, Roost there", "debian", ("sudo", "apt-get", "code", "gh"), {}, None),
+            # the claude step: Anthropic's installer runs without sudo, but the curl it is downloaded with is a system install
+            ("debian, no curl, claude missing", "debian", ("sudo", "apt-get", "code", "gh", "git"), {},
+             ["curl and ca-certificates"]),
             ("debian, no curl, Roost older", "debian", ("sudo", "apt-get", "code", "gh"),
              {"CODE_EXTENSIONS": "seanahn.roost@1.0.0"}, ["curl and ca-certificates"]),
             ("rhel, VS Code only", "rhel", ("sudo", "dnf", "rpm", "curl", "gh"), {}, [ms, "VS Code"]),
@@ -484,19 +491,28 @@ class TestVSCode(_Installer):
             ("macos, no Homebrew", "macos", ("curl", "sudo"), {}, ["Homebrew"]),
             ("macos, Homebrew there", "macos", ("curl", "sudo", "brew"), {}, None),
             ("everything there", "ubuntu", ALL_PRESENT, {}, None),
+            ("git only (ubuntu)", "ubuntu", tuple(n for n in ALL_PRESENT if n != "git"), {}, ["git"]),
+            ("git only (rhel)", "rhel", tuple(n for n in ALL_PRESENT if n != "git"), {}, ["git"]),
+            ("git only, --skip git", "ubuntu", tuple(n for n in ALL_PRESENT if n != "git"), {}, None),
+            ("git broken", "ubuntu", ALL_PRESENT, {"GIT_BROKEN": "1"}, ["git"]),
+            ("macos, git missing, Homebrew there", "macos", tuple(n for n in ALL_PRESENT if n != "git"), {}, None),
             ("--skip github", "debian", ("sudo", "apt-get", "curl", "code"), {}, None),
         )
         for name, os_name, stubs, extra, want in cases:
             with self.subTest(name):
                 self.log.write_text("")
                 args = ("--skip", "github") if name == "--skip github" else ()
+                if name == "git only, --skip git":
+                    args = ("--skip", "git")
+                if "claude missing" not in name:
+                    stubs = stubs + tuple(n for n in ("git", "claude") if n not in stubs and not name.startswith("git"))
                 rc, out = self.run_pipe(self.env(os_name, stubs, **extra), *args)
                 self.assertEqual(self.disclosed(out), want, out)
 
         # The ubuntu case with Microsoft's repository already a source: neither it nor gnupg is added.
         (self.apt / "sources.list.d" / "vscode.list").write_text("deb https://packages.microsoft.com/repos/code stable main\n")
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get")))
-        self.assertEqual(self.disclosed(out), ["curl and ca-certificates", "VS Code", gh_repo, "gh"], out)
+        self.assertEqual(self.disclosed(out), ["curl and ca-certificates", "VS Code", "git", gh_repo, "gh"], out)
 
     def test_fresh_fedora_names_openssl3(self) -> None:
         (self.installs / "code").write_text(STUB.format(name="code", extra=CODE))
@@ -575,7 +591,8 @@ class TestPlatform(_Installer):
 class TestPath(_Installer):
     """ensure_path: one marked block in the login profile, only when `code` isn't on the PATH already."""
 
-    PROBE = 'MAC_CODE=$1; main --skip vscode --skip roost --skip companions --skip github'
+    PROBE = ('MAC_CODE=$1; main --skip vscode --skip roost --skip companions --skip claude --skip git '
+             '--skip github --skip homebrew')
 
     def mac_app(self) -> Path:
         code = self.tmp / "Applications" / "Visual Studio Code.app" / "Contents" / "Resources" / "app" / "bin" / "code"
@@ -604,10 +621,44 @@ class TestPath(_Installer):
 
     def test_homebrew_code_gets_brew_shellenv(self) -> None:
         env = self.env("macos", ("brew", "code"), SHELL="/bin/zsh")
-        rc, out = self.run_sourced(env, 'ORIG_PATH=/usr/bin:/bin; main --skip vscode --skip github')
+        rc, out = self.run_sourced(env, 'ORIG_PATH=/usr/bin:/bin; main --skip vscode --skip claude --skip git --skip github --skip homebrew')
         self.assertEqual(rc, 0, out)
         text = (self.home / ".zprofile").read_text()
         self.assertIn(f'eval "$({self.tmp}/stubs/brew shellenv)"', text)
+
+    HOMEBREW_BLOCK = ('# added by roost-install: Homebrew\n[ -x /opt/homebrew/bin/brew ] && '
+                      'eval "$(/opt/homebrew/bin/brew shellenv)"\n# end roost-install\n')
+
+    def test_homebrew_block_alone_does_not_count_as_the_path_block(self) -> None:
+        code = self.mac_app()
+        (self.home / ".zprofile").write_text(self.HOMEBREW_BLOCK)
+        rc, out = self.run_sourced(self.env("macos", ("brew",), SHELL="/bin/zsh"), self.PROBE, str(code))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("code on the PATH (.zprofile) (already)", out)
+        text = (self.home / ".zprofile").read_text()
+        self.assertTrue(text.startswith(self.HOMEBREW_BLOCK), text)
+        self.assertEqual(text.splitlines().count("# added by roost-install"), 1, text)
+        self.assertIn(str(code.parent), text.split(self.HOMEBREW_BLOCK, 1)[1])
+
+    def test_local_bin_goes_in_the_path_block_not_the_homebrew_block(self) -> None:
+        path_block = '# added by roost-install\nexport PATH="/opt/code/bin:$PATH"\n# end roost-install\n'
+        for name, text in (("homebrew first", self.HOMEBREW_BLOCK + path_block),
+                           ("homebrew last", path_block + self.HOMEBREW_BLOCK)):
+            with self.subTest(name):
+                (self.home / ".profile").write_text(text)
+                env = self.env("ubuntu", tuple(n for n in ALL_PRESENT if n != "claude"),
+                               CURL_BODY='mkdir -p "$HOME/.local/bin"; : > "$HOME/.local/bin/claude"')
+                rc, out = self.run_pipe(env)
+                self.assertEqual(rc, 0, out)
+                got = (self.home / ".profile").read_text()
+                lines = got.splitlines()
+                local = next(i for i, line in enumerate(lines) if "/.local/bin" in line)
+                start = lines.index("# added by roost-install")
+                self.assertEqual(lines[start + 1], 'export PATH="/opt/code/bin:$PATH"', lines)
+                self.assertEqual(local, start + 2, lines)
+                self.assertEqual(lines[local + 1], "# end roost-install", lines)
+                self.assertEqual(len([l for l in lines if "/.local/bin" in l]), 1, got)
+                (self.home / ".local" / "bin" / "claude").unlink()
 
     def test_code_on_the_path_leaves_the_profile_alone(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
@@ -639,9 +690,9 @@ class TestFlags(_Installer):
             self.assertTrue(begin.startswith("  … "), out)
             self.assertTrue(end[4:].startswith(begin[4:]), (begin, end))
         self.assertEqual([mark.split(" (")[0] for mark in self.marks(out)],
-                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✓ Roost", "✓ Companions", "✓ GitHub",
-                          "✓ Settings", "✓ Icons"], out)
-        self.assertRegex(out, r"\nDone: 8 ✓  0 –  0 ✗\n")
+                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✓ Roost", "✓ Companions", "✓ Claude Code CLI",
+                          "✓ git", "✓ GitHub", "✓ Settings", "✓ Icons"], out)
+        self.assertRegex(out, r"\nDone: 10 ✓  0 –  0 ✗\n")
 
     def test_skip_marks_the_step(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get")), "--skip", "vscode", "--dry-run")
@@ -650,7 +701,7 @@ class TestFlags(_Installer):
         self.assertNotIn("apt-get install -y code", out)
 
     def test_every_step_name_and_flag_is_accepted(self) -> None:
-        names = "vscode path standalone roost companions github settings icons open".split()
+        names = "vscode path standalone roost companions claude git github homebrew settings icons open".split()
         skips = tuple(arg for name in names for arg in ("--skip", name))
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), "--yes", "--no-open", *skips)
         self.assertEqual(rc, 0, out)
@@ -674,7 +725,7 @@ class TestFlags(_Installer):
         rc, out = self.run_pipe(self.env("macos", ALL_PRESENT), "--help")
         self.assertEqual(rc, 0, out)
         for text in ("--dry-run", "--skip", "--yes", "--no-open", "--teams-app <clientId>:<tenant>",
-                     "vscode path standalone roost companions github settings icons open"):
+                     "vscode path standalone roost companions claude git github homebrew settings icons open"):
             self.assertIn(text, out)
         self.assertEqual(self.stub_log(), [])
 
@@ -711,8 +762,10 @@ class TestBash32(_Installer):
         self.assertIn("apt-get install -y code", out)
         self.assertIn("--install-extension", out)
         self.assertIn("apt-get install -y gh", out)
+        self.assertIn("apt-get install -y git", out)
+        self.assertIn("https://claude.ai/install.sh", out)
         self.assertIn("$ python3 /s/roost-install-helper vscode-layout", out)
-        self.assertRegex(out, r"\nDone: 8 ✓  0 –  0 ✗\n")
+        self.assertRegex(out, r"\nDone: 10 ✓  0 –  0 ✗\n")
 
 
 class TestPython36(unittest.TestCase):
@@ -761,7 +814,7 @@ class _Served(_Installer):
         cls.server.server_close()
         shutil.rmtree(cls.served, ignore_errors=True)
 
-    STUBS = ("code", "sudo", "gh")
+    STUBS = ("code", "sudo", "gh", "git", "claude")
 
     def served_env(self, path: str = "good.vsix", **extra: str) -> dict[str, str]:
         """ubuntu, VS Code and gh in place, the real curl, the .vsix from the local server."""
@@ -904,7 +957,7 @@ class TestRoost(_Served):
             with self.subTest(os=os_name):
                 self.log.write_text("")
                 shutil.rmtree(self.tmp / "stubs", ignore_errors=True)
-                env = self.env(os_name, ("code", "sudo", "apt-get", "gh"), ROOST_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
+                env = self.env(os_name, ("code", "sudo", "apt-get", "gh", "git", "claude"), ROOST_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
                                CODE_EXTENSIONS=" ".join(f"{c}@1.0.0" for c in COMPANIONS))
                 rc, out = self.run_pipe(env)
                 self.assertEqual(rc, 0, out)
@@ -1156,6 +1209,280 @@ class TestGitHub(_Installer):
                 self.assertEqual(self.logged("gh auth login"), [])
 
 
+class TestClaudeCLI(_Installer):
+    """ensure_claude: Anthropic's installer, downloaded and then run, puts claude in ~/.local/bin."""
+
+    NO_CLAUDE = tuple(name for name in ALL_PRESENT if name != "claude")
+    FAKE_INSTALL = 'mkdir -p "$HOME/.local/bin"; : > "$HOME/.local/bin/claude"'
+    LOCAL_BIN = "/.local/bin"
+
+    def profile(self) -> str:
+        path = self.home / ".profile"
+        return path.read_text() if path.exists() else ""
+
+    def test_already_on_the_path(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Claude Code CLI (already)", out)
+        self.assertEqual(self.logged("claude.ai"), [])
+        marks = [mark.split(" (")[0] for mark in self.marks(out)]
+        self.assertTrue(marks.index("✓ Companions") + 1 == marks.index("✓ Claude Code CLI") ==
+                        marks.index("✓ git") - 1, out)
+
+    def test_already_in_local_bin(self) -> None:
+        claude = self.home / ".local" / "bin" / "claude"
+        claude.parent.mkdir(parents=True)
+        claude.write_text("#!/bin/sh\n")
+        rc, out = self.run_pipe(self.env("ubuntu", self.NO_CLAUDE))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Claude Code CLI (already)", out)
+        self.assertEqual(self.logged("claude.ai"), [])
+        self.assertIn(f"{self.home}{self.LOCAL_BIN}", self.profile())  # and new terminals find it
+
+    def test_installed_through_a_downloaded_script(self) -> None:
+        env = self.env("ubuntu", self.NO_CLAUDE, CURL_BODY=self.FAKE_INSTALL)
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Claude Code CLI (installed)", out)
+        curl = self.logged("curl ")
+        self.assertEqual(len(curl), 1, curl)
+        self.assertRegex(curl[0], r"^curl -fsSL -o \S+ https://claude\.ai/install\.sh$")
+        self.assertTrue((self.home / ".local" / "bin" / "claude").exists())
+        self.assertEqual(self.logged("sudo"), [], "needs no sudo")
+        text = self.profile()
+        self.assertEqual(text.count("# added by roost-install"), 1, text)
+        self.assertIn(f'export PATH="{self.home}{self.LOCAL_BIN}:$PATH"', text)
+        self.assertEqual([p.name for p in self.tmp.iterdir() if "claude" in p.name], [], "temp file removed")
+
+        # A login shell reading the block finds claude.
+        check = subprocess.run([shutil.which("bash"), "-c", f'PATH=/usr/bin:/bin; . "{self.home}/.profile"; '
+                                'command -v claude'], capture_output=True, timeout=30, check=False)
+        self.assertEqual(check.stdout.decode().strip(), str(self.home / ".local/bin/claude"), check)
+
+        # A rerun: already, and the profile is left alone.
+        rc, out = self.run_pipe(env)
+        self.assertIn("  ✓ Claude Code CLI (already)", out)
+        self.assertEqual(self.profile(), text)
+
+    def test_installer_url_seam(self) -> None:
+        env = self.env("ubuntu", self.NO_CLAUDE, CURL_BODY=self.FAKE_INSTALL,
+                       ROOST_INSTALL_CLAUDE_INSTALLER="http://127.0.0.1:9/install.sh")
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.logged("http://127.0.0.1:9/install.sh")), 1)
+        self.assertEqual(self.logged("claude.ai"), [])
+
+    def test_failure_is_reported(self) -> None:
+        for name, extra in (("the script makes no claude", {"CURL_BODY": "exit 0"}),
+                            ("the script fails", {"CURL_BODY": "exit 3"}),
+                            ("the download fails", {"CURL_FAIL_ON": "claude.ai"})):
+            with self.subTest(name):
+                rc, out = self.run_pipe(self.env("ubuntu", self.NO_CLAUDE, **extra))
+                self.assertEqual(rc, 1, out)
+                self.assertRegex(out, r"  ✗ Claude Code CLI: couldn't be installed; see \S+roost-install-log")
+                self.assertNotIn(f"{self.home}{self.LOCAL_BIN}", self.profile())
+                self.assertEqual([p.name for p in self.tmp.iterdir() if "claude" in p.name], [])
+
+    def test_dry_run_prints_the_commands(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", self.NO_CLAUDE), "--dry-run")
+        self.assertEqual(rc, 0, out)
+        lines = out.splitlines()
+        download = _index(lines, "curl -fsSL -o ")
+        claude = _index(lines[download + 1:], "bash ")
+        self.assertTrue(any("https://claude.ai/install.sh" in line for line in lines), out)
+        self.assertGreaterEqual(claude, 0, out)
+        self.assertIn("  ✓ Claude Code CLI (dry run)", out)
+        self.assertEqual([line for line in self.stub_log() if line.startswith(("curl", "sudo"))], [])
+        self.assertFalse((self.home / ".local").exists())
+
+    def test_skip_claude(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", self.NO_CLAUDE), "--skip", "claude")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  – Claude Code CLI: skipped (--skip claude)", out)
+        self.assertEqual(self.logged("claude.ai"), [])
+
+    def test_local_bin_already_on_the_path_adds_nothing(self) -> None:
+        bin_dir = self.home / ".local" / "bin"
+        env = self.env("ubuntu", self.NO_CLAUDE, CURL_BODY=self.FAKE_INSTALL)
+        rc, out = self.run_sourced(env, f'ORIG_PATH="{bin_dir}:$ORIG_PATH"; main')
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Claude Code CLI (installed)", out)
+        self.assertNotIn(self.LOCAL_BIN, self.profile())
+
+    def test_local_bin_goes_inside_the_existing_block(self) -> None:
+        (self.home / ".profile").write_text("# mine\n\n# added by roost-install\n"
+                                            'export PATH="/opt/code/bin:$PATH"\n# end roost-install\n# after\n')
+        env = self.env("ubuntu", self.NO_CLAUDE, CURL_BODY=self.FAKE_INSTALL)
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        lines = self.profile().splitlines()
+        self.assertEqual(lines.count("# added by roost-install"), 1, lines)
+        self.assertEqual(lines.count("# end roost-install"), 1, lines)
+        local = next(i for i, line in enumerate(lines) if self.LOCAL_BIN in line)
+        self.assertTrue(lines.index("# added by roost-install") < local < lines.index("# end roost-install"), lines)
+        self.assertEqual(lines[-1], "# after")
+
+    def test_stopped_at_the_standalone_four_skips_it(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", self.NO_CLAUDE, CODE_EXTENSIONS="seanahn.chirp@0.3.0",
+                                         ROOST_INSTALL_TTY=self.tty("n")))
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("Claude Code CLI", out)
+        self.assertEqual(self.logged("claude.ai"), [])
+
+
+class TestGit(_Installer):
+    """ensure_git (step 4a): `git --version` has to run; and Homebrew's shellenv for a Homebrew-installed tool."""
+
+    NO_GIT = tuple(name for name in ALL_PRESENT if name != "git")
+
+    def git_stubs(self, env: dict[str, str], clt: bool = True) -> None:
+        """xcode-select: --install creates $CLT_FILE (unless the CLT_NEVER env is set); -p succeeds once it exists."""
+        (Path(env["PATH"].split(":")[0]) / "xcode-select").write_text(
+            '#!/bin/sh\nprintf \'%s\\n\' "xcode-select $*" >> "$STUB_LOG"\n'
+            'case "$1" in --install) [ -n "${CLT_NEVER:-}" ] || : > "$CLT_FILE" ;; -p) [ -f "$CLT_FILE" ]; exit $? ;; esac\n')
+
+    def test_git_present_already(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
+        self.assertEqual(rc, 0, out)
+        marks = [mark.split(" (")[0] for mark in self.marks(out)]
+        self.assertEqual(marks[marks.index("✓ Companions") + 1:marks.index("✓ GitHub")],
+                         ["✓ Claude Code CLI", "✓ git"], out)
+        self.assertIn("  ✓ git (already)", out)
+        self.assertEqual(self.logged("install -y git"), [])
+        self.assertIn("git --version", self.stub_log())
+
+    def test_git_missing_linux_installs_package(self) -> None:
+        for os_name, pm in (("ubuntu", "apt-get"), ("rhel", "dnf"), ("debian", "apt-get"), ("fedora", "dnf")):
+            with self.subTest(os=os_name):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.env(os_name, self.NO_GIT))
+                self.assertEqual(rc, 0, out)
+                if pm == "apt-get":  # updated first, and never asking: as the other apt installs are
+                    self.assertEqual(self.logged("apt-get"), ["sudo apt-get update",
+                                     "sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git"], out)
+                else:
+                    self.assertEqual(self.logged(f"sudo {pm} install -y git"), [f"sudo {pm} install -y git"], out)
+                self.assertIn("  ✓ git (installed)", out)
+                self.assertIn("  - git\n", out)  # the up-front list of what this run adds system-wide
+
+    def test_git_install_failure(self) -> None:
+        env = self.env("ubuntu", self.NO_GIT)
+        (Path(env["PATH"].split(":")[0]) / "sudo").write_text("#!/bin/sh\nexit 1\n")
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"  ✗ git: couldn't be installed; see \S+roost-install-log")
+
+    def test_broken_git_is_installed_over(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, GIT_BROKEN="1"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.logged("apt-get install -y git")), 1, out)
+
+    def test_dry_run_prints_the_install(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", self.NO_GIT), "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("apt-get install -y git", out)
+        self.assertIn("  ✓ git (dry run)", out)
+
+    def test_macos_apple_git_without_clt_is_not_run(self) -> None:
+        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, ROOST_INSTALL_GIT="/usr/bin/git", XCODE_SELECT_FAIL="1"),
+                                "--skip", "settings", "--skip", "icons")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.logged("brew install git"), [f"brew install git"])
+        self.assertEqual(self.logged("git --version"), [], "the shim would open Apple's dialog")
+        self.assertIn("  ✓ git (installed)", out)
+
+    def test_macos_apple_git_with_clt_is_run(self) -> None:
+        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, ROOST_INSTALL_GIT="/usr/bin/git"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.logged("brew install git"), [])
+        self.assertIn("  ✓ git (already)", out)
+
+    def test_macos_git_without_brew_waits_for_clt(self) -> None:
+        no_brew = tuple(name for name in self.NO_GIT if name != "brew")
+        clt = self.tmp / "clt"
+        env = self.env("macos", no_brew, ROOST_INSTALL_CLT_WAIT="3", CLT_FILE=str(clt))
+        self.git_stubs(env)
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.logged("xcode-select --install"), ["xcode-select --install"])
+        self.assertIn("  ✓ git (installed)", out)
+
+        # Apple's dialog never finishes: the wait ends, and says what to do.
+        clt.unlink()
+        env = self.env("macos", no_brew, ROOST_INSTALL_CLT_WAIT="2", CLT_FILE=str(clt), CLT_NEVER="1")
+        self.git_stubs(env)
+        started = time.time()
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 1, out)
+        self.assertLess(time.time() - started, 20)
+        self.assertIn("  ✗ git: finish the Command Line Tools install Apple opened, then run git --version", out)
+
+    def test_macos_git_with_clt_and_no_brew_is_already(self) -> None:
+        no_brew = tuple(name for name in ALL_PRESENT if name != "brew")
+        rc, out = self.run_pipe(self.env("macos", no_brew))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ git (already)", out)
+
+    def test_brew_shellenv_when_gh_came_from_brew(self) -> None:
+        stubs = tuple(name for name in ALL_PRESENT if name not in ("brew", "gh"))
+        env = self.env("macos", stubs, SHELL="/bin/zsh")
+        brew_dir = self.tmp / "brewbin"
+        _write_stubs(brew_dir, ("brew",))
+        env["PATH"] = f"{brew_dir}:{env['PATH']}"
+        rc, out = self.run_sourced(env, 'ORIG_PATH=/usr/bin:/bin; main')
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.logged("brew install gh"), ["brew install gh"])
+        self.assertIn("  ✓ Homebrew on the PATH (.zprofile)", out)
+        text = (self.home / ".zprofile").read_text()
+        self.assertTrue(text.endswith(f'# added by roost-install: Homebrew\n[ -x {brew_dir}/brew ] && '
+                                      f'eval "$({brew_dir}/brew shellenv)"\n# end roost-install\n'), text)
+
+    def test_brew_shellenv_once(self) -> None:
+        stubs = tuple(name for name in ALL_PRESENT if name not in ("brew", "gh"))
+        env = self.env("macos", stubs, SHELL="/bin/zsh")
+        brew_dir = self.tmp / "brewbin"
+        _write_stubs(brew_dir, ("brew",))
+        env["PATH"] = f"{brew_dir}:{env['PATH']}"
+        for _ in (1, 2):
+            rc, out = self.run_sourced(env, 'ORIG_PATH=/usr/bin:/bin; main')
+            self.assertEqual(rc, 0, out)
+        self.assertEqual((self.home / ".zprofile").read_text().count("brew shellenv"), 1)
+        self.assertIn("  ✓ Homebrew on the PATH (already)", out)
+
+    def test_brew_resolved_tool_gets_shellenv(self) -> None:
+        """Homebrew wasn't used this run, but git resolves inside its bin directory: new terminals need the line."""
+        env = self.env("macos", tuple(name for name in ALL_PRESENT if name not in ("brew", "git")), SHELL="/bin/zsh")
+        brew_dir = self.tmp / "brewbin"
+        _write_stubs(brew_dir, ("brew", "git"))
+        env["PATH"] = f"{brew_dir}:{env['PATH']}"
+        rc, out = self.run_sourced(env, 'ORIG_PATH=/usr/bin:/bin; main')
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.logged("brew install"), [])
+        self.assertIn("brew shellenv", (self.home / ".zprofile").read_text())
+
+    def test_no_homebrew_line_without_homebrew(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
+        self.assertNotIn("Homebrew on the PATH", out)
+        rc, out = self.run_sourced(self.env("macos", tuple(name for name in ALL_PRESENT if name != "brew")),
+                                   'ORIG_PATH=/usr/bin:/bin; main')
+        self.assertNotIn("Homebrew on the PATH", out)
+
+    def test_skip_git_and_homebrew(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", self.NO_GIT), "--skip", "git", "--skip", "homebrew")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  – git: skipped (--skip git)", out)
+        self.assertEqual(self.logged("install -y git"), [])
+        rc, out = self.run_sourced(self.env("macos", ALL_PRESENT), 'ORIG_PATH=/usr/bin:/bin; main --skip homebrew')
+        self.assertIn("  – Homebrew on the PATH: skipped (--skip homebrew)", out)
+
+    def test_stopped_at_the_standalone_four_skips_git(self) -> None:
+        rc, out = self.run_pipe(self.env("ubuntu", self.NO_GIT, CODE_EXTENSIONS="seanahn.chirp@0.3.0",
+                                         ROOST_INSTALL_TTY=self.tty("n")))
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("git", "\n".join(self.marks(out)))
+        self.assertEqual(self.logged("install -y git"), [])
+
+
 class TestLook(_Installer):
     """apply_settings and apply_icons through the helper, then open_vscode."""
 
@@ -1387,10 +1714,10 @@ class TestLook(_Installer):
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 0, out)
         marks = [mark for mark in self.marks(out) if not mark.startswith("✓ Platform ")]
-        self.assertEqual(len(marks), 7, out)
+        self.assertEqual(len(marks), 9, out)
         for mark in marks:
             self.assertTrue(mark.startswith("✓ ") and mark.endswith(" (already)"), mark)
-        self.assertRegex(out, r"\nDone: 8 ✓  0 –  0 ✗\n")
+        self.assertRegex(out, r"\nDone: 10 ✓  0 –  0 ✗\n")
 
 
 if __name__ == "__main__":

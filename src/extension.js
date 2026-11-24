@@ -6,8 +6,12 @@
 // which it restores from when it starts, is left as it is. A part's views and commands show while its setting is on
 // and its context key roost.<id>.failed is not set; Roost sets that key from a failed start until the next good one.
 const path = require('node:path');
+const { randomBytes } = require('node:crypto');
 const vscode = require('vscode');
 const { readParts, partContext } = require('./parts');
+const { companyFile, readCompany } = require('./company');
+const { Tools } = require('./tools');
+const { getToolsHtml } = require('./toolsPage');
 
 const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
@@ -31,11 +35,21 @@ const isEnabled = (id) => {
   return config.get(`${id}.enabled`, true);
 };
 const errorText = (e) => (e && e.stack) || String(e);
+const TOOLS_PANEL_TYPE = 'roost.tools';
+const NO_TOOLS = 'Your company file lists no tools.';
+// One argument for a POSIX shell: as it is when it is plainly safe, else in single quotes
+const shellQuote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${String(a).replace(/'/g, "'\\''")}'`);
+const isWeb = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
 
 class Roost {
-  constructor(base, parts, output) {
+  // `makeTools`: for tests, a stand-in for Connect Your Tools' Tools (src/tools.js)
+  constructor(base, parts, output, { makeTools = (opts) => new Tools(opts) } = {}) {
     this.base = base;
     this.output = output;
+    this.makeTools = makeTools;
+    this.tools = null;                 // made the first time Connect Your Tools (or a sign-in that uses it) needs it
+    this.toolsPanel = null;
+    this.toolsChecked = Promise.resolve();
     // id → { part, state: 'on'|'off'|'failed', failed, context, module, queue, closers, serializers }
     // `failed`: what roost.<id>.failed was last set to; `serializers`: the part's own, however it registered them
     this.parts = new Map(parts.map((part) => [part.id, {
@@ -195,6 +209,126 @@ class Roost {
       .catch((err) => this.log(`${key} could not be set: ${errorText(err)}`));
   }
 
+  // roost.company: a valid company file; roost.companyTools: valid, with at least one MCP server. A key that cannot
+  // be set is logged, as setFailed does.
+  setCompanyContexts() {
+    const c = this.company;
+    const keys = { 'roost.company': c.ok, 'roost.companyTools': c.ok && c.company.mcpServers.length > 0 };
+    return Promise.all(Object.entries(keys).map(([key, value]) => Promise.resolve(vscode.commands.executeCommand('setContext', key, value))
+      .catch((err) => this.log(`${key} could not be set: ${errorText(err)}`))));
+  }
+
+  // ---- Connect Your Tools: the company file's MCP servers, in a panel (src/toolsPage.js) driven through Tools
+
+  hasTools() { return !!(this.company && this.company.ok && this.company.company.mcpServers.length > 0); }
+
+  toolsNow() {
+    if (!this.tools) this.tools = this.makeTools({ company: this.company.company, onChange: (rows) => this.toolsChanged(rows) });
+    return this.tools;
+  }
+
+  // Every change: the rows to the page, and roost.toolsConnected (the walkthrough step) to whether all are connected
+  toolsChanged(rows) {
+    this.postRows(rows);
+    const value = !!(this.tools && this.tools.allConnected());
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'roost.toolsConnected', value))
+      .catch((err) => this.log(`roost.toolsConnected could not be set: ${errorText(err)}`));
+  }
+
+  postRows(rows) {
+    if (!this.toolsPanel) return;
+    Promise.resolve(this.toolsPanel.webview.postMessage({ type: 'rows', rows })).catch(() => { /* the panel just closed */ });
+  }
+
+  // One panel at a time; each time one opens, every row is checked. Resolves once that check is done.
+  openTools() {
+    const tools = this.toolsNow();
+    if (this.toolsPanel) {
+      this.toolsPanel.reveal();
+      return this.toolsChecked;
+    }
+    const panel = vscode.window.createWebviewPanel(TOOLS_PANEL_TYPE, 'Connect Your Tools', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [] });
+    this.toolsPanel = panel;
+    const messages = panel.webview.onDidReceiveMessage((m) => this.onToolsMessage(m));
+    panel.onDidDispose(() => {
+      messages.dispose();
+      if (this.toolsPanel === panel) this.toolsPanel = null;
+    });
+    panel.webview.html = getToolsHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
+    this.toolsChecked = Promise.resolve().then(() => tools.checkAll())
+      .catch((err) => this.log(`Connect Your Tools: the check failed: ${err && err.message}`));
+    return this.toolsChecked;
+  }
+
+  // A message from the page. A row the page names that is no longer there is ignored. A token is handed to Tools
+  // only: never logged, never sent back (the rows hold none).
+  async onToolsMessage(m) {
+    const tools = this.tools;
+    if (!tools || !m || typeof m.type !== 'string') return;
+    if (m.type === 'ready') { this.postRows(tools.rows()); return; }
+    const row = tools.rows().find((r) => r.id === m.id);
+    if (!row) return;
+    try {
+      if (m.type === 'connect') await this.connectTool(row);
+      else if (m.type === 'token') await tools.saveToken(row.id, typeof m.token === 'string' ? m.token : '');
+      else if (m.type === 'openPage') { if (isWeb(row.page)) await vscode.env.openExternal(vscode.Uri.parse(row.page)); }
+      else if (m.type === 'copyAndOpen') await this.copyAndOpen(row);
+      else if (m.type === 'replace') await tools.replaceRegistration(row.id);
+    } catch (err) {
+      this.log(`Connect Your Tools: ${row.name || row.id}: ${err && err.message}`);
+    }
+  }
+
+  // The row's sign-in, by kind; a tokenPage row's Connect checks the token already saved
+  connectTool(row) {
+    const tools = this.tools;
+    if (row.kind === 'command') return tools.connectCommand(row.id, { runInTerminal: (argv) => this.runInTerminal(row.name || row.id, argv) });
+    if (row.kind === 'mcpTool') return tools.connectMcpTool(row.id, { onPrompt: () => { if (this.toolsPanel) this.toolsPanel.reveal(); } });
+    if (row.kind === 'none') return tools.connectNone(row.id);
+    return tools.check(row.id);
+  }
+
+  // A command sign-in, in a VS Code terminal named after the server; `closed` resolves when that terminal closes
+  // (the shell exits once the command succeeds; one that fails stays open, to be read, until it is closed).
+  runInTerminal(name, argv) {
+    const terminal = vscode.window.createTerminal({ name });
+    const closed = new Promise((resolve) => {
+      const listener = vscode.window.onDidCloseTerminal((t) => {
+        if (t !== terminal) return;
+        listener.dispose();
+        resolve();
+      });
+    });
+    terminal.show();
+    terminal.sendText(`${argv.map(shellQuote).join(' ')} && exit`);
+    return { terminal, closed };
+  }
+
+  // A sign-in tool's prompt: the code to the clipboard, the link opened (either alone when that is all there is)
+  async copyAndOpen(row) {
+    const p = row.prompt;
+    if (!p) return;
+    if (p.code) await vscode.env.clipboard.writeText(p.code);
+    if (isWeb(p.url)) await vscode.env.openExternal(vscode.Uri.parse(p.url));
+  }
+
+  // The walkthrough's Teams and Jira buttons: with a company file, a tools row that writes the part's token file
+  // (<part>.signIn.tokenFile) signs in in the panel, and the part picks the file up; else the part's own sign-in.
+  async toolSignIn(section, fallback) {
+    const file = vscode.workspace.getConfiguration(section).get('signIn.tokenFile', '');
+    const id = this.hasTools() && typeof file === 'string' && file ? this.toolsNow().rowForTokenFile(file) : null;
+    if (!id) return vscode.commands.executeCommand(fallback);
+    await this.openTools();
+    const row = this.tools.rows().find((r) => r.id === id);
+    if (!row || row.state === 'connected') return undefined;
+    try {
+      await this.connectTool(row);
+    } catch (err) {
+      this.log(`Connect Your Tools: ${row.name || row.id}: ${err && err.message}`);
+    }
+    return undefined;
+  }
+
   // Every failed key false first (one can be left from before an extension host restart); a part that fails sets
   // its own true after that. The parts start side by side: one whose activate never ends holds up none of the
   // others. Nothing here is awaited before the parts' activate calls, so each part registers its serializers before
@@ -248,6 +382,8 @@ class Roost {
   // thread), and no serializer is left behind.
   async stopAll() {
     this.closed = true;
+    if (this.tools) this.tools.dispose();
+    if (this.toolsPanel) this.toolsPanel.dispose();
     await Promise.all([...this.parts.keys()].map((id) => this.stop(id)));
     for (const e of this.parts.values()) this.stopClosingTabs(e);
     if (this.untrackSerializers) this.untrackSerializers();
@@ -256,10 +392,11 @@ class Roost {
 
 let roost = null;
 
-function activate(context) {
+// `options`: for tests, Roost's constructor options (VS Code passes the context alone)
+function activate(context, options = {}) {
   const output = vscode.window.createOutputChannel('Roost');
   context.subscriptions.push(output);
-  const r = new Roost(context, readParts(context.extensionPath), output);
+  const r = new Roost(context, readParts(context.extensionPath), output, options);
   roost = r;
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => r.onConfigChange(e)));
   // Roost's own, whatever parts are on: the Settings page filtered to this extension's switches and the parts' settings
@@ -275,8 +412,17 @@ function activate(context) {
     await vscode.commands.executeCommand('perch.codebaseIndex.toggle');
   }));
   context.subscriptions.push(vscode.commands.registerCommand('roost.codebaseSearchNotNow', () => {}));
-  // the walkthrough's gateway step, left for now: its completion event; the step is also done once a gateway is saved (perch.gatewayReady)
-  context.subscriptions.push(vscode.commands.registerCommand('roost.gatewayNotNow', () => {}));
+  // the walkthrough's Connect Claude step, left for now: its completion event; the step is also done once Claude is connected (perch.claudeConnected)
+  context.subscriptions.push(vscode.commands.registerCommand('roost.connectClaudeNotNow', () => {}));
+  // Connect your tools (the walkthrough's step, shown with a company file that lists servers): the panel, or a note
+  context.subscriptions.push(vscode.commands.registerCommand('roost.connectTools', () => {
+    if (!r.hasTools()) return vscode.window.showInformationMessage(NO_TOOLS);
+    r.openTools();
+    return undefined;
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.toolsNotNow', () => {}));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.teamsSignIn', () => r.toolSignIn('teams', 'chirp.signIn')));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.jiraSignIn', () => r.toolSignIn('jira', 'jay.signIn')));
   // the walkthrough's first step: the Claude tab first start opened (Agents' own Open: the last tab, or a picker)
   context.subscriptions.push(vscode.commands.registerCommand('roost.goToClaude', () => vscode.commands.executeCommand('perch.open')));
   // the walkthrough's first step opens the tab, Claude or Codex, beside the walkthrough, which keeps most of the width
@@ -305,8 +451,13 @@ function activate(context) {
     terminal.show();
     terminal.sendText('gh auth login --hostname github.com && exit');
   }));
+  // the company file, read before the parts start; a file that is there but invalid is logged once
+  const file = companyFile();
+  r.company = readCompany(file);
+  if (!r.company.ok && !r.company.missing) r.log(`${file} is not a valid company file: ${r.company.error}`);
+  const companyKeys = r.setCompanyContexts();
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
-  r.ready = r.startAll().catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
+  r.ready = Promise.all([companyKeys, r.startAll()]).then(() => undefined).catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
   // after the parts have started, and not awaited here: activation does not wait for it
   r.firstStarted = r.ready.then(() => r.firstStart()).catch((err) => r.log(`Roost first start failed: ${errorText(err)}`));
   return r;

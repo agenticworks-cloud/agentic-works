@@ -36,7 +36,7 @@ test('package.json has the listing icon and the new settings', () => {
   assert.deepStrictEqual(pkg.keywords, ['teams', 'chat', 'microsoft 365', 'agent']);
 });
 
-test('no company or tool names ship', () => {
+test('no tool names ship (company names: Roost\'s test/noCompanyNames.test.js)', () => {
   const files = shipped();
   assert.ok(files.includes('src/extension.js') && files.includes('README.md'), 'the scan sees the shipped files');
   assert.ok(!files.some((f) => f.startsWith('test/') || f.startsWith('docs/')), 'tests and docs do not ship');
@@ -44,7 +44,7 @@ test('no company or tool names ship', () => {
   for (const f of files) {
     if (/\.(png)$/.test(f)) continue;
     const text = fs.readFileSync(path.join(root, f), 'utf8');
-    for (const m of text.matchAll(/ms365|zig|c3/gi)) found.push(`${f}: …${text.slice(Math.max(0, m.index - 20), m.index + 20)}…`);
+    for (const m of text.matchAll(/ms365|zig/gi)) found.push(`${f}: …${text.slice(Math.max(0, m.index - 20), m.index + 20)}…`);
   }
   assert.deepStrictEqual(found, []);
 });

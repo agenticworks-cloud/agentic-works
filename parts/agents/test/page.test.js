@@ -858,7 +858,7 @@ $$('#past > *').pop().click(); assert.deepStrictEqual(out.splice(0), [{ type: 'o
 // the explorer's other tabs: what Claude Code (and Codex, for MCP) load here. A tab shows its list across the view; the choice
 // is told to the host, which keeps it; the search searches the tab showing; a click opens the file, at its entry where known
 host({ type: 'past', tab: 'sessions', failed: [], sessions: [{ key: 'claude:c1', kind: 'claude', title: 'gate run', when: '2m', open: false }], skills: [
-  { name: 'c3-acls', source: 'this folder', description: 'ACLs on C3.', file: '/w/.claude/skills/c3-acls/SKILL.md', files: ['SKILL.md', 'references/reference.md', 'scripts/check.py'] },
+  { name: 'example-skill', source: 'this folder', description: 'An example skill.', file: '/w/.claude/skills/example-skill/SKILL.md', files: ['SKILL.md', 'references/reference.md', 'scripts/check.py'] },
   { name: 'trivialpowers:brainstorming', source: 'trivialpowers', description: 'Before creative work.', file: '/p/skills/brainstorming/SKILL.md', files: ['SKILL.md'] }],
   mcp: [{ name: 'jira', source: 'this folder', description: '/bin/jira-mcp', file: '/w/.mcp.json', line: 8, status: 'connected' }, { name: 'docs', source: 'codex', description: 'https://docs/mcp', file: '/c/config.toml', line: 3 }],
   agents: [], commands: [{ name: '/ship', source: 'this folder', description: 'Ship it.', file: '/w/.claude/commands/ship.md' }] });
@@ -867,8 +867,8 @@ const etab = (name) => $$('#past .etab').find((b) => b.textContent.startsWith(na
 assert.deepStrictEqual($$('#past .etab').map((b) => b.textContent), ['Sessions 1', 'Skills 2', 'MCP 2', 'Agents 0', 'Commands 1']);
 etab('Skills').click();
 assert.deepStrictEqual(out.splice(0), [{ type: 'explorerTab', tab: 'skills' }], 'the choice, to keep');
-assert.deepStrictEqual([items(), $('#past input').placeholder, etab('Skills').classList.contains('on')], [[['c3-acls', 'this folder'], ['trivialpowers:brainstorming', 'trivialpowers']], 'Search skills…', true], 'the skills, by name and where each comes from');
-assert.strictEqual($$('#past .row')[0].title, 'c3-acls\nACLs on C3.\n/w/.claude/skills/c3-acls/SKILL.md');
+assert.deepStrictEqual([items(), $('#past input').placeholder, etab('Skills').classList.contains('on')], [[['example-skill', 'this folder'], ['trivialpowers:brainstorming', 'trivialpowers']], 'Search skills…', true], 'the skills, by name and where each comes from');
+assert.strictEqual($$('#past .row')[0].title, 'example-skill\nAn example skill.\n/w/.claude/skills/example-skill/SKILL.md');
 $$('#past .row')[1].click(); assert.deepStrictEqual(out.pop(), { type: 'open', target: '/p/skills/brainstorming/SKILL.md' }, 'a click opens its SKILL.md');
 // a skill of more than its SKILL.md is a node: its files, under it, when opened
 assert.deepStrictEqual($$('#past .row').map((r) => (r.querySelector('.tw') || {}).textContent || ''), ['▸', ''], 'a twisty on a skill with more files; none on one with SKILL.md alone');
@@ -876,7 +876,7 @@ $$('#past .row')[0].querySelector('.tw').click();
 assert.strictEqual(out.length, 0, 'opening the node opens no file');
 const files = () => $$('#past .file').filter(shown).map((r) => r.textContent);
 assert.deepStrictEqual([files(), $$('#past .row')[0].querySelector('.tw').textContent], [['SKILL.md', 'references/reference.md', 'scripts/check.py'], '▾']);
-$$('#past .file').filter(shown)[1].click(); assert.deepStrictEqual(out.pop(), { type: 'open', target: '/w/.claude/skills/c3-acls/references/reference.md' }, 'a file opens');
+$$('#past .file').filter(shown)[1].click(); assert.deepStrictEqual(out.pop(), { type: 'open', target: '/w/.claude/skills/example-skill/references/reference.md' }, 'a file opens');
 $$('#past .row')[0].querySelector('.tw').click(); assert.deepStrictEqual(files(), [], 'and folds again');
 $('#past input').value = 'brain'; $('#past input').dispatchEvent(new window.Event('input'));
 assert.deepStrictEqual(items().map((r) => r[0]), ['trivialpowers:brainstorming'], 'the search searches the tab showing');
@@ -1468,7 +1468,7 @@ window.close();
     assert.strictEqual(ps.$('#input').value, msg, 'it stays in the box');
     assert(!hideOf(strip()), 'the strip shows');
     assert.strictEqual(strip().querySelector('.say').textContent, 'This looks like a password or key (GitHub token). It would go to the model and into the session record.');
-    assert.deepStrictEqual([...strip().querySelectorAll('button')].map((b) => b.textContent), ['Send anyway', 'Not a secret', 'Edit', 'Why?']);
+    assert.deepStrictEqual([...strip().querySelectorAll('button')].map((b) => b.textContent), ['Send anyway', 'Not a secret', 'Off for this repo', 'Edit', 'Why?']);
     const i = ps.$('#input');
     assert.deepStrictEqual([i.selectionStart, i.selectionEnd], [msg.indexOf(TOKEN), msg.indexOf(TOKEN) + TOKEN.length], 'the match is selected in the box');
 
@@ -1538,6 +1538,31 @@ window.close();
     typeIn('fresh ' + ['ghu_', 'Z9y8X7w6V5u4T3s2R1q0', 'P9o8N7m6L5k4J3i2'].join('')); enter();
     assert.strictEqual(sends().length, 1, 'off: sent at once, with no wait');
     assert(hideOf(strip()));
+    ps.out.length = 0;
+
+    // each tab its own (its folder's setting, in perTab): off for tab a's folder, on for b; a tab not in perTab has the top
+    const GHU = ['ghu_', 'A1b2C3d4E5f6G7h8I9j0', 'K1l2M3n4O5p6Q7r8'].join('');
+    ps.host({ type: 'secretCheck', enabled: true, ignore: [], allowed: [], perTab: { a: { enabled: false, ignore: [] }, b: { enabled: true, ignore: [] } } });
+    typeIn('in b: ' + GHU); enter(); await settle();
+    assert.deepStrictEqual(sends(), [], 'tab b, its folder on: held');
+    btn('Edit').click();
+    ps.host({ type: 'tabs', tabs: [tab({ id: 'a', kind: 'claude', title: 'A' }), tab({ id: 'b', kind: 'codex', title: 'B' })], active: 'a' });
+    typeIn('in a: ' + GHU); enter(); await settle();
+    assert.deepStrictEqual(sends(), [{ type: 'send', sid: 'a', text: 'in a: ' + GHU }], 'tab a, its folder off: sent at once');
+    assert(hideOf(strip()));
+    ps.out.length = 0;
+
+    // Off for this repo: the host is asked to turn it off for the tab's folder, then the message is sent; the tab's next
+    // message is not held while the host's word is on its way
+    ps.host({ type: 'tabs', tabs: [tab({ id: 'a', kind: 'claude', title: 'A' }), tab({ id: 'b', kind: 'codex', title: 'B' })], active: 'b' });
+    typeIn('b again: ' + GHU); enter(); await settle();
+    assert(!hideOf(strip()), 'held in b');
+    btn('Off for this repo').click(); await settle();
+    assert.deepStrictEqual(ps.out.filter((m) => m.type === 'secretFolderOff' || m.type === 'send'), [{ type: 'secretFolderOff', sid: 'b' }, { type: 'send', sid: 'b', text: 'b again: ' + GHU }], 'the switch for tab b\'s folder, then the message');
+    assert(hideOf(strip()), 'and the strip goes');
+    ps.out.length = 0;
+    typeIn('b once more: ' + GHU); enter(); await settle();
+    assert.deepStrictEqual(sends(), [{ type: 'send', sid: 'b', text: 'b once more: ' + GHU }], 'off for b at once');
     ps.w.close();
   }
   console.log('PAGE OK');
