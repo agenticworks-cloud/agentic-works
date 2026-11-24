@@ -10,16 +10,17 @@ editor that is one download instead (note 101, *Intent*). The installer closes t
 it, and VS Code opens with Roost in place**, looking the way Roost is meant to look. *(Sean)*
 
 It is public and generic. A company that wants more (its own LLM gateway, MCP servers, sign-ins) layers its own
-installer on top; C3's installer is rebuilt that way, as a layer that runs this one first. *(Sean)*
+installer on top; a company's installer (kept outside this repo) is rebuilt that way, as a layer that runs this one
+first. *(Sean)*
 
 ### Goals
 
 - **One file, `roost-install.sh`, for macOS and Linux** *(Sean)*: downloaded and run with `bash roost-install.sh`.
   Linux means Ubuntu 22.04+ (and Debian-based), RHEL/Rocky 8 and 9, Fedora. *(distributions: my call, the set the
-  C3 installer already handles plus Fedora)*
+  company installer already handles plus Fedora)*
 - Installs VS Code if it is missing, then Roost and its companion extensions, then sets the look, then opens VS Code.
 - Safe to rerun: a second run fixes what is missing and changes nothing that is in place.
-- A ✓ / – / ✗ checklist while it runs, the same format as the C3 installer's (c3-free wording).
+- A ✓ / – / ✗ checklist while it runs, the same format as the company installer's (with no company wording).
 
 ### Non-goals
 
@@ -66,7 +67,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    Homebrew first if needed; Ubuntu/Debian — Microsoft's apt repository; RHEL/Rocky/Fedora — Microsoft's yum
    repository; a repository already listed by any apt source (as VS Code's own package adds one) is not added
    again. Then make sure `code` is on the PATH for this run and for new terminals (one marked block in the
-   login profile, as the C3 installer does). An existing VS Code is used as it is.
+   login profile, as the company installer does). An existing VS Code is used as it is.
 3. **The standalone four.** If any of `seanahn.perch`, `seanahn.chirp`, `seanahn.jay`, `seanahn.kestrel-prs` is
    installed, Roost's matching parts would fail to start (the same command ids twice). The installer lists them and
    asks: **Uninstall them and use Roost** (default) / **Stop**. Their settings, files under `~/.chirp` and `~/.jay`,
@@ -153,7 +154,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    no `workbench.activity.pinnedViewlets2` entry yet (the `code` CLI may create the file without one). Then write
    `workbench.activity.pinnedViewlets2` so the bar shows Explorer, Search, Extensions, Perch, Teams, Jira &
    Confluence, and hides Source Control, Run and Debug, Testing, and the Claude Code and Codex containers (hidden,
-   not removed), and record `roost.installer.layoutWritten` in the same transaction, as the C3 helper does. An existing
+   not removed), and record `roost.installer.layoutWritten` in the same transaction, as the company installer's helper does. An existing
    VS Code keeps its own layout, and the checklist says how to hide icons by hand. VS Code running during the run:
    the icons step is skipped with "quit VS Code and rerun" (VS Code would overwrite the file on exit); the other
    steps go through the `code` CLI and are fine. *(my calls: never undo someone's own layout)*
@@ -194,13 +195,13 @@ account counts as not an administrator when the up-front `sudo -v` fails.)
 
 ## How it is built
 
-The C3 installer (c3securitytools, `agent_k/scripts/perch-install` + `perch-install-helper`, tested on Ubuntu
+A company's installer (kept outside this repo: a script and its helper, tested on Ubuntu
 22.04/24.04 and Rocky 8/9 in containers) already does steps 1, 2, 5, 6 and parts of 4, with the checklist, rerun
 safety, bash 3.2 compatibility for macOS and stub-based tests. *(Sean: build on it)*
 
 - Its **generic half moves into the Roost repo** as `installer/roost-install.sh` and `installer/roost-install-helper`
   (Python, stdlib only, for the settings merge and `state.vscdb`), with their tests in `installer/test/`, rewritten
-  without anything C3-specific.
+  without anything company-specific.
 - `roost-install.sh` is **one file** when downloaded: the release step inlines the helper (as a here-document the
   script writes to a temp file and runs with the system `python3`). *(my call: one download, nothing else fetched
   except the `.vsix`)* The inlined copy is used before a `roost-install-helper` beside the script: run as
@@ -262,8 +263,8 @@ checksum — run the installer again`; the other steps still run, and the exit s
 ## Settled while planning (2026-11-23)
 
 - Files: `installer/roost-install.sh` (bash 3.2-safe) and `installer/roost-install-helper` (Python, stdlib only: the
-  settings merge and `state.vscdb`), carved from the C3 installer's generic half; tests in `installer/test/` with
-  Python's `unittest` (no extra dependency) and the C3 installer's stub-on-PATH harness.
+  settings merge and `state.vscdb`), carved from the company installer's generic half; tests in `installer/test/` with
+  Python's `unittest` (no extra dependency) and the company installer's stub-on-PATH harness.
 - Step names for `--skip`: `vscode path standalone roost companions claude git github homebrew settings icons open`.
 - Release URL `https://github.com/seanahn/roost/releases/download/v<version>/roost-<version>.vsix`; the script
   carries `@ROOST_VERSION@` / `@ROOST_SHA256@`, stamped by `make release`; an unstamped script refuses the Roost step.
@@ -277,17 +278,17 @@ checksum — run the installer again`; the other steps still run, and the exit s
 - Package signing keys are fetched from the vendors' URLs and not pinned by fingerprint, as the vendors' own
   instructions do (fingerprints rotate).
 - Fedora uses Microsoft's yum repository with `dnf`. As root (containers), `code` calls get `--user-data-dir` and
-  VS Code is not opened, as in the C3 installer.
+  VS Code is not opened, as in the company installer.
 - The icon layout also hides every activity-bar container of an installed `openai.chatgpt` (its Codex views).
 
 Built: branch feat/installer; the plan's last commit: 8985c57.
 
 ## Left to the builder (settled)
 
-- The generic half was copied out of `perch-install` and trimmed; nothing is shared between the two repos.
+- The generic half was copied out of the company installer and trimmed; nothing is shared between the two repos.
 - The release step: `make release`, `installer/build-release.sh`, the assets `roost-install.sh` and
   `roost-<version>.vsix`.
-- The repository setup commands are the C3 installer's, except gh on RHEL (no `--repo gh-cli`) and gh on Fedora
+- The repository setup commands are the company installer's, except gh on RHEL (no `--repo gh-cli`) and gh on Fedora
   (Fedora's own package).
 
 ## Verification

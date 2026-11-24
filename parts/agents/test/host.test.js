@@ -1475,7 +1475,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       { kind: 'claude', id: 'c-old', title: 'gate run', named: true, updatedAt: NOW - 2 * MIN, file: '/home/me/.claude/projects/-w/c-old.jsonl' },
       { kind: 'codex', id: 'x-old', title: 'hello', named: false, updatedAt: NOW - 26 * MIN },
     ] };
-    const SKILL = { name: 'c3-acls', source: 'folder', description: 'ACLs on C3.', file: '/w/.claude/skills/c3-acls/SKILL.md' };
+    const SKILL = { name: 'example-skill', source: 'folder', description: 'An example skill.', file: '/w/.claude/skills/example-skill/SKILL.md' };
     const MCP = { name: 'jira', source: 'folder', description: '/bin/jira-mcp', file: '/w/.mcp.json', line: 8 }, AGENT = { name: 'reviewer', source: 'folder', description: 'Reviews.', file: '/w/.claude/agents/reviewer.md' }, CMD = { name: '/ship', source: 'folder', description: 'Ship it.', file: '/w/.claude/commands/ship.md' };
     const m = install(undefined, { past }); await flush(); Object.assign(m.box, { skills: [SKILL], mcp: [MCP], agents: [AGENT], commands: [CMD] });
     const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush(); await flush();
@@ -2304,18 +2304,20 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
   // ---- a gateway that lists its models: one entry per model, grouped, the effort sent as part of the model's name
   {
     const fs = require('fs'), os = require('os'), path = require('path');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gw-')); const file = path.join(dir, 'env');
-    fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://gw.example/llm-api\nexport ANTHROPIC_AUTH_TOKEN=t\nexport ANTHROPIC_MODEL=nexus-auto-bargain[1m]\n');
-    const ids = ['opus', 'opus-high', 'opus-max', 'fable', 'fable-high', 'gpt-sol', 'gpt-sol-low', 'nexus-auto', 'anthropic/opus', 'anthropic/opus-high'];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gw-')); const file = path.join(dir, 'env'), company = path.join(dir, 'company.json');
+    fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://gw.example/llm-api\nexport ANTHROPIC_AUTH_TOKEN=t\nexport ANTHROPIC_MODEL=example-router-bargain[1m]\n');
+    // the company file names the gateway's routers: they get a group of their own
+    fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: ['https://gateway.example.com'], keyPage: 'https://gateway.example.com/keys', routerPrefixes: ['example-router'] } }));
+    const ids = ['opus', 'opus-high', 'opus-max', 'fable', 'fable-high', 'gpt-sol', 'gpt-sol-low', 'example-router', 'anthropic/opus', 'anthropic/opus-high'];
     const asked = []; const realFetch = globalThis.fetch;
     globalThis.fetch = async (url) => { asked.push(url); return { ok: true, json: async () => ({ data: ids.map((id) => ({ id })) }) }; };
-    const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
+    const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company }); await flush();
     const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
     v.fire({ type: 'new', kind: 'claude' }); const x = v.lastTabs().active;
     v.fire({ type: 'setBackend', sid: x, value: 'gateway' }); await flush(); await flush();
     assert.strictEqual(asked[0], 'https://gw.example/llm-api/v1/models', 'the gateway is asked for its models');
     const t = v.tab(x);
-    assert.deepStrictEqual(t.models.map((o) => [o.value, o.label, o.group || '']), [['', 'default · nexus-auto-bargain[1m]', ''], ['anthropic/opus[1m]', 'opus', 'Claude'], ['anthropic/fable[1m]', 'fable', 'Claude'], ['anthropic/gpt-sol[1m]', 'gpt-sol', 'OpenAI'], ['anthropic/nexus-auto[1m]', 'nexus-auto', 'Routers']], 'one entry per model, by family');
+    assert.deepStrictEqual(t.models.map((o) => [o.value, o.label, o.group || '']), [['', 'default · example-router-bargain[1m]', ''], ['anthropic/opus[1m]', 'opus', 'Claude'], ['anthropic/fable[1m]', 'fable', 'Claude'], ['anthropic/gpt-sol[1m]', 'gpt-sol', 'OpenAI'], ['anthropic/example-router[1m]', 'example-router', 'Routers']], 'one entry per model, by family');
     v.fire({ type: 'setModel', sid: x, value: 'anthropic/opus[1m]' }); await flush();
     assert.deepStrictEqual(v.tab(x).efforts.map((e) => e.value), ['', 'high', 'max'], 'only the levels the gateway names');
     v.fire({ type: 'setEffort', sid: x, value: 'high' }); await flush();

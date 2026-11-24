@@ -394,8 +394,9 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
 - **Teams: a company's own Microsoft app — Built (0.3.0)** *(Sean, 2026-11-24; design below, then what was built)*. Both of chirp's sign-ins, the
   editor's and the sign-in code, use chirp's own app (`5d0faf94…`, "chirp, unverified"; the editor sign-in passes it
   in VS Code's `VSCODE_CLIENT_ID` scope, so it is not VS Code's app). A company that lets only admins approve apps,
-  as C3 does, stops a first-time user at Microsoft's "Need admin approval" (Sean's first-time run, 2026-11-24). C3
-  people got in through C3's own approved app, by way of `ms365-mcp`'s token file (c3securitytools note 801). Roost
+  as Sean's company does, stops a first-time user at Microsoft's "Need admin approval" (Sean's first-time run,
+  2026-11-24). Its people got in through the company's own approved app, by way of `ms365-mcp`'s token file (noted in
+  that company's installer, kept outside this repo). Roost
   cannot find a company's approved app itself (Microsoft has no lookup for it), so it makes the choice visible to
   the user who hits the wall and easy to set for the person who sets machines up:
   - **Settings** `teams.signIn.clientId` and `teams.signIn.tenant`, defaults chirp's app and `organizations`. With
@@ -410,7 +411,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     the Application (client) ID and the Directory (tenant) ID, checks they are GUIDs, writes both settings at the
     user level, and signs in again.
   - **Installer:** `--teams-app <clientId>:<tenantId>` writes the two settings (only when absent, like the rest),
-    so a company's own setup, such as C3's (note 802 in c3securitytools), passes its IDs in one flag. Company IDs
+    so a company's own installer (kept outside this repo) passes its IDs in one flag. Company IDs
     never go into Roost's public repo or installer.
   - Until it is built, the walkthrough's Teams page says that the app to approve is chirp, and what "Need admin
     approval" means.
@@ -484,7 +485,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     static); without one, the optional *Use an LLM gateway* stays where it is. With a working gateway, the first
     step's **New Claude Tab** opens on the gateway (Perch's choice of backend; the first-start order already prefers a
     usable gateway).
-  - **What a company installer then does** (C3's: note 802 in its own repo): writes the preset; points the terminal's
+  - **What a company installer then does** (one company's is noted in its own repo, outside this one): writes the preset; points the terminal's
     `claude` at the gateway with Claude Code's `apiKeyHelper` reading the key file (so it works as soon as the
     walkthrough saves the key; to confirm against the real gateway); no longer asks for the key in the terminal,
     keeping an optional flag for scripted installs.
@@ -601,7 +602,7 @@ What was asked:
 
 What was found (2026-11-23):
 
-  - **0.3.3, from Sean's first-time run with C3's app ("agent-connect"):** listing chirp's scopes stopped at "Need
+  - **0.3.3, from Sean's first-time run with his company's own app:** listing chirp's scopes stopped at "Need
     admin approval" over one the app lacks (`User.ReadBasic.All`; it has `User.Read.All`), since the tenant lets no
     user consent. With a company app chirp now asks for `https://graph.microsoft.com/.default` (plus
     `offline_access` for the sign-in code): exactly what the app was approved for, never a consent prompt. Channels

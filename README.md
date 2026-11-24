@@ -87,8 +87,10 @@ files. Required keys are marked **required**.
 - `name` (**required**): the company's name.
 - `gateway` (optional): `name` (**required**), `baseUrls` (**required**, a non-empty list of http(s) URLs, tried in
   order, so a VPN address can come first), `keyPage` (**required**, an http(s) URL where a person makes a key), and
-  optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved) and `terminal` (true, so
-  terminal `claude` is set up by default too).
+  optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved), `terminal` (true, so
+  terminal `claude` is set up by default too) and `routerPrefixes` (non-empty strings: the gateway's model names that
+  start with one are its routers, which pick a model for each request, and get a menu group of their own; none by
+  default).
 - `mcpServers` (optional): a list of servers with distinct ids, each `{ id, name, about, register, connect }`.
   - `id` (**required**): letters, digits, `_` or `-`. `name` and `about` (**required**): strings.
   - `register` (**required**) is what Claude Code is given: `{ "type": "http", "url", "headers" }` or
@@ -116,7 +118,8 @@ files. Required keys are marked **required**.
     "keyPage": "https://keys.example.com",
     "requiredModel": "example-model",
     "keyFiles": ["~/.config/example/key"],
-    "terminal": true
+    "terminal": true,
+    "routerPrefixes": ["example-router"]
   },
   "mcpServers": [
     {

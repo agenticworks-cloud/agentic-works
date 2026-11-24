@@ -193,10 +193,11 @@ function gatewayModels(vars) {
 const NAME_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const CLAUDE_ORDER = ['opus', 'fable', 'sonnet', 'haiku'];
 const GROUP_ORDER = ['Claude', 'OpenAI', 'Other', 'Routers'];
-function groupOf(base) {
+/** A model's menu group; `routerPrefixes` (the company file's gateway.routerPrefixes) name the gateway's routers. */
+function groupOf(base, routerPrefixes = []) {
   if (CLAUDE_ORDER.includes(base)) return 'Claude';
   if (/^gpt-/.test(base)) return 'OpenAI';
-  if (/^nexus-auto/.test(base)) return 'Routers';
+  if (routerPrefixes.some((p) => typeof p === 'string' && p && base.startsWith(p))) return 'Routers';
   return 'Other';
 }
 
@@ -205,11 +206,15 @@ function groupOf(base) {
  * effort variants (`opus-high`) folded into its efforts, the `anthropic/` duplicates dropped, grouped Claude, OpenAI,
  * other, routers. Each is sent as `anthropic/<name>[1m]`, which Claude Code passes through as it is; the effort chosen
  * goes into the name (gatewayModelName), since the variants are how the gateway pins effort. The default stays the
- * file's ANTHROPIC_MODEL, sent by no name at all, so it offers no effort.
+ * file's ANTHROPIC_MODEL, sent by no name at all, so it offers no effort. Routers are the names starting with one of
+ * `routerPrefixes` (none by default: everything not Claude or OpenAI is other).
  * @param {string[]} ids  the gateway's model ids
  * @param {Record<string,string>} [vars]  the gateway file's variables
+ * @param {{ routerPrefixes?: string[] }} [opts]  the company's gateway.routerPrefixes
  */
-function gatewayCatalog(ids, vars) {
+function gatewayCatalog(ids, vars, opts = {}) {
+  const prefixes = Array.isArray(opts.routerPrefixes) ? opts.routerPrefixes : [];
+  const groupOfName = (b) => groupOf(b, prefixes);
   const names = new Set((ids || []).filter((s) => typeof s === 'string' && s).map((s) => s.replace(/^anthropic\//, '')));
   const efforts = new Map();
   for (const n of names) {
@@ -217,10 +222,10 @@ function gatewayCatalog(ids, vars) {
     if (m && names.has(m[1])) continue;               // a variant: counted under its model below
     efforts.set(n, NAME_EFFORTS.filter((e) => names.has(`${n}-${e}`)));
   }
-  const rank = (b) => [GROUP_ORDER.indexOf(groupOf(b)), groupOf(b) === 'Claude' ? CLAUDE_ORDER.indexOf(b) : 0, b];
+  const rank = (b) => [GROUP_ORDER.indexOf(groupOfName(b)), groupOfName(b) === 'Claude' ? CLAUDE_ORDER.indexOf(b) : 0, b];
   const bases = [...efforts.keys()].sort((a, b) => { const x = rank(a), y = rank(b); return x[0] - y[0] || x[1] - y[1] || (x[2] < y[2] ? -1 : x[2] > y[2] ? 1 : 0); });
   const models = bases.map((b) => {
-    const group = groupOf(b);
+    const group = groupOfName(b);
     const description = group === 'Claude' ? `${b} on the gateway`
       : group === 'Routers' ? 'The gateway picks a model for each request'
       : 'Not a Claude model: the gateway translates, and tools or thinking may behave differently in Claude Code';

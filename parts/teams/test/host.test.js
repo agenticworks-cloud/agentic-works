@@ -1076,7 +1076,7 @@ test('reactions in a chat tab are named from its members', async () => {
 });
 
 // ---- a company's own Microsoft app (teams.signIn.clientId / teams.signIn.tenant)
-const CO_APP = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'.replace(/c3/g, 'cc');   // no "c3" in what the tests name
+const CO_APP = '0a1b2ccd-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 const CO_TENANT = 'contoso.onmicrosoft.com';
 const loginCalls = (h) => h.fetch.calls.filter((c) => c.path.startsWith('login:'));
 

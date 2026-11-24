@@ -56,7 +56,10 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 const min = read({ name: 'Min' });
 assert.deepStrictEqual(min.company, { name: 'Min', gateway: null, mcpServers: [] });
 const g = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k' } }).company.gateway;
-assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false });
+assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false, routerPrefixes: [] });
+// router prefixes: optional, non-empty strings
+const rp = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', routerPrefixes: ['example-router'] } });
+assert.deepStrictEqual(rp.company.gateway.routerPrefixes, ['example-router']);
 
 // missing and unreadable JSON
 assert.deepStrictEqual({ ...readCompany(path.join(dir, 'nope.json')), error: undefined }, { ok: false, missing: true, error: undefined });
@@ -70,6 +73,9 @@ const mut = (fn) => { const d = clone(EXAMPLE); fn(d); return d; };
 invalid(mut((d) => { delete d.name; }), 'name');
 invalid(mut((d) => { d.gateway.baseUrls = []; }), 'gateway.baseUrls');
 invalid(mut((d) => { d.gateway.baseUrls = ['ftp://x']; }), 'gateway.baseUrls[0]');
+invalid(mut((d) => { d.gateway.routerPrefixes = 'example-router'; }), 'gateway.routerPrefixes');
+invalid(mut((d) => { d.gateway.routerPrefixes = ['ok', 3]; }), 'gateway.routerPrefixes[1]');
+invalid(mut((d) => { d.gateway.routerPrefixes = ['']; }), 'gateway.routerPrefixes[0]');
 invalid(mut((d) => { d.mcpServers[1].id = 'docs'; }), 'mcpServers[1].id');
 invalid(mut((d) => { d.mcpServers[0].connect.kind = 'oauth'; }), 'mcpServers[0].connect.kind');
 invalid(mut((d) => { delete d.mcpServers[2].connect.doneWhen; }), 'mcpServers[2].connect.doneWhen');

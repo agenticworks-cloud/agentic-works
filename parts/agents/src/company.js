@@ -55,6 +55,9 @@ function gateway(g, home) {
   if (!isHttp(g.keyPage)) throw new Invalid('gateway.keyPage', 'must be an http or https URL');
   if (g.requiredModel !== undefined && !isString(g.requiredModel)) throw new Invalid('gateway.requiredModel', 'must be a string');
   if (g.terminal !== undefined && typeof g.terminal !== 'boolean') throw new Invalid('gateway.terminal', 'must be true or false');
+  // the start of the names the gateway lists for its routers (models that pick a model per request): a menu group of their own
+  const routerPrefixes = g.routerPrefixes === undefined ? [] : stringArray(g.routerPrefixes, 'gateway.routerPrefixes');
+  routerPrefixes.forEach((s, i) => { if (!s) throw new Invalid(`gateway.routerPrefixes[${i}]`, 'must be a non-empty string'); });
   return {
     name: g.name,
     baseUrls: g.baseUrls.slice(),
@@ -63,6 +66,7 @@ function gateway(g, home) {
     env: g.env === undefined ? {} : stringMap(g.env, 'gateway.env'),
     keyFiles: (g.keyFiles === undefined ? [] : stringArray(g.keyFiles, 'gateway.keyFiles')).map((f) => expand(f, home)),
     terminal: g.terminal === true,
+    routerPrefixes,
   };
 }
 

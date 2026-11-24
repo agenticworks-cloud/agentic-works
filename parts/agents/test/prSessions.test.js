@@ -24,7 +24,7 @@ const result = (m, id, content, cwd = '/w/kestrel') => ({ type: 'user', timestam
 (async () => {
   // ---- the URL, taken apart; nothing else is a PR
   assert.deepStrictEqual(P.parsePrUrl(URL), { url: URL, owner: 'seanahn', repo: 'kestrel', n: 12, ref: 'seanahn/kestrel#12' });
-  assert.deepStrictEqual(P.parsePrUrl('https://github.com/c3-e/c3.ai-platform/pull/4501').ref, 'c3-e/c3.ai-platform#4501');
+  assert.deepStrictEqual(P.parsePrUrl('https://github.com/example-org/example-repo/pull/4501').ref, 'example-org/example-repo#4501');
   for (const bad of [undefined, 42, '', 'http://github.com/a/b/pull/1', 'https://github.com/a/b/pull/1/files', 'https://github.com/a/b/pull/1#x', 'https://github.com/a/b/issues/1', 'https://gitlab.com/a/b/pull/1', 'https://github.com/a/b/pull/0', ' https://github.com/a/b/pull/1', 'https://github.com/a/pull/1'])
     assert.strictEqual(P.parsePrUrl(bad), null, String(bad));
   // a mention of …/pull/12 is not one of …/pull/123

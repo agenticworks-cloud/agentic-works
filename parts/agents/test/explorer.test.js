@@ -12,14 +12,14 @@ try {
   const md = (name, description) => `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`;
 
   // what a SKILL.md says of itself: its name and description, a folded or literal block too
-  assert.deepStrictEqual(skillHead('---\nname: c3-acls\ndescription: |\n  Implements ACLs.\n  Use this skill when:\n    (1) adding\nversion: 2\n---\nbody'), { name: 'c3-acls', description: 'Implements ACLs. Use this skill when: (1) adding' });
+  assert.deepStrictEqual(skillHead('---\nname: example-skill\ndescription: |\n  Implements ACLs.\n  Use this skill when:\n    (1) adding\nversion: 2\n---\nbody'), { name: 'example-skill', description: 'Implements ACLs. Use this skill when: (1) adding' });
   assert.deepStrictEqual(skillHead('---\nname: "quoted"\ndescription: >\n  One\n  line.\n---\n'), { name: 'quoted', description: 'One line.' });
   assert.deepStrictEqual(skillHead('# no front matter'), { name: '', description: '' });
 
   const dir = path.join(tmp, 'work'), home = path.join(tmp, 'claude');
-  const proj = write(path.join(dir, '.claude', 'skills', 'c3-acls', 'SKILL.md'), md('c3-acls', 'ACLs on C3.'));
-  write(path.join(dir, '.claude', 'skills', 'c3-acls', 'references', 'reference.md'), 'more');
-  write(path.join(dir, '.claude', 'skills', 'c3-acls', 'scripts', 'check.py'), 'print(1)');
+  const proj = write(path.join(dir, '.claude', 'skills', 'example-skill', 'SKILL.md'), md('example-skill', 'An example skill.'));
+  write(path.join(dir, '.claude', 'skills', 'example-skill', 'references', 'reference.md'), 'more');
+  write(path.join(dir, '.claude', 'skills', 'example-skill', 'scripts', 'check.py'), 'print(1)');
   write(path.join(dir, '.claude', 'skills', 'no-file-here', 'README.md'), 'not a skill');
   const mine = write(path.join(home, 'skills', 'notes', 'SKILL.md'), md('notes', 'My notes.'));
   const synced = write(path.join(home, 'skills', 'synced', 'abc_123', 'pptx', 'SKILL.md'), md('pptx', 'Slides.'));
@@ -32,7 +32,7 @@ try {
   write(path.join(home, 'settings.json'), JSON.stringify({ enabledPlugins: { 'trivialpowers@dev': true, 'off@dev': false } }));
 
   assert.deepStrictEqual(listSkills({ dir, home }), [
-    { name: 'c3-acls', source: 'this folder', description: 'ACLs on C3.', file: proj, files: ['SKILL.md', 'references/reference.md', 'scripts/check.py'] },
+    { name: 'example-skill', source: 'this folder', description: 'An example skill.', file: proj, files: ['SKILL.md', 'references/reference.md', 'scripts/check.py'] },
     { name: 'notes', source: 'yours', description: 'My notes.', file: mine, files: ['SKILL.md'] },
     { name: 'anthropic-skills:pptx', source: 'claude.ai', description: 'Slides.', file: synced, files: ['SKILL.md'] },
     { name: 'trivialpowers:brainstorming', source: 'trivialpowers', description: 'Before creative work.', file: plug, files: ['SKILL.md'] },

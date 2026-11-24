@@ -92,27 +92,31 @@ try {
     assert.deepStrictEqual(G.gatewayModels(undefined).models, []);
   }
 
-  // the gateway's own list (GET /v1/models), as ai-gateway.c3ci.cloud gave it on 2026-11-10: 100 names, 13 models
+  // the gateway's own list (GET /v1/models), shaped as one company's gateway gave it on 2026-11-10: 100 names, 13 models
   {
     const E = ['low', 'medium', 'high', 'xhigh', 'max'];
     const bare = [];
     const add = (b, effs) => { bare.push(b); for (const e of effs) bare.push(`${b}-${e}`); };
     for (const b of ['fable', 'gpt-astra', 'gpt-sol', 'gpt-terra', 'haiku', 'opus']) add(b, E);
     add('gpt-luna', ['high', 'xhigh', 'max']); add('sonnet', ['medium', 'high', 'xhigh', 'max']);
-    for (const r of ['nexus-auto', 'nexus-auto-bargain', 'nexus-auto-fixed', 'nexus-auto-quality', 'nexus-auto-unlimited']) add(r, []);
+    for (const r of ['example-router', 'example-router-bargain', 'example-router-fixed', 'example-router-quality', 'example-router-unlimited']) add(r, []);
     const ids = [...bare, ...bare.map((n) => 'anthropic/' + n)];
     assert.strictEqual(ids.length, 100);
-    const c = G.gatewayCatalog(ids, { ANTHROPIC_MODEL: 'nexus-auto-bargain[1m]' });
-    assert.deepStrictEqual(c.models.map((m) => m.label), ['opus', 'fable', 'sonnet', 'haiku', 'gpt-astra', 'gpt-luna', 'gpt-sol', 'gpt-terra', 'nexus-auto', 'nexus-auto-bargain', 'nexus-auto-fixed', 'nexus-auto-quality', 'nexus-auto-unlimited'], 'one entry per model, Claude first, routers last');
+    const c = G.gatewayCatalog(ids, { ANTHROPIC_MODEL: 'example-router-bargain[1m]' }, { routerPrefixes: ['example-router'] });
+    assert.deepStrictEqual(c.models.map((m) => m.label), ['opus', 'fable', 'sonnet', 'haiku', 'gpt-astra', 'gpt-luna', 'gpt-sol', 'gpt-terra', 'example-router', 'example-router-bargain', 'example-router-fixed', 'example-router-quality', 'example-router-unlimited'], 'one entry per model, Claude first, routers last');
     assert.deepStrictEqual([...new Set(c.models.map((m) => m.group))], ['Claude', 'OpenAI', 'Routers']);
+    // the company file names no router prefixes (the default): no Routers group, the routers are other models
+    const plain = G.gatewayCatalog(ids, {});
+    assert.deepStrictEqual([...new Set(plain.models.map((m) => m.group))], ['Claude', 'OpenAI', 'Other']);
+    assert.deepStrictEqual(plain.models.find((m) => m.label === 'example-router').group, 'Other');
     const by = (l) => c.models.find((m) => m.label === l);
     assert.deepStrictEqual([by('opus').value, by('opus').efforts, by('opus').effortInName], ['anthropic/opus[1m]', E, true], 'sent with the prefix Claude Code passes through, and the 1M window');
     assert.deepStrictEqual(by('sonnet').efforts, ['medium', 'high', 'xhigh', 'max'], 'only the levels the gateway names');
     assert.deepStrictEqual(by('gpt-luna').efforts, ['high', 'xhigh', 'max']);
-    assert.deepStrictEqual(by('nexus-auto').efforts, [], 'a router has no effort');
+    assert.deepStrictEqual(by('example-router').efforts, [], 'a router has no effort');
     assert(/Not a Claude model/.test(by('gpt-sol').description));
-    assert.deepStrictEqual([c.defaultModel.label, c.defaultModel.efforts], ['nexus-auto-bargain[1m]', []], 'the default is still the file\'s, sent by no name, so no effort');
-    assert.deepStrictEqual(G.gatewayCatalog(['nexus-auto-x-high'], {}).models.map((m) => [m.label, m.efforts]), [['nexus-auto-x-high', []]], 'a suffix with no model of that name is part of the name');
+    assert.deepStrictEqual([c.defaultModel.label, c.defaultModel.efforts], ['example-router-bargain[1m]', []], 'the default is still the file\'s, sent by no name, so no effort');
+    assert.deepStrictEqual(G.gatewayCatalog(['example-router-x-high'], {}).models.map((m) => [m.label, m.efforts]), [['example-router-x-high', []]], 'a suffix with no model of that name is part of the name');
     assert.deepStrictEqual(G.gatewayCatalog(undefined, {}).models, []);
   }
 

@@ -1546,7 +1546,8 @@ class PerchView {
     const gw = this.gateway();
     this.refreshGatewayModels(gw);
     const url = gw.vars.ANTHROPIC_BASE_URL;
-    return this.gatewayIds && this.gatewayIdsFor === url ? Gateway.gatewayCatalog(this.gatewayIds, gw.vars) : Gateway.gatewayModels(gw.vars);
+    const cg = this.companyGateway();   // its routerPrefixes group the gateway's routers
+    return this.gatewayIds && this.gatewayIdsFor === url ? Gateway.gatewayCatalog(this.gatewayIds, gw.vars, { routerPrefixes: (cg && cg.routerPrefixes) || [] }) : Gateway.gatewayModels(gw.vars);
   }
   /** Ask the gateway for its models: again after ten minutes, and after a minute when it did not answer. */
   refreshGatewayModels(gw) {
