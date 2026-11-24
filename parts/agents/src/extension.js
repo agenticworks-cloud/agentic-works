@@ -16,6 +16,7 @@ const codexAuth = require('./codexAuth');
 const Gateway = require('./gateway');
 const { checkKey, probeBaseUrls } = require('./gatewayCheck');
 const KeyCommand = require('./keyCommand');
+const KEY_ALREADY_RUNNING = 'A key is already being fetched; wait for it to finish.';
 const TerminalClaude = require('./terminalClaude');
 const { companyFile, readCompany } = require('./company');
 const { chooseFirstTab } = require('./firstTab');
@@ -1542,11 +1543,12 @@ class PerchView {
    * Get a key: with the company's keyCommand, the key helper is run here (KeyCommand.runKeyCommand) and the key it
    * prints goes straight to saveGatewayForm, as a pasted one would; it is never posted, logged or put on a command
    * line. A helper that can't is answered keyFailed {text}, its reason made safe for the page. Without a keyCommand,
-   * the key page opens. One helper at a time: a second Get a key while one runs is ignored.
+   * the key page opens. One helper at a time: a second Get a key while one runs is answered keyFailed, so the page that
+   * asked doesn't wait on a run that isn't its own.
    */
   async getCompanyKey(cg, post, { from = 'panel', where = 'gateway form' } = {}) {
     if (!cg.keyCommand) { await this.openKeyPage(cg, where); return null; }
-    if (this.keyCommandRunning) return null;
+    if (this.keyCommandRunning) { post({ type: 'keyFailed', text: KEY_ALREADY_RUNNING }); return null; }
     this.keyCommandRunning = true;
     let got;
     try {

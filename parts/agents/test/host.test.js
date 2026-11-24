@@ -2327,11 +2327,18 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       writeCompany('sleep');
       m.perch.keyCommandTimeoutMs = 200;
       assert.deepStrictEqual(await ask({ type: 'getKey' }), [{ type: 'gatewayKeyFailed', text: 'That took too long.' }]);
-      // one at a time: a second Get a key while one runs is ignored
+      // one at a time: a second Get a key while one runs is answered, so its page doesn't wait on a run not its own
       m.perch.keyCommandTimeoutMs = 500;
       const first = ask({ type: 'getKey' });
-      assert.deepStrictEqual(await ask({ type: 'getKey' }), [], 'ignored while one runs');
+      const BUSY = [{ type: 'gatewayKeyFailed', text: 'A key is already being fetched; wait for it to finish.' }];
+      assert.deepStrictEqual(await ask({ type: 'getKey' }), BUSY, 'the page: answered while one runs');
+      m.commands['perch.setUpGateway']();
+      const busyPanel = m.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0];
+      busyPanel.fire({ type: 'getKey' });
+      await until(() => busyPanel.got.some((x) => x.type === 'keyFailed'));
+      assert.deepStrictEqual(busyPanel.got.filter((x) => x.type === 'keyFailed'), [{ type: 'keyFailed', text: BUSY[0].text }], 'the panel too');
       assert.deepStrictEqual((await first).map((r) => r.type), ['gatewayKeyFailed']);
+      assert.strictEqual((await first)[0].text, 'That took too long.');
       // the manual way: Open the key page
       assert.deepStrictEqual(await ask({ type: 'keyPage' }), []);
       await flush();

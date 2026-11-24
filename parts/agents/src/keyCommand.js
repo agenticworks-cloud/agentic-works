@@ -12,6 +12,8 @@ const TIMEOUT_MS = 12 * 60e3;
 const MAX_STDOUT = 64 * 1024;
 const MAX_STDERR = 64 * 1024;
 const MAX_REASON = 200;
+const DRAIN_MS = 200;        // after the helper exits, how long its output may still arrive
+const KILL_GRACE_MS = 2000;  // from SIGTERM to SIGKILL
 const PREFIX = "Couldn't get a key automatically:";
 const TEXT = {
   signIn: "The sign-in wasn't completed.",
@@ -37,26 +39,60 @@ const failed = (reason) => ({ ok: false, text: `${PREFIX} ${maskReason(reason) |
 /**
  * Run the key helper. Resolves `{ ok: true, key }` or `{ ok: false, text }`; never rejects.
  * @param {string[]} argv the program (absolute) and its arguments
- * @param {{ timeoutMs?: number, env?: object, cwd?: string }} [o]
+ * @param {{ timeoutMs?: number, env?: object, cwd?: string, drainMs?: number, killGraceMs?: number }} [o]
  */
-function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd } = {}) {
+function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd, drainMs = DRAIN_MS, killGraceMs = KILL_GRACE_MS } = {}) {
   return new Promise((resolve) => {
-    let child, done = false, out = [], outLen = 0, err = '', timedOut = false, tooMuch = false, timer = null, killer = null;
+    let child, done = false, out = [], outLen = 0, err = '', timedOut = false, tooMuch = false, exited = false;
+    const timers = [];
+    const later = (ms, f) => { const t = setTimeout(f, ms); timers.push(t); return t; };
+    // the helper's whole process group (it runs detached, as a group of its own): a browser or a refresher it left
+    // behind goes with it. Windows has no process groups: the helper alone.
+    const signalGroup = (sig) => {
+      if (!child || !child.pid) return;
+      try {
+        if (process.platform === 'win32') child.kill(sig);
+        else process.kill(-child.pid, sig);
+      } catch (_) { /* gone */ }
+    };
     const finish = (r) => {
       if (done) return;
       done = true;
-      clearTimeout(timer); clearTimeout(killer);
+      for (const t of timers) clearTimeout(t);
       out = [];   // stdout is held no longer than needed
+      // a leftover child may hold the pipes open: they are let go, and what is left of the group is stopped
+      if (child) {
+        for (const p of [child.stdout, child.stderr]) { try { p.destroy(); } catch (_) { /* gone */ } }
+        signalGroup('SIGTERM');
+        const k = setTimeout(() => signalGroup('SIGKILL'), killGraceMs);
+        if (k.unref) k.unref();
+        if (child.unref) child.unref();
+      }
       resolve(r);
     };
     const stop = () => {
-      try { child.kill('SIGTERM'); } catch (_) { /* gone */ }
-      killer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) { /* gone */ } }, 2000);
-      if (killer.unref) killer.unref();
+      signalGroup('SIGTERM');
+      later(killGraceMs, () => {
+        signalGroup('SIGKILL');
+        // a helper that does not end even then: answered anyway
+        later(drainMs, () => settle(null, 'SIGKILL'));
+      });
+    };
+    const settle = (code, signal) => {
+      if (timedOut) { finish({ ok: false, text: TEXT.timeout }); return; }
+      if (tooMuch) { finish(failed('the key helper printed more than a key.')); return; }
+      if (code === 0) {
+        const key = Buffer.concat(out).toString('utf8').trim();
+        if (!key) { finish(failed(lastLine(err) || 'the key helper printed no key.')); return; }
+        finish({ ok: true, key });
+        return;
+      }
+      if (code === 2) { finish({ ok: false, text: TEXT.signIn }); return; }
+      finish(failed(lastLine(err) || (signal ? `the key helper was stopped (${signal}).` : `the key helper exited with code ${code}.`)));
     };
     if (!Array.isArray(argv) || !argv.length || typeof argv[0] !== 'string' || !argv[0]) { finish({ ok: false, text: TEXT.missing }); return; }
     try {
-      child = spawn(argv[0], argv.slice(1), { shell: false, stdio: ['ignore', 'pipe', 'pipe'], env, cwd, windowsHide: true });
+      child = spawn(argv[0], argv.slice(1), { shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env, cwd, windowsHide: true });
     } catch (e) {
       finish(e && e.code === 'ENOENT' ? { ok: false, text: TEXT.missing } : failed(e && e.code ? `the key helper could not be started (${e.code}).` : 'the key helper could not be started.'));
       return;
@@ -73,19 +109,14 @@ function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd } 
       if (e && e.code === 'ENOENT') finish({ ok: false, text: TEXT.missing });
       else finish(failed(e && e.code ? `the key helper could not be started (${e.code}).` : 'the key helper could not be started.'));
     });
-    child.on('close', (code, signal) => {
-      if (timedOut) { finish({ ok: false, text: TEXT.timeout }); return; }
-      if (tooMuch) { finish(failed('the key helper printed more than a key.')); return; }
-      if (code === 0) {
-        const key = Buffer.concat(out).toString('utf8').trim();
-        if (!key) { finish(failed(lastLine(err) || 'the key helper printed no key.')); return; }
-        finish({ ok: true, key });
-        return;
-      }
-      if (code === 2) { finish({ ok: false, text: TEXT.signIn }); return; }
-      finish(failed(lastLine(err) || (signal ? `the key helper was stopped (${signal}).` : `the key helper exited with code ${code}.`)));
+    // the answer is the helper's exit, not its pipes' close (a child it left may hold them): its output is drained for
+    // a moment, or until the pipes close if that is sooner
+    child.on('exit', (code, signal) => {
+      exited = true;
+      later(drainMs, () => settle(code, signal));
+      child.on('close', () => settle(code, signal));
     });
-    timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
+    later(timeoutMs, () => { if (!exited) { timedOut = true; stop(); } });
   });
 }
 

@@ -24,6 +24,27 @@ const KEY = 'sk-example-0123456789abcdefghijklmnop';
   const big = await runKeyCommand(fake('big'));
   assert.deepStrictEqual(big, { ok: false, text: "Couldn't get a key automatically: the key helper printed more than a key." }, 'stdout capped');
   assert.deepStrictEqual(await runKeyCommand(fake('stdin')), { ok: true, key: 'closed' }, 'stdin is closed');
+  // a helper that leaves a child behind (a browser, a refresher) holding its pipes: answered at its exit, the child stopped
+  if (process.platform !== 'win32') {
+    const fs = require('fs'), os = require('os');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-keycmd-'));
+    const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (_) { return false; } };
+    const gone = async (pid) => { for (let i = 0; i < 100 && alive(pid); i++) await new Promise((r) => setTimeout(r, 50)); return !alive(pid); };
+    try {
+      const pidOk = path.join(tmp, 'ok.pid');
+      let t = Date.now();
+      assert.deepStrictEqual(await runKeyCommand(fake('bgok', KEY, pidOk)), { ok: true, key: KEY }, 'exit 0 with a key, a child left behind');
+      assert(Date.now() - t < 3000, `answered promptly (${Date.now() - t} ms)`);
+      const p1 = Number(fs.readFileSync(pidOk, 'utf8'));
+      assert(await gone(p1), 'the child left behind is stopped');
+      const pidSleep = path.join(tmp, 'sleep.pid');
+      t = Date.now();
+      assert.deepStrictEqual(await runKeyCommand(fake('bgsleep', pidSleep), { timeoutMs: 300 }), { ok: false, text: 'That took too long.' });
+      assert(Date.now() - t < 4000, `the timeout answers promptly (${Date.now() - t} ms)`);
+      const p2 = Number(fs.readFileSync(pidSleep, 'utf8'));
+      assert(await gone(p2), 'the whole group is stopped at the timeout');
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  }
   // a key-shaped string in stderr never reaches the reason
   const leaked = await runKeyCommand(fake('fail', `refused ${KEY} and token=abcdefghijklmnopqrstuvwxyz0123 for task-runner`));
   assert.strictEqual(leaked.ok, false);

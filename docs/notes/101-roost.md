@@ -846,13 +846,16 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - **Built (0.5.1), and where it differs** *(my calls unless marked)*:
     - *Where it runs: the Agents part.* `getKey` (the panel's and `perch.connectClaude.request`'s) runs the helper
       when the company gateway has a `keyCommand` (`parts/agents/src/keyCommand.js`, spawn with no shell, stdin
-      `'ignore'`, stdout capped at 64 KiB, SIGTERM then SIGKILL at the timeout) and hands the key to
+      `'ignore'`, stdout capped at 64 KiB, detached as a process group of its own; answered at its exit after a
+      200 ms drain, not at its pipes' close, so a browser or refresher it leaves behind can't hold it open; that
+      leftover group is stopped then; at the timeout the whole group gets SIGTERM, then SIGKILL) and hands the key to
       `saveGatewayForm`, the pasted key's path. The key never reaches Roost's `src/`, a page or the log. Without a
       `keyCommand`, `getKey` opens the key page as before. A new request, `keyPage`, opens the key page either way
       (the manual way's button). A failure is answered `keyFailed {text}` (`gatewayKeyFailed` to Get started).
     - *The waiting line.* On Get started it is the host's step line, as Claude's login has it (a counter while a
       `getKey` with a helper is out); the panel shows its own. One helper at a time: a second Get a key while one
-      runs is ignored (the button is disabled meanwhile).
+      runs (from the other page) is answered "A key is already being fetched; wait for it to finish."; the button is
+      disabled meanwhile on the page that asked.
     - *The manual way when a helper exists* is behind **Paste a key instead**, and is shown by any failure, by
       the reason or by a verdict on the helper's key (the gateway rejected it), with Get a key renamed **Try again**.
     - *Reasons beyond the spec:* exit 0 with nothing printed reads "…: the key helper printed no key."; more than
