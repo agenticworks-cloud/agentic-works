@@ -670,7 +670,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     (or `to`) is missing, **Connect** first runs `gh release download` (argv, no shell; the platform's asset; to a temp
     file, then moved to `to`, mode 0755), then signs in. `gh` not signed in: the row says "Sign in to GitHub first",
     with that step's button. A platform with no asset: the row says so.
-  - **A company installer** (c3works) then only installs Roost and writes the company file.
+  - **A company installer** then only installs Roost and writes the company file.
   - **Built (0.4.3)**, with what differs from the design above *(my calls unless marked)*:
     - *Installer.* `ensure_github` installs gh and asks nothing; `on_terminal` went with the question. Signed in, the
       line under ✓ GitHub says `signed in as <login>`; not signed in, `sign in from Roost's walkthrough in VS Code
@@ -703,9 +703,10 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     - *Not checked live:* a real `gh release download` of a private release, and the walkthrough's two GitHub steps
       in a real VS Code.
 
-- **A Get started page of Roost's own, everything in place (design, for 0.5)** *(Sean, 2026-11-24, on the first c3works
-  run: "can we change the wording to Get Started with C3 Works? and, instead of Connect Claude, Connect C3 AI Gateway,
-  and do not open another form. do the whole thing in place")*. VS Code's walkthrough can't do either: its text is
+- **A Get started page of Roost's own, everything in place (design, for 0.5)** *(Sean, 2026-11-24, on the first run of a
+  company's installer: "can we change the wording to Get Started with <the company>? and, instead of Connect Claude,
+  Connect <the company's> Gateway, and do not open another form. do the whole thing in place"; the names are left out,
+  as the guard test asks)*. VS Code's walkthrough can't do either: its text is
   fixed when Roost is built (and Roost names no company), and its detail pane holds no input fields. So Roost shows its
   own page.
   - **The page:** a webview editor tab, **Get started**, opened by Roost's first start in place of the walkthrough, and
@@ -729,6 +730,54 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     from their commands for later use, but the page never opens them.
   - **VS Code's walkthrough** *(my call)*: kept as it is on the Welcome page, as a fallback and for people who look
     there; first start opens the page instead.
+  - **Settled while planning 0.5** *(my calls, 2026-11-24; plan `docs/superpowers/plans/2026-11-24-roost-0.5-get-started.md`)*:
+    - *How the page reaches the parts' logic.* Through commands the parts register, taking arguments and returning
+      results: the pattern the parts already use with each other (`jay.openTicket` returns whether it opened,
+      `jay.projectKeys` the keys, `perch.findPrSession` a session). `perch.connectClaude.request(msg)` takes one of the
+      Connect Claude panel's messages, or one of the gateway form's renamed (`gatewayReady`, `getKey`, `gatewaySave`),
+      and returns the replies that panel would have been posted (the form's renamed `gatewayState`, `gatewayError`,
+      `gatewayVerdict`, `gatewaySaved`); `jay.signInWith({site, email, token})` returns the sign-in form's message, or
+      null once signed in. So the panels and the page run one host code path, and the separate panels keep working.
+      Both commands are contributed with `commandPalette` `when: false`, as jay's are. Not message-passing commands
+      with callbacks: a reply that arrives late (Claude's subscription login) simply resolves the request later.
+      Why: no new mechanism, and a part still never requires Roost's `src/`. Cost if wrong: a part's later page message
+      needs its request command taught it too.
+    - *Secrets across the bridge.* A key goes page → Roost's host → the part's command, in the extension host's own
+      process (a command an extension runs that is registered in the same host is called directly, never sent out),
+      never in argv; the parts' replies never hold one, so neither does anything Roost posts. Roost logs a message's
+      `type` and an error's text, never its fields. Typed secret fields are emptied as they are sent.
+    - *The Agents page context is the page's own.* Connect Claude's host keeps the page's choices (terminal box,
+      pending Replace/Keep, Bedrock picked) apart from the panel's; a gateway saved from the page records the gateway
+      way there, and the open panel's listener ignores it. Each reply goes to the request that caused it.
+    - *Completion signals.* VS Code has no way to read a context key back, so Roost watches the parts' `setContext`
+      calls for `kestrel.signedIn`, `perch.gatewayReady`, `perch.claudeConnected`, `perch.messageSent`,
+      `chirp.signedIn` and `jay.signedIn`, by wrapping `vscode.commands.executeCommand` before any part starts, as it
+      already wraps `registerWebviewPanelSerializer` (the parts share Roost's `vscode` object). Where it cannot be
+      wrapped, that is logged and those steps tick only from Roost's own knowledge. `roost.toolsConnected` and codebase
+      search's setting are Roost's own.
+    - *Done is kept.* A step once done stays done, in globalState `roost.getStarted.done`, as VS Code keeps a ticked
+      walkthrough step (`perch.messageSent` is per window). Not Now, Turn On and Settings on the page run the
+      walkthrough's own commands, so its `onCommand:` ticks follow. Choose your parts ticks on a switch, Done or All
+      settings.
+    - *The page.* An editor tab, view type `roost.getStarted`, title **Get started**, one at a time, kept alive when
+      hidden (`retainContextWhenHidden`), not brought back after a reload (no serializer, as Connect Your Tools).
+      Heading `Get started with <title>` (`Roost` without a company file or `title`). The first step shown that isn't
+      done is open, the others closed with their tick; any can be opened. First start opens it where it opened the
+      walkthrough; **Roost: Get Started** opens it; the walkthrough stays reachable from VS Code's Welcome page only.
+    - *The company file's words.* `title` and `steps` are optional; `title`, `steps.gateway` and `steps.tools` must be
+      non-empty strings when present (otherwise the whole file is invalid, as before); other `steps` keys are ignored.
+    - *Steps shown.* As the walkthrough: while the part is switched on and not failed (GitHub: Pull Requests; Connect
+      Claude, Talk to Claude or Codex, Search your code: Agents; Connect your tools: company tools listed). A company
+      file without a gateway keeps the company order, and its Claude step offers every way, as the panel does.
+    - *Steps in place.* GitHub: Sign in, or with a login "Signed in as …" and Add Another Account; the step waits while
+      gh's terminal is open. Teams and Jira with a tools row for their token file: that row, shown and signed in in the
+      step, without opening Connect Your Tools. Teams otherwise runs its own sign-in (the browser) and waits for
+      `chirp.signedIn`. Jira otherwise: the site, email and API token form in place, through `jay.signInWith`; with a
+      token file of its own and no row, Jira's own Sign In. Choose your parts: a switch per part, written at the user
+      level (Agents' stop question may put it back; the page follows the setting), Done, and All settings.
+    - *A part that isn't running.* A request whose command isn't there says "<part title> isn't running." in its step;
+      a reply that comes after the page closed is dropped.
+    - *Shared rows.* Connect Your Tools' rows are one script (`src/toolsRows.js`) used by both of Roost's pages.
 
 ## Left to the builder
 
