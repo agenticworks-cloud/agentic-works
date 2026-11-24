@@ -57,11 +57,12 @@ assert.notStrictEqual(blamedFull, importCommit);
 assert.strictEqual(git(root, 'merge-base', '--is-ancestor', blamedFull, `${importCommit}^2`) || 'ok', 'ok');
 
 const roost = read('roost.json');
-assert.deepStrictEqual(roost, {
+assert.match(roost.version, /^\d+\.\d+\.\d+$/, 'a release version');
+assert.deepStrictEqual({ ...roost, version: undefined }, {
   name: 'roost',
   displayName: 'Roost',
   publisher: 'seanahn',
-  version: '0.1.0',
+  version: undefined,
   description: 'Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.',
   engines: { vscode: '^1.90.0' },
   license: 'MIT',

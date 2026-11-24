@@ -194,7 +194,7 @@ test('dependency version conflict throws', () => {
 test('real tree builds', () => {
   const m = buildManifest(root);
   assert.strictEqual(m.name, 'roost');
-  assert.strictEqual(m.version, '0.1.0');
+  assert.strictEqual(m.version, JSON.parse(fs.readFileSync(path.join(root, 'roost.json'), 'utf8')).version, "roost.json's version");
   const containers = Object.values(m.contributes.viewsContainers).flat().map((c) => c.id);
   for (const id of ['perch', 'chirp', 'jay', 'kestrel']) assert.ok(containers.includes(id), `container ${id}`);
   assert.deepStrictEqual(m.contributes.viewsContainers.panel.map((c) => c.id), ['kestrel']);
