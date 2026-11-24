@@ -12,10 +12,13 @@ const { readParts, partContext } = require('./parts');
 const { companyFile, readCompany } = require('./company');
 const { Tools } = require('./tools');
 const { getToolsHtml } = require('./toolsPage');
+const { watchContexts } = require('./contextWatch');
 
 const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
 const FIRST_START_KEY = 'roost.firstStart.done';
+// The parts' context keys the Get started page ticks on: VS Code cannot read one back, so Roost notes their setContext
+const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn'];
 const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
 const AGENTS_VIEW_COMMAND = 'workbench.view.extension.perch';  // Perch's activity-bar container id: opens the side bar on it
 const WALKTHROUGH = 'seanahn.roost#roost.getStarted';            // roost.contributes.json's walkthrough
@@ -333,10 +336,12 @@ class Roost {
 
   // Every failed key false first (one can be left from before an extension host restart); a part that fails sets
   // its own true after that. The parts start side by side: one whose activate never ends holds up none of the
-  // others. Nothing here is awaited before the parts' activate calls, so each part registers its serializers before
+  // others. The parts' setContext calls for WATCHED_CONTEXTS are noted from before the first starts (this.contexts).
+  // Nothing here is awaited before the parts' activate calls, so each part registers its serializers before
   // VS Code restores its tabs, as it does when it is an extension of its own.
   async startAll() {
     this.trackSerializers();
+    this.contexts = watchContexts(vscode.commands, WATCHED_CONTEXTS, { log: (l) => this.log(l) });
     const keys = [...this.parts.values()].map((e) => this.setFailed(e, false));
     const starts = [];
     for (const [id, e] of this.parts) {
@@ -389,6 +394,7 @@ class Roost {
     await Promise.all([...this.parts.keys()].map((id) => this.stop(id)));
     for (const e of this.parts.values()) this.stopClosingTabs(e);
     if (this.untrackSerializers) this.untrackSerializers();
+    if (this.contexts) this.contexts.dispose();
   }
 }
 

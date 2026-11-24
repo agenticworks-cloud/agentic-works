@@ -932,6 +932,17 @@ test('roost.jiraSignIn likewise, with jira.signIn.tokenFile, else jay.signIn', a
   await s.extension.deactivate();
 });
 
+test("Roost notes a part's setContext for a watched key, and puts VS Code's executeCommand back when it stops", async () => {
+  const { ui, extension, base } = setup();
+  const own = ui.vscode.commands.executeCommand;
+  fake.parts.teams = { activate: () => require('vscode').commands.executeCommand('setContext', 'chirp.signedIn', true) };
+  const roost = await activate(extension, base);
+  assert.strictEqual(roost.contexts.get('chirp.signedIn'), true);
+  assert.strictEqual(ui.contexts['chirp.signedIn'], true, 'and it still reached VS Code');
+  await extension.deactivate();
+  assert.strictEqual(ui.vscode.commands.executeCommand, own, "the stub's own is back");
+});
+
 test('roost.toolsNotNow is registered and does nothing', async () => {
   const s = await toolsSetup();
   await s.run('roost.toolsNotNow');
