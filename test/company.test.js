@@ -54,12 +54,19 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 
 // a minimal file, and defaults
 const min = read({ name: 'Min' });
-assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '' }, gateway: null, mcpServers: [] });
+assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [] });
+// steps.talk: the Talk to Claude or Codex step's name (Sean, 2026-11-24)
+assert.deepStrictEqual(read({ name: 'T', steps: { talk: 'Talk to Example Gateway' } }).company.steps, { gateway: '', tools: '', talk: 'Talk to Example Gateway' });
 const g = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k' } }).company.gateway;
-assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false, routerPrefixes: [] });
+assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false, routerPrefixes: [], keyCommand: null });
 // router prefixes: optional, non-empty strings
 const rp = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', routerPrefixes: ['example-router'] } });
 assert.deepStrictEqual(rp.company.gateway.routerPrefixes, ['example-router']);
+// a key command: argv, its first word absolute or ~/ (expanded)
+const kc = (keyCommand) => read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', keyCommand } });
+assert.deepStrictEqual(kc(['~/.local/bin/get-key', '--gateway', 'g']).company.gateway.keyCommand, ['/h/.local/bin/get-key', '--gateway', 'g']);
+assert.deepStrictEqual(kc(['/usr/local/bin/get-key']).company.gateway.keyCommand, ['/usr/local/bin/get-key']);
+assert.strictEqual(kc(null).company.gateway.keyCommand, null);
 
 // missing and unreadable JSON
 assert.deepStrictEqual({ ...readCompany(path.join(dir, 'nope.json')), error: undefined }, { ok: false, missing: true, error: undefined });
@@ -82,6 +89,13 @@ invalid(mut((d) => { delete d.mcpServers[2].connect.doneWhen; }), 'mcpServers[2]
 invalid(mut((d) => { d.mcpServers[1].register = { type: 'http', url: 'https://mcp.example.com/mcp' }; }), 'mcpServers[1].register.type');
 invalid(mut((d) => { d.mcpServers[1].register.env.X = 'a ${token}'; }), 'mcpServers[1].register');
 invalid(mut((d) => { d.gateway.keyPage = 'nope'; }), 'gateway.keyPage');
+invalid(mut((d) => { d.gateway.keyCommand = '/usr/local/bin/get-key'; }), 'gateway.keyCommand');
+invalid(mut((d) => { d.steps = { talk: '' }; }), 'steps.talk');
+invalid(mut((d) => { d.steps = { talk: 3 }; }), 'steps.talk');
+invalid(mut((d) => { d.gateway.keyCommand = []; }), 'gateway.keyCommand');
+invalid(mut((d) => { d.gateway.keyCommand = ['/x', 3]; }), 'gateway.keyCommand[1]');
+invalid(mut((d) => { d.gateway.keyCommand = ['get-key']; }), 'gateway.keyCommand[0]');
+invalid(mut((d) => { d.gateway.keyCommand = ['./get-key']; }), 'gateway.keyCommand[0]');
 // ${token} only in a tokenPage server's headers or env: never on argv, nor in a URL
 invalid(mut((d) => { d.mcpServers[0].register.url = 'https://mcp.example.com/mcp?key=${token}'; }), 'mcpServers[0].register.url');
 const stdioToken = (reg) => mut((d) => { d.mcpServers[0].register = reg; });
@@ -119,10 +133,10 @@ const extra = mut((d) => { d.future = 1; d.mcpServers[0].extra = { a: 1 }; });
 assert.strictEqual(read(extra).ok, true);
 
 // title and steps: optional wording for the Get started page
-{ const r = read(EXAMPLE); assert.strictEqual(r.company.title, ''); assert.deepStrictEqual(r.company.steps, { gateway: '', tools: '' }); }
+{ const r = read(EXAMPLE); assert.strictEqual(r.company.title, ''); assert.deepStrictEqual(r.company.steps, { gateway: '', tools: '', talk: '' }); }
 { const r = read({ ...clone(EXAMPLE), title: 'Example Works', steps: { gateway: 'Connect Example Gateway', tools: 'Connect Example tools', other: 1 } });
   assert.strictEqual(r.company.title, 'Example Works');
-  assert.deepStrictEqual(r.company.steps, { gateway: 'Connect Example Gateway', tools: 'Connect Example tools' }); }
+  assert.deepStrictEqual(r.company.steps, { gateway: 'Connect Example Gateway', tools: 'Connect Example tools', talk: '' }); }
 invalid({ ...clone(EXAMPLE), title: '' }, 'title');
 invalid({ ...clone(EXAMPLE), title: 3 }, 'title');
 invalid({ ...clone(EXAMPLE), steps: [] }, 'steps');

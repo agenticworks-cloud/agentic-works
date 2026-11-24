@@ -24,6 +24,8 @@ const NEW_TAB = { claude: 'roost.newClaudeTab', codex: 'roost.newCodexTab' };
 const WAIT_TERMINAL = 'Finish signing in in the terminal.';
 const WAIT_BROWSER = 'Finish signing in in your browser.';
 const WAIT_CLAUDE = 'Signing in to Claude in the terminal…';
+// the company's key helper is running (Get a key, with gateway.keyCommand): in the Agents part, which keeps the key
+const waitKey = (name) => `Getting your ${name} key…`;
 // chirp.signIn resolved but chirp.signedIn isn't true: cancelled, failed, offline, or the admin-approval wall
 const TEAMS_NOT_SIGNED_IN = "Teams isn't signed in. Try again, or see the Teams view for why.";
 // a configuration change of these refreshes the page
@@ -43,7 +45,8 @@ class GetStarted {
     this.panel = null;
     this.logins = [];
     // claude: how many subscription logins are out (perch.connectClaude.request answers only once one ends)
-    this.waiting = { github: false, teams: false, claude: 0 };
+    // key: how many Get a key requests with the company's key helper are out
+    this.waiting = { github: false, teams: false, claude: 0, key: 0 };
     this.notes = { teams: '' };
     this.subs = [];
     if (roost.contexts) this.subs.push(roost.contexts.onChange(() => this.refresh()));
@@ -154,9 +157,11 @@ class GetStarted {
       ...NAMES,
       claude: (c && c.steps.gateway) || 'Connect Claude',
       tools: (c && c.steps.tools) || 'Connect your tools',
+      agents: (c && c.steps.talk) || NAMES.agents,
     };
+    const gwName = (c && c.gateway && c.gateway.name) || '';
     const waiting = { github: this.waiting.github ? WAIT_TERMINAL : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
-      claude: this.waiting.claude > 0 ? WAIT_CLAUDE : '' };
+      claude: this.waiting.claude > 0 ? WAIT_CLAUDE : this.waiting.key > 0 && gwName ? waitKey(gwName) : '' };
     const steps = (c ? ORDER_COMPANY : ORDER_ROOST).filter((id) => this.shown(id))
       .map((id) => ({ id, name: names[id], done: !!done[id], waiting: waiting[id] || '' }));
     const jira = this.vscode.workspace.getConfiguration('jira');
@@ -164,7 +169,7 @@ class GetStarted {
     return {
       title: `Get started with ${(c && c.title) || 'Roost'}`,
       steps,
-      claude: { companyGateway: (c && c.gateway && c.gateway.name) || '' },
+      claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
       github: { logins: [...this.logins] },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams },
       jira: { rowId: this.rowFor('jira'), site: str(jira.get('site', '')), form: !(typeof jiraFile === 'string' && jiraFile) },
@@ -207,20 +212,25 @@ class GetStarted {
           const notRunning = { type: 'agents', error: `${this.title('agents', 'Agents')} isn't running.` };
           if (!this.running('agents')) { this.post(notRunning, panel); break; }
           // Claude's login answers only once it ends: the step says it is waiting until then
-          const login = !!(m.request && m.request.type === 'subscription');
-          if (login) { this.waiting.claude++; this.refresh(); }
+          const of = m.request && typeof m.request.type === 'string' ? m.request.type : '';
+          const login = of === 'subscription';
+          // Get a key with the company's key helper: the step says so until it ends (the key stays in the Agents part)
+          const c = this.company();
+          const keyRun = of === 'getKey' && !!(c && c.gateway && c.gateway.keyCommand);
+          const waits = login ? 'claude' : keyRun ? 'key' : '';
+          if (waits) { this.waiting[waits]++; this.refresh(); }
           let reply;
           try {
             const replies = await run('perch.connectClaude.request', m.request);
-            reply = { type: 'agents', replies: Array.isArray(replies) ? replies : [] };
+            reply = { type: 'agents', replies: Array.isArray(replies) ? replies : [], of };
           } catch (err) {
             this.log(`Get started: agents: ${errorMessage(err)}`);
             reply = notRunning;
           } finally {
-            if (login) this.waiting.claude--;
+            if (waits) this.waiting[waits]--;
           }
           this.post(reply, panel);
-          if (login) this.refresh();
+          if (waits) this.refresh();
           break;
         }
         case 'jiraForm': {

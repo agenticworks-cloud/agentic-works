@@ -64,8 +64,34 @@ $('token').value = ' sk-c '; submit();
 assert.deepStrictEqual(out.pop(), { type: 'save', baseUrl: '', token: 'sk-c', models: {}, force: false });
 host({ type: 'saved', state: { file: '/f', exists: true, ok: true, baseUrl: 'https://b.example.com', tokenSet: true, models: models(), preset: { name: 'Example Gateway', keyPage: 'https://ai.example.com/api-access', baseUrl: 'https://b.example.com' } }, answeredAt: 'https://b.example.com' });
 assert.deepStrictEqual([$('saved').hidden, $('answered').textContent, $('tokenSet').hidden], [false, 'Answered at https://b.example.com.', false]);
+// the company's key helper: Get a key runs it in the host; the page waits, and when it can't, Try again and the manual way
+const PRESET_CMD = { name: 'Example Gateway', keyPage: 'https://ai.example.com/api-access', baseUrl: '', keyCommand: true };
+host({ type: 'state', state: { file: '/f', exists: false, ok: false, baseUrl: '', tokenSet: false, models: models(), preset: PRESET_CMD } });
+assert.deepStrictEqual([$('form').hidden, $('paste').hidden, $('keyPage').hidden, $('aboutCommand').hidden, $('aboutPreset').hidden, $('getKey').textContent],
+  [true, false, true, false, true, 'Get a key'], 'the key helper: Get a key, and Paste a key instead; the field behind it');
+$('getKey').click(); assert.deepStrictEqual(out.pop(), { type: 'getKey' });
+assert.deepStrictEqual([$('waiting').hidden, $('waiting').textContent, $('getKey').disabled], [false, 'Getting your Example Gateway key…', true]);
+const n = out.length; $('getKey').click(); assert.strictEqual(out.length, n, 'not twice while it runs');
+host({ type: 'keyFailed', text: "The sign-in wasn't completed." });
+assert.deepStrictEqual([$('waiting').hidden, $('keyError').textContent, $('keyError').hidden, $('getKey').textContent, $('getKey').disabled, $('keyPage').hidden, $('form').hidden, $('token').hidden, $('paste').hidden],
+  [true, "The sign-in wasn't completed.", false, 'Try again', false, false, false, false, true], 'the reason, Try again, Open the key page, the Key and Check and save');
+$('keyPage').click(); assert.deepStrictEqual(out.pop(), { type: 'keyPage' });
+$('token').value = 'sk-m'; submit(); assert.deepStrictEqual(out.pop(), { type: 'save', baseUrl: '', token: 'sk-m', models: {}, force: false });
+// Try again; the helper's key refused by the gateway: the verdict, and the manual way stays
+$('getKey').click(); assert.deepStrictEqual(out.pop(), { type: 'getKey' });
+assert.deepStrictEqual([$('keyError').hidden, $('waiting').hidden], [true, false]);
+host({ type: 'verdict', text: 'Example Gateway rejected the key.', canForce: false });
+assert.deepStrictEqual([$('waiting').hidden, $('error').textContent, $('form').hidden, $('getKey').textContent, $('force').hidden], [true, 'Example Gateway rejected the key.', false, 'Try again', true]);
+$('getKey').click(); out.pop();
+host({ type: 'saved', state: { file: '/f', exists: true, ok: true, baseUrl: 'https://b.example.com', tokenSet: true, models: models(), preset: Object.assign({}, PRESET_CMD, { baseUrl: 'https://b.example.com' }) }, answeredAt: 'https://b.example.com' });
+assert.deepStrictEqual([$('saved').hidden, $('waiting').hidden, $('getKey').textContent], [false, true, 'Get a key'], 'saved');
+// Paste a key instead, from the start
+host({ type: 'state', state: { file: '/f', exists: false, ok: false, baseUrl: '', tokenSet: false, models: models(), preset: PRESET_CMD } });
+assert.deepStrictEqual([$('form').hidden, $('paste').hidden, $('keyError').hidden], [true, false, true], 'a fresh state: the helper first again');
+$('paste').click();
+assert.deepStrictEqual([$('form').hidden, $('keyPage').hidden, $('paste').hidden], [false, false, true]);
 // back to no company: the fields return
 host({ type: 'state', state: { file: '/f', exists: true, ok: true, baseUrl: 'https://gw.example.com', tokenSet: true, models: models(), preset: null } });
-assert.deepStrictEqual([$('baseUrl').hidden, $('models').hidden, d.querySelector('h1').textContent, $('getKey').hidden], [false, false, 'Set up an LLM gateway', true]);
+assert.deepStrictEqual([$('baseUrl').hidden, $('models').hidden, d.querySelector('h1').textContent, $('getKey').hidden, $('form').hidden, $('aboutCommand').hidden], [false, false, 'Set up an LLM gateway', true, false, true]);
 
 console.log('gatewayForm tests passed');

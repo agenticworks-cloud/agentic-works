@@ -15,6 +15,7 @@ const { resolveProgram, sdkCodex, sdkClaude, terminalRun } = require('./binaries
 const codexAuth = require('./codexAuth');
 const Gateway = require('./gateway');
 const { checkKey, probeBaseUrls } = require('./gatewayCheck');
+const KeyCommand = require('./keyCommand');
 const TerminalClaude = require('./terminalClaude');
 const { companyFile, readCompany } = require('./company');
 const { chooseFirstTab } = require('./firstTab');
@@ -1225,6 +1226,8 @@ class PerchView {
     this.out = typeof vscode.window.createOutputChannel === 'function' ? vscode.window.createOutputChannel('Perch') : null;   // View › Output › Perch
     this.spawnClaude = require('child_process').spawn;   // notePrMerged's headless run; a test puts a fake in its place
     this.runArgv = Connections.runArgv;   // Connect Claude's Bedrock check runs the AWS CLI with it; a test puts a fake in its place
+    this.keyCommandTimeoutMs = KeyCommand.TIMEOUT_MS;   // the company's key helper's timeout; a test makes it short
+    this.keyCommandRunning = false;   // one key helper at a time, for the panel and the page both
     this.sidebar = { view: null, ready: false };
     this.panels = new Map();         // session id -> { panel, ready }
     this.sessions = [];
@@ -1529,7 +1532,32 @@ class PerchView {
     const st = Gateway.formState(gw);
     // a key kept from another gateway is not offered to the company's: the page asks for one (the form's save refuses it too)
     if (cg && !this.companyKeyKept(gw, cg)) st.tokenSet = false;
-    return Object.assign(st, { preset: cg ? { name: cg.name, keyPage: cg.keyPage, baseUrl: (gw && gw.vars.ANTHROPIC_BASE_URL) || '' } : null });
+    return Object.assign(st, { preset: cg ? { name: cg.name, keyPage: cg.keyPage, baseUrl: (gw && gw.vars.ANTHROPIC_BASE_URL) || '', keyCommand: !!cg.keyCommand } : null });
+  }
+  /** The company's key page, in the browser. */
+  openKeyPage(cg, where) {
+    return Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(cg.keyPage))).catch((e) => this.trace(`${where}: ${(e && e.message) || e}`));
+  }
+  /**
+   * Get a key: with the company's keyCommand, the key helper is run here (KeyCommand.runKeyCommand) and the key it
+   * prints goes straight to saveGatewayForm, as a pasted one would; it is never posted, logged or put on a command
+   * line. A helper that can't is answered keyFailed {text}, its reason made safe for the page. Without a keyCommand,
+   * the key page opens. One helper at a time: a second Get a key while one runs is ignored.
+   */
+  async getCompanyKey(cg, post, { from = 'panel', where = 'gateway form' } = {}) {
+    if (!cg.keyCommand) { await this.openKeyPage(cg, where); return null; }
+    if (this.keyCommandRunning) return null;
+    this.keyCommandRunning = true;
+    let got;
+    try {
+      got = await KeyCommand.runKeyCommand(cg.keyCommand, { timeoutMs: this.keyCommandTimeoutMs });
+    } finally { this.keyCommandRunning = false; }
+    if (!got.ok) {
+      this.trace(`${where}: the key helper: ${got.text}`);   // the reason only, masked as the page has it
+      post({ type: 'keyFailed', text: got.text });
+      return null;
+    }
+    return this.saveGatewayForm({ token: got.key }, post, { from });
   }
   /** Whether the gateway file's key may go to the company's gateway: only when the file is on one of the company's addresses. */
   companyKeyKept(gw, cg) { return !!(gw && gw.vars && Gateway.isOneOf(gw.vars.ANTHROPIC_BASE_URL, cg.baseUrls)); }
@@ -1601,7 +1629,10 @@ class PerchView {
       else if (msg.type === 'newTab') Promise.resolve(vscode.commands.executeCommand('perch.newClaudeGateway')).catch((e) => this.trace(`gateway form: ${(e && e.message) || e}`));
       else if (msg.type === 'getKey') {
         const cg = this.companyGateway();
-        if (cg) Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(cg.keyPage))).catch((e) => this.trace(`gateway form: ${(e && e.message) || e}`));
+        if (cg) this.getCompanyKey(cg, post).catch((e) => post({ type: 'keyFailed', text: (e && e.message) || String(e) }));
+      } else if (msg.type === 'keyPage') {
+        const cg = this.companyGateway();
+        if (cg) this.openKeyPage(cg, 'gateway form');
       } else if (msg.type === 'save') this.saveGatewayForm(msg, post).catch((e) => post({ type: 'error', text: (e && e.message) || String(e) }));
     });
     panel.onDidDispose(() => { if (this.gatewayPanel === panel) this.gatewayPanel = null; });
@@ -2198,7 +2229,7 @@ class PerchView {
 
   /**
    * perch.connectClaude.request: one message of Connect Claude's, or of the gateway form's renamed (gatewayReady, getKey,
-   * gatewaySave), from a page that isn't theirs (Roost's Get started); answered with the replies, in order, that the
+   * keyPage, gatewaySave; keyFailed is answered gatewayKeyFailed), from a page that isn't theirs (Roost's Get started); answered with the replies, in order, that the
    * panel or the form would have been posted. The page's ctx is its own (this.pageConnect), apart from the panel's. No
    * reply holds a key: the panel's and the form's never do.
    */
@@ -2210,15 +2241,21 @@ class PerchView {
       this.pageConnect = { page: true, terminal: !!(cg && cg.terminal), pending: null, last: null, bedrockOpen: false };
     }
     const ctx = this.pageConnect;
-    const gatewayMsg = ['gatewayReady', 'getKey', 'gatewaySave'].includes(msg.type);
+    const gatewayMsg = ['gatewayReady', 'getKey', 'keyPage', 'gatewaySave'].includes(msg.type);
+    const renamed = { state: 'gatewayState', error: 'gatewayError', verdict: 'gatewayVerdict', saved: 'gatewaySaved', keyFailed: 'gatewayKeyFailed' };
+    const postRenamed = (r) => post(Object.assign({}, r, { type: renamed[r.type] || r.type }));
     try {
       if (msg.type === 'gatewayReady') post({ type: 'gatewayState', state: this.gatewayFormState(this.gateway()) });
       else if (msg.type === 'getKey') {
+        // with a keyCommand, the key helper runs here and its key is checked and saved as a pasted one is
         const cg = this.companyGateway();
-        if (cg) await Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(cg.keyPage))).catch((e) => this.trace(`connect claude: ${(e && e.message) || e}`));
+        const gw = cg ? await this.getCompanyKey(cg, postRenamed, { from: 'page', where: 'connect claude' }) : null;
+        if (gw) await this.connectSaved('gateway', { gw }, ctx, post);
+      } else if (msg.type === 'keyPage') {
+        const cg = this.companyGateway();
+        if (cg) await this.openKeyPage(cg, 'connect claude');
       } else if (msg.type === 'gatewaySave') {
-        const renamed = { state: 'gatewayState', error: 'gatewayError', verdict: 'gatewayVerdict', saved: 'gatewaySaved' };
-        const gw = await this.saveGatewayForm(msg, (r) => post(Object.assign({}, r, { type: renamed[r.type] || r.type })), { from: 'page' });
+        const gw = await this.saveGatewayForm(msg, postRenamed, { from: 'page' });
         if (gw) await this.connectSaved('gateway', { gw }, ctx, post);
       } else await this.connectMessage(msg, ctx, post);
     } catch (e) {

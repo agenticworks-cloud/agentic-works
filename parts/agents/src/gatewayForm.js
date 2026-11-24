@@ -3,9 +3,13 @@
 // formState (never the token, only whether there is one) and answers a save with the file read back, or what is wrong.
 // The key is checked with the gateway before it is saved (gatewayCheck.checkKey): a verdict that is not "works" is
 // shown, and Save anyway is offered only when the host says so (canForce). With a company gateway (state.preset, from
-// company.json) the form is that gateway's: no base URL and no model names, a Get a key button, a Key.
-// Messages, page to host: ready; getKey; save {baseUrl, token, models, force}; newTab; openFile. Host to page: state
-// {state}; saved {state, answeredAt?}; error {text}; verdict {text, canForce}. No VS Code dependency. (Sean, 2026-11-24)
+// company.json) the form is that gateway's: no base URL and no model names, a Get a key button, a Key. With the
+// company's key helper (preset.keyCommand), Get a key runs it in the host and the key it prints is checked and saved
+// there; the page says "Getting your <name> key…" until the answer, and when it can't, the reason, Try again and the
+// manual way (Open the key page, the Key, Check and save), which "Paste a key instead" also shows.
+// Messages, page to host: ready; getKey; keyPage; save {baseUrl, token, models, force}; newTab; openFile. Host to page:
+// state {state}; saved {state, answeredAt?}; error {text}; verdict {text, canForce}; keyFailed {text}. No VS Code
+// dependency. (Sean, 2026-11-24)
 
 const { MODEL_VARS } = require('./gateway');
 
@@ -39,7 +43,8 @@ function getGatewayFormHtml({ nonce, cspSource }) {
   button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); }
   .row { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
   #tokenSet { display: flex; gap: 8px; align-items: center; }
-  #error { color: var(--vscode-errorForeground); margin-top: 10px; white-space: pre-wrap; }
+  #error, #keyError { color: var(--vscode-errorForeground); margin-top: 10px; white-space: pre-wrap; }
+  #waiting { font-style: italic; }
   #saved { margin-top: 16px; padding: 10px 12px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
   [hidden] { display: none !important; }
   code { font-family: var(--vscode-editor-font-family); }
@@ -48,7 +53,10 @@ function getGatewayFormHtml({ nonce, cspSource }) {
   <h1 id="title">Set up an LLM gateway</h1>
   <p class="muted" id="about">An Anthropic-compatible endpoint, such as a company's LLM proxy. Claude tabs on the gateway use it; Claude Code's own settings are not touched. The token is checked with the gateway, then kept only in <code id="file"></code>, readable by you alone.</p>
   <p class="muted" id="aboutPreset" hidden>Get a key from <span id="presetName"></span>'s page, paste it below, and it is checked with the gateway before it is saved, in <code id="presetFile"></code>, readable by you alone.</p>
-  <div class="row" id="getKeyRow" hidden><button type="button" class="secondary" id="getKey">Get a key</button></div>
+  <p class="muted" id="aboutCommand" hidden>Get a key signs you in to <span id="commandName"></span> and gets your key; it is checked with the gateway before it is saved, in <code id="commandFile"></code>, readable by you alone.</p>
+  <div class="row" id="getKeyRow" hidden><button type="button" class="secondary" id="getKey">Get a key</button><button type="button" class="secondary" id="keyPage" hidden>Open the key page</button><button type="button" class="link" id="paste" hidden>Paste a key instead</button></div>
+  <p class="muted" id="waiting" hidden></p>
+  <div id="keyError" role="alert" hidden></div>
   <form id="form" autocomplete="off">
     <label for="baseUrl" id="baseUrlLabel">Base URL</label>
     <input id="baseUrl" type="text" placeholder="https://llm-gateway.example.com" spellcheck="false">
@@ -72,13 +80,31 @@ function getGatewayFormHtml({ nonce, cspSource }) {
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
   const MODELS = ${JSON.stringify(MODEL_VARS)};
-  let tokenSet = false, preset = null;
+  let tokenSet = false, preset = null, manual = false, running = false, failed = false;
+  const helper = () => !!(preset && preset.keyCommand);
+  // the key helper's controls: Get a key (Try again once it failed), the manual way behind a failure or Paste a key instead
+  function showHelper() {
+    const h = helper();
+    $('aboutPreset').hidden = !preset || h; $('aboutCommand').hidden = !h;
+    $('form').hidden = h && !manual;
+    $('getKey').textContent = h && failed ? 'Try again' : 'Get a key';
+    $('getKey').disabled = running;
+    $('keyPage').hidden = !h || !manual;
+    $('paste').hidden = !h || manual;
+    $('waiting').hidden = !running;
+    $('waiting').textContent = running && preset ? 'Getting your ' + preset.name + ' key…' : '';
+  }
+  function keyFailed(text) {
+    running = false; failed = true; manual = true;
+    $('keyError').textContent = text || ''; $('keyError').hidden = !text;
+    showHelper();
+  }
   function show(st) {
     preset = st.preset || null;
     $('title').textContent = preset ? 'Connect to ' + preset.name : 'Set up an LLM gateway';
-    $('about').hidden = !!preset; $('aboutPreset').hidden = !preset; $('getKeyRow').hidden = !preset; $('getKey').hidden = !preset;
-    $('presetName').textContent = preset ? preset.name : '';
-    $('file').textContent = st.file || ''; $('presetFile').textContent = st.file || '';
+    $('about').hidden = !!preset; $('getKeyRow').hidden = !preset; $('getKey').hidden = !preset;
+    $('presetName').textContent = preset ? preset.name : ''; $('commandName').textContent = preset ? preset.name : '';
+    $('file').textContent = st.file || ''; $('presetFile').textContent = st.file || ''; $('commandFile').textContent = st.file || '';
     for (const id of ['baseUrl', 'baseUrlLabel', 'models']) $(id).hidden = !!preset;
     $('tokenLabel').textContent = preset ? 'Key' : 'Token';
     $('token').placeholder = preset ? 'The key from ' + preset.name : "The gateway's token";
@@ -89,11 +115,21 @@ function getGatewayFormHtml({ nonce, cspSource }) {
     $('token').hidden = tokenSet;
     $('token').value = '';
     for (const k of MODELS) $(k).value = (st.models && st.models[k]) || '';
+    showHelper();
   }
   $('replace').addEventListener('click', () => { $('tokenSet').hidden = true; $('token').hidden = false; $('token').focus(); });
   $('openFile').addEventListener('click', () => vscode.postMessage({ type: 'openFile' }));
   $('newTab').addEventListener('click', () => vscode.postMessage({ type: 'newTab' }));
-  $('getKey').addEventListener('click', () => vscode.postMessage({ type: 'getKey' }));
+  $('getKey').addEventListener('click', () => {
+    if (helper()) {
+      if (running) return;
+      running = true; $('keyError').textContent = ''; $('keyError').hidden = true; $('error').textContent = ''; $('saved').hidden = true;
+      showHelper();
+    }
+    vscode.postMessage({ type: 'getKey' });
+  });
+  $('keyPage').addEventListener('click', () => vscode.postMessage({ type: 'keyPage' }));
+  $('paste').addEventListener('click', () => { manual = true; showHelper(); $('token').focus(); });
   $('form').addEventListener('input', () => { $('saved').hidden = true; $('force').hidden = true; });
   function save(force) {
     $('error').textContent = '';
@@ -106,10 +142,14 @@ function getGatewayFormHtml({ nonce, cspSource }) {
   $('force').addEventListener('click', () => save(true));
   window.addEventListener('message', (e) => {
     const m = e.data || {};
-    if (m.type === 'state') { show(m.state); $('saved').hidden = true; }
-    else if (m.type === 'saved') { show(m.state); $('error').textContent = ''; $('answered').textContent = m.answeredAt ? 'Answered at ' + m.answeredAt + '.' : ''; $('saved').hidden = false; }
-    else if (m.type === 'error') { $('error').textContent = m.text || ''; $('saved').hidden = true; $('force').hidden = true; }
-    else if (m.type === 'verdict') { $('error').textContent = m.text || ''; $('saved').hidden = true; $('force').hidden = !m.canForce; }
+    if (m.type === 'state') { manual = false; failed = false; running = false; $('keyError').hidden = true; show(m.state); $('saved').hidden = true; }
+    else if (m.type === 'saved') { running = false; failed = false; $('keyError').hidden = true; show(m.state); $('error').textContent = ''; $('answered').textContent = m.answeredAt ? 'Answered at ' + m.answeredAt + '.' : ''; $('saved').hidden = false; }
+    else if (m.type === 'keyFailed') { $('saved').hidden = true; keyFailed(m.text); }
+    else if (m.type === 'error' || m.type === 'verdict') {
+      // a key from the helper that the check refuses: Try again and the manual way, as for a helper that can't
+      if (running) keyFailed('');
+      $('error').textContent = m.text || ''; $('saved').hidden = true; $('force').hidden = m.type === 'error' || !m.canForce;
+    }
   });
   vscode.postMessage({ type: 'ready' });
 })();

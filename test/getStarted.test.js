@@ -182,13 +182,22 @@ test('words and order from the company file; steps of a part that is off are hid
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts']);
   assert.deepStrictEqual(st.steps.slice(1, 4).map((x) => x.name), ['Connect Example Gateway', 'Talk to Claude or Codex', 'Connect your tools']);
   assert.deepStrictEqual(st.steps.map((x) => [x.done, x.waiting]), st.steps.map(() => [false, '']));
-  assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway' });
+  assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway', keyCommand: false });
+  assert.strictEqual(st.steps.find((x) => x.id === 'agents').name, 'Talk to Claude or Codex', 'no steps.talk: the default');
   assert.deepStrictEqual(st.parts.map((p) => [p.id, p.on]), [['agents', true], ['jira', true], ['pullRequests', true], ['teams', true]]);
   assert.deepStrictEqual(st.parts[0].title, 'Agents (Claude Code and Codex)');
   await setEnabled(s.ui, 'teams', false);
   const after = await s.stateOf();
   assert.ok(!after.steps.some((x) => x.id === 'teams'));
   assert.strictEqual(after.parts.find((p) => p.id === 'teams').on, false, 'the parts step follows the setting');
+  await s.extension.deactivate();
+});
+
+test('steps.talk names the talk step (Sean, 2026-11-24)', async () => {
+  const s = await pageSetup({ ...EXAMPLE, steps: { talk: 'Talk to Example Gateway' } });
+  const st = await s.stateOf();
+  assert.strictEqual(st.steps.find((x) => x.id === 'agents').name, 'Talk to Example Gateway');
+  assert.strictEqual(st.steps.find((x) => x.id === 'claude').name, 'Connect Claude', 'the others keep their defaults');
   await s.extension.deactivate();
 });
 
@@ -199,7 +208,7 @@ test('no company file: Roost\'s words and order', async () => {
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
   assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code (optional)', 'Choose your parts']);
-  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '' }, { logins: [] }, { rowId: '', note: '' }, { rowId: '', site: '', form: true }]);
+  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [] }, { rowId: '', note: '' }, { rowId: '', site: '', form: true }]);
   await s.extension.deactivate();
 });
 
@@ -259,7 +268,7 @@ test('agents requests go to perch.connectClaude.request; a key never reaches the
   const got = []; s.ui.commands['perch.connectClaude.request'] = async (m) => { got.push(m); return [{ type: 'saved', way: 'apiKey', terminalNote: '' }]; };
   await s.page.receive({ type: 'agents', request: { type: 'apiKey', key: 'sk-ant-9' } });
   assert.deepStrictEqual(got, [{ type: 'apiKey', key: 'sk-ant-9' }]);
-  assert.deepStrictEqual(s.page.posted.filter((m) => m.type === 'agents').pop(), { type: 'agents', replies: [{ type: 'saved', way: 'apiKey', terminalNote: '' }] });
+  assert.deepStrictEqual(s.page.posted.filter((m) => m.type === 'agents').pop(), { type: 'agents', replies: [{ type: 'saved', way: 'apiKey', terminalNote: '' }], of: 'apiKey' });
   delete s.ui.commands['perch.connectClaude.request'];
   await s.page.receive({ type: 'agents', request: { type: 'ready' } });
   assert.deepStrictEqual(s.page.posted.pop(), { type: 'agents', error: "Agents (Claude Code and Codex) isn't running." });
@@ -292,6 +301,34 @@ test('Claude\'s login: the step says it is waiting while the request is out, and
   await s.page.receive({ type: 'agents', request: { type: 'apiKey', key: 'sk-ant-1' } });
   assert.strictEqual(s.page.posted.filter((m) => m.type === 'state').length, before, 'no state posted for an API key');
   await s.extension.deactivate();
+});
+
+test('Get a key with the company\'s key helper: the step says "Getting your <name> key…" until the answer; the key stays in Agents', async () => {
+  const company = { ...EXAMPLE, gateway: { ...EXAMPLE.gateway, keyCommand: ['~/.local/bin/example-get-key'] } };
+  const s = await pageSetup(company);
+  assert.strictEqual((await s.stateOf()).claude.keyCommand, true, 'the page knows a helper is there');
+  let finish; const got = [];
+  s.ui.commands['perch.connectClaude.request'] = (m) => { got.push(m.type); return m.type === 'getKey' ? new Promise((r) => { finish = r; }) : Promise.resolve([]); };
+  const pending = s.page.receive({ type: 'agents', request: { type: 'getKey' } });
+  assert.deepStrictEqual(got, ['getKey'], 'the request goes to Agents as it is: no key command is run here');
+  assert.strictEqual((await s.step('claude')).waiting, 'Getting your Example Gateway key…');
+  finish([{ type: 'gatewayKeyFailed', text: "The sign-in wasn't completed." }]);
+  await pending;
+  assert.deepStrictEqual(s.page.posted.filter((m) => m.type === 'agents').pop(), { type: 'agents', replies: [{ type: 'gatewayKeyFailed', text: "The sign-in wasn't completed." }], of: 'getKey' });
+  assert.strictEqual((await s.step('claude')).waiting, '', 'the waiting line goes with the answer');
+  // an error answer clears it too
+  s.ui.commands['perch.connectClaude.request'] = async () => { throw new Error('gone'); };
+  await s.page.receive({ type: 'agents', request: { type: 'getKey' } });
+  assert.strictEqual((await s.step('claude')).waiting, '');
+  await s.extension.deactivate();
+  // without a key helper, Get a key opens the key page in Agents: nothing to wait for
+  const t = await pageSetup(EXAMPLE);
+  t.ui.commands['perch.connectClaude.request'] = async () => [];
+  await t.stateOf();
+  const before = t.page.posted.filter((m) => m.type === 'state').length;
+  await t.page.receive({ type: 'agents', request: { type: 'getKey' } });
+  assert.strictEqual(t.page.posted.filter((m) => m.type === 'state').length, before, 'no waiting line');
+  await t.extension.deactivate();
 });
 
 test('a key or token is sent only to a part that is running: else "<part> isn\'t running." and no call', async () => {

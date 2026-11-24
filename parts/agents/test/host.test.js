@@ -1909,7 +1909,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const savedGw = []; c.perch.onGatewaySaved.add((gw) => savedGw.push(gw.vars.ANTHROPIC_BASE_URL));
       c.commands['perch.setUpGateway'](); const q = c.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0]; const qlast = () => q.got[q.got.length - 1];
       q.fire({ type: 'ready' });
-      assert.deepStrictEqual(qlast().state.preset, { name: 'Example Gateway', keyPage: KEY_PAGE, baseUrl: '' });
+      assert.deepStrictEqual(qlast().state.preset, { name: 'Example Gateway', keyPage: KEY_PAGE, baseUrl: '', keyCommand: false });
       q.fire({ type: 'getKey' }); await flush();
       assert.deepStrictEqual(c.ui.external, [KEY_PAGE], 'Get a key opens the key page');
       q.fire({ type: 'save', baseUrl: '', token: 'sk-bad', models: {} });
@@ -2277,6 +2277,93 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert.deepStrictEqual(m.ui.external, [KEY_PAGE], 'Get a key opens the company\'s key page');
       m.perch.dispose();
     } finally { process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- the company's key helper (gateway.keyCommand): Get a key runs it here, and its key is checked and saved as a
+  // pasted one is; it never reaches a page or the log. Run for real against test/fixtures/fakeKeyCommand.js.
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-keycmd-'));
+    const realFetch = globalThis.fetch, realHome = process.env.HOME;
+    const FAKE = path.join(__dirname, 'fixtures', 'fakeKeyCommand.js');
+    const KEY = 'sk-helper-0123456789abcdefghijklmn', BAD = 'sk-refused-0123456789abcdefghijk';
+    const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
+    try {
+      process.env.HOME = dir;
+      const file = path.join(dir, 'gateway-env'), company = path.join(dir, 'company.json'), keyFile = path.join(dir, 'keys', 'token');
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      const PUBLIC = 'https://public.example.com/llm-api', KEY_PAGE = 'https://ai.example.com/keys';
+      const writeCompany = (...args) => fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PUBLIC], keyPage: KEY_PAGE, keyFiles: [keyFile], keyCommand: [process.execPath, FAKE, ...args] } }));
+      writeCompany('ok', KEY);
+      const sent = [];
+      globalThis.fetch = async (url, init) => { sent.push(init.headers['x-api-key']); return init.headers['x-api-key'] === KEY ? reply(200, { data: [{ id: 'router-auto' }] }) : reply(401, {}); };
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath } }); await flush();
+      const req = (msg) => m.commands['perch.connectClaude.request'](msg);
+      const replies = [];
+      const ask = async (msg) => { const r = await req(msg); replies.push(...r); return r; };
+      assert.strictEqual((await ask({ type: 'gatewayReady' }))[0].state.preset.keyCommand, true, 'the page knows a helper is there');
+
+      // success: checked with the gateway, saved (0600, the key files too), and the way recorded
+      const ok = await ask({ type: 'getKey' });
+      assert.deepStrictEqual(ok.map((r) => r.type), ['gatewaySaved', 'state', 'saved']);
+      assert.deepStrictEqual(sent, [KEY], 'the key printed is the one checked');
+      assert.strictEqual(require('../src/gateway').readGateway(file).vars.ANTHROPIC_AUTH_TOKEN, KEY);
+      assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), KEY + '\n');
+      if (process.platform !== 'win32') for (const f of [file, keyFile]) assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600, f);
+      assert.deepStrictEqual(m.ui.external, [], 'the key page is not opened');
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'gateway');
+
+      // a key the gateway refuses: the usual verdict
+      writeCompany('ok', BAD);
+      assert.deepStrictEqual(await ask({ type: 'getKey' }), [{ type: 'gatewayVerdict', text: 'Example Gateway rejected the key.', canForce: false }]);
+      // each failure, in the page's words
+      writeCompany('fail', `the key limit was reached (${BAD})`);
+      const limit = await ask({ type: 'getKey' });
+      assert.deepStrictEqual(limit, [{ type: 'gatewayKeyFailed', text: "Couldn't get a key automatically: the key limit was reached (…)" }], 'masked');
+      writeCompany('signin');
+      assert.deepStrictEqual(await ask({ type: 'getKey' }), [{ type: 'gatewayKeyFailed', text: "The sign-in wasn't completed." }]);
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PUBLIC], keyPage: KEY_PAGE, keyCommand: ['~/.local/bin/no-such-key-helper'] } }));
+      assert.deepStrictEqual(await ask({ type: 'getKey' }), [{ type: 'gatewayKeyFailed', text: "The key helper isn't installed." }], 'ENOENT (~/ expanded to the test home)');
+      writeCompany('sleep');
+      m.perch.keyCommandTimeoutMs = 200;
+      assert.deepStrictEqual(await ask({ type: 'getKey' }), [{ type: 'gatewayKeyFailed', text: 'That took too long.' }]);
+      // one at a time: a second Get a key while one runs is ignored
+      m.perch.keyCommandTimeoutMs = 500;
+      const first = ask({ type: 'getKey' });
+      assert.deepStrictEqual(await ask({ type: 'getKey' }), [], 'ignored while one runs');
+      assert.deepStrictEqual((await first).map((r) => r.type), ['gatewayKeyFailed']);
+      // the manual way: Open the key page
+      assert.deepStrictEqual(await ask({ type: 'keyPage' }), []);
+      await flush();
+      assert.deepStrictEqual(m.ui.external, [KEY_PAGE]);
+
+      // the panel too: Get a key runs the helper; keyFailed, or saved
+      m.perch.keyCommandTimeoutMs = 12 * 60e3;
+      writeCompany('signin');
+      m.commands['perch.setUpGateway']();
+      const q = m.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0], qlast = () => q.got[q.got.length - 1];
+      q.fire({ type: 'ready' });
+      assert.strictEqual(qlast().state.preset.keyCommand, true);
+      q.fire({ type: 'getKey' });
+      await until(() => qlast().type === 'keyFailed');
+      assert.deepStrictEqual(qlast(), { type: 'keyFailed', text: "The sign-in wasn't completed." });
+      writeCompany('ok', KEY);
+      fs.rmSync(file, { force: true });
+      q.fire({ type: 'getKey' });
+      await until(() => qlast().type === 'saved');
+      assert.strictEqual(qlast().type, 'saved');
+      assert.strictEqual(require('../src/gateway').readGateway(file).vars.ANTHROPIC_AUTH_TOKEN, KEY);
+      q.fire({ type: 'keyPage' }); await flush();
+      assert.deepStrictEqual(m.ui.external, [KEY_PAGE, KEY_PAGE]);
+
+      // the key never in any page message or log
+      for (const k of [KEY, BAD, 'sk-helper', 'sk-refused']) {
+        assert(!JSON.stringify(replies).includes(k), `no reply holds ${k}`);
+        assert(!JSON.stringify(q.got).includes(k), `no panel message holds ${k}`);
+        assert(!m.ui.traces.some((l) => l.includes(k)), `no log line holds ${k}`);
+      }
+      m.perch.dispose();
+    } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
   // ---- Connect Claude with a company gateway: recommended, terminal claude on by default, recorded when the gateway is saved

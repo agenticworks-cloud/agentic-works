@@ -58,6 +58,14 @@ function gateway(g, home) {
   // the start of the names the gateway lists for its routers (models that pick a model per request): a menu group of their own
   const routerPrefixes = g.routerPrefixes === undefined ? [] : stringArray(g.routerPrefixes, 'gateway.routerPrefixes');
   routerPrefixes.forEach((s, i) => { if (!s) throw new Invalid(`gateway.routerPrefixes[${i}]`, 'must be a non-empty string'); });
+  // a program that prints a fresh key on stdout (Get a key runs it, argv and no shell): its first word absolute or ~/
+  let keyCommand = null;
+  if (g.keyCommand !== undefined && g.keyCommand !== null) {
+    keyCommand = stringArray(g.keyCommand, 'gateway.keyCommand');
+    if (keyCommand.length === 0 || !keyCommand[0]) throw new Invalid('gateway.keyCommand', 'must be a non-empty array of strings');
+    keyCommand[0] = expand(keyCommand[0], home);
+    if (!path.isAbsolute(keyCommand[0])) throw new Invalid('gateway.keyCommand[0]', 'must be an absolute path or start with ~/');
+  }
   return {
     name: g.name,
     baseUrls: g.baseUrls.slice(),
@@ -67,6 +75,7 @@ function gateway(g, home) {
     keyFiles: (g.keyFiles === undefined ? [] : stringArray(g.keyFiles, 'gateway.keyFiles')).map((f) => expand(f, home)),
     terminal: g.terminal === true,
     routerPrefixes,
+    keyCommand,
   };
 }
 
@@ -200,15 +209,15 @@ function server(s, i, seen, home) {
 function validate(data, home) {
   if (!isObject(data)) throw new Invalid('', 'the file must hold a JSON object');
   if (!isString(data.name) || !data.name) throw new Invalid('name', 'must be a non-empty string');
-  const company = { name: data.name, title: '', steps: { gateway: '', tools: '' }, gateway: null, mcpServers: [] };
-  // optional wording for the Get started page: its title, and the names of its gateway and tools steps
+  const company = { name: data.name, title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [] };
+  // optional wording for the Get started page: its title, and the names of its gateway, tools and talk steps
   if (data.title !== undefined) {
     if (!isString(data.title) || !data.title) throw new Invalid('title', 'must be a non-empty string');
     company.title = data.title;
   }
   if (data.steps !== undefined) {
     if (!isObject(data.steps)) throw new Invalid('steps', 'must be an object');
-    for (const k of ['gateway', 'tools']) {
+    for (const k of ['gateway', 'tools', 'talk']) {
       const v = data.steps[k];
       if (v === undefined) continue;
       if (!isString(v) || !v) throw new Invalid(`steps.${k}`, 'must be a non-empty string');

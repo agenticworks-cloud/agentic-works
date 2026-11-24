@@ -94,14 +94,19 @@ files. Required keys are marked **required**.
 
 - `name` (**required**): the company's name.
 - `title` (optional): a non-empty string; the Get started page reads "Get started with <title>" (default Roost).
-- `steps` (optional): `gateway` and `tools`, each an optional non-empty string naming that step of the Get started
-  page (defaults Connect Claude, Connect your tools).
+- `steps` (optional): `gateway`, `tools` and `talk`, each an optional non-empty string naming that step of the Get
+  started page (defaults Connect Claude, Connect your tools, Talk to Claude or Codex).
 - `gateway` (optional): `name` (**required**), `baseUrls` (**required**, a non-empty list of http(s) URLs, tried in
   order, so a VPN address can come first), `keyPage` (**required**, an http(s) URL where a person makes a key), and
   optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved), `terminal` (true, so
   terminal `claude` is set up by default too) and `routerPrefixes` (non-empty strings: the gateway's model names that
   start with one are its routers, which pick a model for each request, and get a menu group of their own; none by
-  default).
+  default), and `keyCommand` (a non-empty array of strings, the program and its arguments, its first word an
+  absolute path or starting with `~/`: a key helper that prints a fresh key on stdout and nothing else, progress and
+  errors on stderr; exit 0 with a key, 2 when the person didn't finish signing in, anything else a failure). With a
+  `keyCommand`, **Get a key** runs it (no shell, stdin closed, at most 12 minutes) and checks and saves the key it
+  prints; when it can't, the step says why (the helper's last stderr line, key-shaped words masked), with **Try
+  again** and the manual way (the key page, the key field, **Check and save**).
 - `mcpServers` (optional): a list of servers with distinct ids, each `{ id, name, about, register, connect }`.
   - `id` (**required**): letters, digits, `_` or `-`. `name` and `about` (**required**): strings.
   - `register` (**required**) is what Claude Code is given: `{ "type": "http", "url", "headers" }` or
@@ -160,8 +165,8 @@ What Roost does with it (the design and what was built: [note 101](docs/notes/10
 
 - **Sign in to GitHub** is the Get started page's first step (without a company file it comes later), since a server's
   `install` downloads through that sign-in.
-- The page's heading reads "Get started with" and the company's `title`; its Claude and tools steps are named by
-  `steps.gateway` and `steps.tools`.
+- The page's heading reads "Get started with" and the company's `title`; its Claude, tools and talk steps are named by
+  `steps.gateway`, `steps.tools` and `steps.talk`.
 - **Connect Claude** offers the company's gateway only. The other ways (a Claude subscription, an Anthropic API key,
   AWS Bedrock, and Codex's ChatGPT login, OpenAI API key or Bedrock) are a tab's footer away, whenever the person
   likes. With `gateway.terminal`, `claude` in the terminal uses the same connection, and its address in `~/.claude/settings.json` follows whichever of `baseUrls` answers.

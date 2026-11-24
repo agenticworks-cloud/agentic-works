@@ -293,6 +293,56 @@ assert.deepStrictEqual(out.pop(), { type: 'partsDone' });
 button(p, 'All settings').click();
 assert.deepStrictEqual(out.pop(), { type: 'openSettings' });
 
+// ---- the company's key helper: Get a key runs it in Agents; when it can't, the reason, Try again and the manual way
+{
+  host({ type: 'state', state: st({ steps: [] }) });   // a fresh claude step
+  const steps = (waiting = '') => [S('claude', 'Connect Example Gateway', false, waiting)];
+  const helperState = (waiting) => st({ claude: { companyGateway: 'Example Gateway', keyCommand: true }, steps: steps(waiting) });
+  host({ type: 'state', state: helperState() });
+  const c = step('claude');
+  const keyField = c.querySelector('input[name=companyKey]');
+  assert.ok(c.textContent.includes('Get a key signs you in to Example Gateway'));
+  assert.deepStrictEqual([!!button(c, 'Get a key'), !!button(c, 'Paste a key instead'), !!button(c, 'Open the key page'), shown(keyField), !!button(c, 'Check and save')],
+    [true, true, false, false, false], 'Get a key first; the key field behind Paste a key instead');
+  button(c, 'Get a key').click();
+  assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'getKey' } });
+  const n = out.length; [...c.querySelectorAll('button')].find((b) => b.textContent === 'Get a key').click();
+  assert.strictEqual(out.length, n, 'not twice while it runs');
+  host({ type: 'state', state: helperState('Getting your Example Gateway key…') });
+  assert.ok(shown(c.querySelector('.waiting')) && c.querySelector('.waiting').textContent === 'Getting your Example Gateway key…', 'the step says so (the host\'s waiting line)');
+  // it can't: the reason, Try again, Open the key page, the key field, Check and save
+  host({ type: 'agents', replies: [{ type: 'gatewayKeyFailed', text: "Couldn't get a key automatically: You have reached the key limit." }], of: 'getKey' });
+  host({ type: 'state', state: helperState() });
+  assert.ok(c.textContent.includes("Couldn't get a key automatically: You have reached the key limit."));
+  assert.deepStrictEqual([!!button(c, 'Try again'), !!button(c, 'Open the key page'), shown(keyField), !!button(c, 'Check and save'), !!button(c, 'Paste a key instead')],
+    [true, true, true, true, false], 'nothing dead-ends');
+  button(c, 'Open the key page').click();
+  assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'keyPage' } });
+  keyField.value = 'k-2'; button(c, 'Check and save').click();
+  assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'gatewaySave', baseUrl: '', token: 'k-2', models: {}, force: false } });
+  host({ type: 'agents', replies: [{ type: 'gatewayVerdict', text: 'Example Gateway rejected the key.', canForce: false }], of: 'gatewaySave' });
+  // Try again; its key refused by the gateway: the usual verdict, and the manual way stays
+  button(c, 'Try again').click();
+  assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'getKey' } });
+  assert.ok(!c.textContent.includes('rejected the key'), 'the verdicts clear as it starts');
+  host({ type: 'agents', replies: [{ type: 'gatewayVerdict', text: 'Example Gateway rejected the key.', canForce: false }], of: 'getKey' });
+  assert.ok(c.textContent.includes('Example Gateway rejected the key.'));
+  assert.deepStrictEqual([!!button(c, 'Try again'), shown(keyField), !!button(c, 'Save anyway')], [true, true, false]);
+  // saved
+  button(c, 'Try again').click(); out.pop();
+  host({ type: 'agents', replies: [{ type: 'gatewaySaved', state: { tokenSet: true } }, { type: 'saved', way: 'gateway', terminalNote: '' }], of: 'getKey' });
+  assert.ok(!!button(c, 'Get a key') && !button(c, 'Try again'), 'Get a key again once saved');
+  assert.ok(shown(c.querySelector('.box')) || c.textContent.includes('Saved.'));
+  // an answer that says nothing ends the run too; Agents not running is a failure
+  button(c, 'Get a key').click(); out.pop();
+  host({ type: 'agents', replies: [], of: 'getKey' });
+  assert.strictEqual(button(c, 'Get a key').disabled, false);
+  button(c, 'Get a key').click(); out.pop();
+  host({ type: 'agents', error: "Agents (Claude Code and Codex) isn't running." });
+  assert.ok(!!button(c, 'Try again') && shown(keyField));
+  host({ type: 'agents', replies: [] });
+}
+
 // words from the company file are text, never markup
 host({ type: 'state', state: st({ title: '<img src=x onerror=alert(1)>', steps: [S('parts', '<b>x</b>')], parts: [{ id: 'odd', title: '<i>odd</i>', on: true }] }) });
 assert.strictEqual(d.querySelector('img'), null);

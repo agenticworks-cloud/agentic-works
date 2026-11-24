@@ -5,11 +5,13 @@
 // messages and calls the parts' commands; the page holds no saved key or token, and empties a typed one as it sends it.
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
-// Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting }], claude: { companyGateway },
+// Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting }], claude: { companyGateway, keyCommand },
 //   github: { logins }, teams: { rowId, note }, jira: { rowId, site, form }, parts: [{ id, title, on }] }; rows {rows} (the
-//   tools rows, src/toolsRows.js); agents {replies} (perch.connectClaude.request's replies) or agents {error}; jira
+//   tools rows, src/toolsRows.js); agents {replies, of} (perch.connectClaude.request's replies; of: the request's type) or
+//   agents {error}; jira
 //   {error} (null once signed in).
-// Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message); github; newTab {kind};
+// Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message: getKey runs the company's
+//   key helper when there is one; keyPage opens its key page); github; newTab {kind};
 //   notNow {step}; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; part {id, on}; partsDone;
 //   openSettings; tool {message} (a tools row's message, {type, id, ...}). No VS Code dependency.
 
@@ -163,7 +165,11 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       return s;
     };
 
-    // the company's gateway: its name, Get a key, the Key
+    // the company's gateway: its name, Get a key, the Key. With its key helper (state.claude.keyCommand) Get a key runs
+    // it in the Agents part, which checks and saves the key it prints; the manual way (Open the key page, the Key,
+    // Check and save) is shown once it can't, or by Paste a key instead
+    let keyRunning = false, keyFailed = false, manual = false;
+    const helper = () => !!(state && state.claude && state.claude.keyCommand);
     v.company = el('div', 'company');
     v.companyAbout = el('p', 'muted');
     v.companyKeySet = el('p', '', 'A key is saved. Paste another to replace it.');
@@ -175,8 +181,21 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     });
     onEnter(v.companyKey, v.companySave);
     v.companyVerdict = verdict('gateway');
-    v.company.append(v.companyAbout, row(button('Get a key', 'secondary', () => agents({ type: 'getKey' }))), v.companyKeySet,
-      field('Key', v.companyKey), row(v.companySave), v.companyVerdict);
+    v.getKey = button('Get a key', 'secondary', () => {
+      if (helper()) {
+        if (keyRunning) return;
+        keyRunning = true; clearVerdicts(); v.saved.hidden = true;
+      }
+      agents({ type: 'getKey' });
+      show();
+    });
+    v.keyPage = button('Open the key page', 'secondary', () => agents({ type: 'keyPage' }));
+    v.paste = button('Paste a key instead', 'link', () => { manual = true; show(); v.companyKey.focus(); });
+    v.companyManual = el('div', 'manual');
+    v.companyManual.append(v.companyKeySet, field('Key', v.companyKey), row(v.companySave));
+    v.company.append(v.companyAbout, row(v.getKey, v.keyPage, v.paste), v.companyManual, v.companyVerdict);
+    // the helper's run has ended: a reason (or a verdict on its key) leaves Try again and the manual way
+    const helperEnded = (failed) => { if (!keyRunning) return; keyRunning = false; if (failed) { keyFailed = true; manual = true; } else keyFailed = false; };
 
     // every way
     v.ways = el('div', 'ways');
@@ -248,7 +267,14 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     function show() {
       const name = companyName();
       v.company.hidden = !name; v.ways.hidden = !!name;
-      v.companyAbout.textContent = name ? 'Get a key from ' + name + '\'s page, paste it below, and it is checked with the gateway before it is saved.' : '';
+      const h = helper();
+      v.companyAbout.textContent = !name ? '' : h ? 'Get a key signs you in to ' + name + ' and gets your key; it is checked with the gateway before it is saved.'
+        : 'Get a key from ' + name + '\'s page, paste it below, and it is checked with the gateway before it is saved.';
+      v.getKey.textContent = h && keyFailed ? 'Try again' : 'Get a key';
+      v.getKey.disabled = h && keyRunning;
+      v.keyPage.hidden = !h || !manual;
+      v.paste.hidden = !h || manual;
+      v.companyManual.hidden = h && !manual;
       v.companyKeySet.hidden = !gateway.tokenSet;
       v.gwToken.placeholder = gateway.tokenSet ? 'A token is set: leave empty to keep it' : 'The gateway\'s token';
       v.connected.hidden = !connect.connected;
@@ -307,16 +333,20 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
         v.savedNote.textContent = m.terminalNote || '';
         v.saved.hidden = false;
       } else if (m.type === 'gatewayState') setGateway(m.state);
-      else if (m.type === 'gatewayError') { clearVerdicts(); held = ''; gatewayText(m.text, false); v.saved.hidden = true; }
+      else if (m.type === 'gatewayKeyFailed') { helperEnded(true); clearVerdicts(); gatewayText(m.text, false); v.saved.hidden = true; show(); }
+      else if (m.type === 'gatewayError') { helperEnded(true); clearVerdicts(); held = ''; gatewayText(m.text, false); v.saved.hidden = true; show(); }
       else if (m.type === 'gatewayVerdict') {
+        helperEnded(true); show();
         const keep = held;   // Save anyway is offered: the token checked is held for it
         clearVerdicts(); gatewayText(m.text, false); v.saved.hidden = true;
         v.gwForce.hidden = !m.canForce || !!companyName();
         held = v.gwForce.hidden ? '' : keep;
-      } else if (m.type === 'gatewaySaved') { clearVerdicts(); held = ''; setGateway(m.state); }
+      } else if (m.type === 'gatewaySaved') { helperEnded(false); clearVerdicts(); held = ''; setGateway(m.state); }
     };
+    // the answer to Get a key ends the helper's run (one that saved nothing and said nothing included)
+    v.replied = () => { if (keyRunning) { helperEnded(false); show(); } };
     // an error (Agents isn't running) drops Save anyway and the held token too
-    v.agentsError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; if (text) { held = ''; v.gwForce.hidden = true; } };
+    v.agentsError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; if (text) { held = ''; v.gwForce.hidden = true; helperEnded(true); show(); } };
     v.update = () => show();
     v.onFirstOpen = () => { agents({ type: 'gatewayReady' }); agents({ type: 'ready' }); };
   }
@@ -390,7 +420,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     else if (m.type === 'agents') {
       const v = views.get('claude');
       if (!v) return;
-      if (Array.isArray(m.replies)) { v.agentsError(''); for (const r of m.replies) v.reply(r); }
+      if (Array.isArray(m.replies)) { v.agentsError(''); for (const r of m.replies) v.reply(r); if (m.of === 'getKey') v.replied(); }
       else if (m.error) v.agentsError(String(m.error));
     } else if (m.type === 'jira') {
       const v = views.get('jira');
@@ -432,6 +462,7 @@ function getStartedHtml({ nonce, cspSource }) {
   button { font: inherit; cursor: pointer; padding: 4px 14px; border-radius: 2px; border: 1px solid var(--vscode-button-border, transparent); background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
   button:hover { background: var(--vscode-button-hoverBackground); }
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+  button.link { background: none; border: none; padding: 0; color: var(--vscode-textLink-foreground); }
   .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .verdict { margin-top: 6px; white-space: pre-wrap; color: var(--vscode-errorForeground); }
   .verdict.ok { color: var(--vscode-foreground); }

@@ -193,7 +193,7 @@ done stays done (globalState `roost.getStarted.done`). The order and each step's
 |---|---|---|
 | Sign in to GitHub | with a company file first, else fifth; Pull Requests on | `kestrel.signedIn` |
 | Connect Claude (the company's `steps.gateway` name with a gateway) | Agents on | `perch.gatewayReady` or `perch.claudeConnected`, or Not Now |
-| Talk to Claude or Codex | Agents on | `perch.messageSent` |
+| Talk to Claude or Codex (`steps.talk`) | Agents on | `perch.messageSent` |
 | Connect your tools (`steps.tools`) | company file lists `mcpServers` | `roost.toolsConnected`, or Not Now |
 | Sign in to Teams | Teams on | `chirp.signedIn` |
 | Connect Jira and Confluence | Jira on | `jay.signedIn` |
@@ -735,7 +735,8 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     login, a tools command) still opens it; the step shows it is waiting and ticks when done.
   - **Words from the company file:** optional `title` ("Get started with <title>", default "Roost"), and optional
     step names: `steps.gateway` (e.g. "Connect <the gateway's name>"; default "Connect Claude"), `steps.tools`
-    (default "Connect your tools"). Without a company file: "Get started with Roost" and Roost's own step names. The
+    (default "Connect your tools"), and, since 0.5.1, `steps.talk` (e.g. "Talk to <the gateway's name>"; default
+    "Talk to Claude or Codex") *(Sean, 2026-11-24)*. Without a company file: "Get started with Roost" and Roost's own step names. The
     repo names no company; the guard test still applies.
   - **Steps and order:** with a company file: GitHub, the gateway (the company's only: key field in place), Talk to
     Claude or Codex, Connect your tools (when it lists servers), Teams, Jira, Search your code, Choose your parts.
@@ -780,8 +781,8 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
       Heading `Get started with <title>` (`Roost` without a company file or `title`). The first step shown that isn't
       done is open, the others closed with their tick; any can be opened. First start opens it where it opened the
       walkthrough; **Roost: Get Started** opens it; the walkthrough stays reachable from VS Code's Welcome page only.
-    - *The company file's words.* `title` and `steps` are optional; `title`, `steps.gateway` and `steps.tools` must be
-      non-empty strings when present (otherwise the whole file is invalid, as before); other `steps` keys are ignored.
+    - *The company file's words.* `title` and `steps` are optional; `title`, `steps.gateway`, `steps.tools` (and since 0.5.1
+      `steps.talk`) must be non-empty strings when present (otherwise the whole file is invalid, as before); other `steps` keys are ignored.
     - *Steps shown.* As the walkthrough: while the part is switched on and not failed (GitHub: Pull Requests; Connect
       Claude, Talk to Claude or Codex, Search your code: Agents; Connect your tools: company tools listed). A company
       file without a gateway keeps the company order, and its Claude step offers every way, as the panel does.
@@ -827,7 +828,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     a real VS Code; whether Roost watching the parts' context keys works in a real extension host (the ruling to verify
     on the first live run); a real gateway, or a real sign-in (GitHub, Teams, Jira, Claude) through the page.
 
-- **A key helper for the company gateway (design, for 0.5.1)** *(Sean, 2026-11-24: get the gateway key automatically
+- **A key helper for the company gateway — Built (0.5.1)** *(Sean, 2026-11-24: get the gateway key automatically
   — "if [the] key does not exist yet, create one, get the key, if exist, refresh it, get the key"; "if for any
   reason cannot create or replace, what do we show to user?")*. A company file's `gateway.keyCommand` (optional,
   argv: first word absolute or `~/`) names a program that prints a fresh key on stdout and nothing else, progress
@@ -842,6 +843,25 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     dead-ends.
   - A company's own helper (outside this repo) writes plain reasons for its cases: a key limit, the page changed,
     the gateway unreachable.
+  - **Built (0.5.1), and where it differs** *(my calls unless marked)*:
+    - *Where it runs: the Agents part.* `getKey` (the panel's and `perch.connectClaude.request`'s) runs the helper
+      when the company gateway has a `keyCommand` (`parts/agents/src/keyCommand.js`, spawn with no shell, stdin
+      `'ignore'`, stdout capped at 64 KiB, SIGTERM then SIGKILL at the timeout) and hands the key to
+      `saveGatewayForm`, the pasted key's path. The key never reaches Roost's `src/`, a page or the log. Without a
+      `keyCommand`, `getKey` opens the key page as before. A new request, `keyPage`, opens the key page either way
+      (the manual way's button). A failure is answered `keyFailed {text}` (`gatewayKeyFailed` to Get started).
+    - *The waiting line.* On Get started it is the host's step line, as Claude's login has it (a counter while a
+      `getKey` with a helper is out); the panel shows its own. One helper at a time: a second Get a key while one
+      runs is ignored (the button is disabled meanwhile).
+    - *The manual way when a helper exists* is behind **Paste a key instead**, and is shown by any failure, by
+      the reason or by a verdict on the helper's key (the gateway rejected it), with Get a key renamed **Try again**.
+    - *Reasons beyond the spec:* exit 0 with nothing printed reads "…: the key helper printed no key."; more than
+      64 KiB on stdout reads "…: the key helper printed more than a key."; a failure with no stderr names the exit
+      code. Masking replaces `sk-…` and any run of 20 or more characters (quotes, brackets and commas end a run) with
+      "…", so a long URL or path in a reason is masked too. If wrong: a reason less helpful than it could be.
+    - *`steps.talk`* *(Sean, 2026-11-24)*: the company file may name the Talk to Claude or Codex step too, like
+      `steps.gateway` and `steps.tools`; New Claude Tab there is unchanged.
+    - *Not checked live:* a real company helper, a real sign-in window, a real gateway.
 
 ## Left to the builder
 
