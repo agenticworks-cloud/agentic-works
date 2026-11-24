@@ -703,6 +703,33 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     - *Not checked live:* a real `gh release download` of a private release, and the walkthrough's two GitHub steps
       in a real VS Code.
 
+- **A Get started page of Roost's own, everything in place (design, for 0.5)** *(Sean, 2026-11-24, on the first c3works
+  run: "can we change the wording to Get Started with C3 Works? and, instead of Connect Claude, Connect C3 AI Gateway,
+  and do not open another form. do the whole thing in place")*. VS Code's walkthrough can't do either: its text is
+  fixed when Roost is built (and Roost names no company), and its detail pane holds no input fields. So Roost shows its
+  own page.
+  - **The page:** a webview editor tab, **Get started**, opened by Roost's first start in place of the walkthrough, and
+    by **Roost: Get Started**. One column of steps; each expands in place with its own controls and ticks when done
+    (the same completion signals as today's steps: `kestrel.signedIn`, `perch.gatewayReady` / `perch.claudeConnected`,
+    `perch.messageSent`, `roost.toolsConnected`, `chirp.signedIn`, `jay.signedIn`, codebase search's choice). No step
+    opens another panel: GitHub's sign-in button, the gateway key field with **Get a key** and **Check and save**,
+    Connect Claude's ways, the tools rows with their token fields and codes, Jira's site/email/token, the codebase
+    search choice, and the part switches are all inline. A sign-in that needs the browser or a terminal (gh, Claude's
+    login, a tools command) still opens it; the step shows it is waiting and ticks when done.
+  - **Words from the company file:** optional `title` ("Get started with <title>", default "Roost"), and optional
+    step names: `steps.gateway` (e.g. "Connect <the gateway's name>"; default "Connect Claude"), `steps.tools`
+    (default "Connect your tools"). Without a company file: "Get started with Roost" and Roost's own step names. The
+    repo names no company; the guard test still applies.
+  - **Steps and order:** with a company file: GitHub, the gateway (the company's only: key field in place), Talk to
+    Claude or Codex, Connect your tools (when it lists servers), Teams, Jira, Search your code, Choose your parts.
+    Without one: Connect Claude (subscription, gateway, API key, Bedrock inline), Talk to Claude or Codex, Teams, Jira,
+    GitHub, Search your code, Choose your parts. Steps of a part that is off are hidden, as today.
+  - **The pieces it reuses:** the logic behind today's panels (the gateway check and save, Connect Claude's ways, the
+    Tools rows, Jira's sign-in) is moved behind one host that the page talks to; the separate panels stay reachable
+    from their commands for later use, but the page never opens them.
+  - **VS Code's walkthrough** *(my call)*: kept as it is on the Welcome page, as a fallback and for people who look
+    there; first start opens the page instead.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of
