@@ -279,6 +279,19 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand('roost.gatewayNotNow', () => {}));
   // the walkthrough's first step: the Claude tab first start opened (Agents' own Open: the last tab, or a picker)
   context.subscriptions.push(vscode.commands.registerCommand('roost.goToClaude', () => vscode.commands.executeCommand('perch.open')));
+  // the walkthrough's first step opens the tab, Claude or Codex, beside the walkthrough, which keeps most of the width
+  // (no tab is opened on first start: Sean, 2026-11-24)
+  const besideWalkthrough = async (command) => {
+    const groups = () => (vscode.window.tabGroups && vscode.window.tabGroups.all) || [];
+    const before = groups().length;
+    await vscode.commands.executeCommand(command);
+    for (let n = 0; n < 20 && groups().length === before; n++) await new Promise((r) => setTimeout(r, 50));
+    if (before === 1 && groups().length === 2) {
+      await Promise.resolve(vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: [{ size: 0.7 }, { size: 0.3 }] })).catch(() => {});
+    }
+  };
+  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeTab', () => besideWalkthrough('perch.newClaude')));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.newCodexTab', () => besideWalkthrough('perch.newCodex')));
   // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal
   context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', () => {
     const terminal = vscode.window.createTerminal({ name: 'GitHub sign-in' });

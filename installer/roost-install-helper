@@ -25,8 +25,6 @@ WANTED_SETTINGS = {
     "workbench.startupEditor": "none",
     "workbench.secondarySideBar.defaultVisibility": "hidden",
     "workbench.activityBar.location": "top",
-    # the Agents part opens one Claude tab on its first start, then sets this back to false (only when absent, so once)
-    "agents.firstStart.openClaudeTab": True,
 }
 # --codebase-search: the installer's question answered yes (default); added only when absent, like the rest
 CODEBASE_SEARCH = {"agents.codebaseIndex.enabled": True}

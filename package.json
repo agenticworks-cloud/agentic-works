@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -370,6 +370,14 @@
       {
         "command": "roost.goToClaude",
         "title": "Roost: Go to Your Agent Tab"
+      },
+      {
+        "command": "roost.newClaudeTab",
+        "title": "Roost: New Claude Tab Beside"
+      },
+      {
+        "command": "roost.newCodexTab",
+        "title": "Roost: New Codex Tab Beside"
       }
     ],
     "menus": {
@@ -617,6 +625,14 @@
         {
           "command": "roost.gatewayNotNow",
           "when": "false"
+        },
+        {
+          "command": "roost.newClaudeTab",
+          "when": "false"
+        },
+        {
+          "command": "roost.newCodexTab",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -826,7 +842,7 @@
           {
             "id": "agents",
             "title": "Talk to Claude or Codex",
-            "description": "Your first tab is open beside this page: type a message there. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[Go to Your Agent Tab](command:roost.goToClaude)\n[New Codex Tab](command:perch.newCodex)",
+            "description": "Open a tab and type a message. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[New Claude Tab](command:roost.newClaudeTab)\n[New Codex Tab](command:roost.newCodexTab)",
             "media": {
               "markdown": "media/walkthrough/agents.md"
             },

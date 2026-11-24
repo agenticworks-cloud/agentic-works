@@ -299,7 +299,7 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   });
   assert.deepStrictEqual(w.steps.map((st) => st.id), ['agents', 'gateway', 'codebaseSearch', 'teams', 'jira', 'github', 'parts'], 'the gateway step right after the agents step');
   const buttonsOf = (id) => [...w.steps.find((st) => st.id === id).description.matchAll(/\(command:([\w.]+)\)/g)].map((x) => x[1]);
-  assert.deepStrictEqual(buttonsOf('agents'), ['roost.goToClaude', 'perch.newCodex'], 'either agent');
+  assert.deepStrictEqual(buttonsOf('agents'), ['roost.newClaudeTab', 'roost.newCodexTab'], 'either agent, opened from here');
   assert.deepStrictEqual(buttonsOf('gateway'), ['perch.setUpGateway', 'roost.gatewayNotNow']);
   assert.deepStrictEqual(w.steps.find((st) => st.id === 'gateway').completionEvents, ['onContext:perch.gatewayReady', 'onCommand:roost.gatewayNotNow'], 'done when a gateway is saved, or left for now');
   const commands = new Set(m.contributes.commands.map((c) => c.command));

@@ -644,6 +644,12 @@ test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never 
   ui.commands['perch.open'] = () => opened.push(1);
   await ui.vscode.commands.executeCommand('roost.goToClaude');
   assert.strictEqual(opened.length, 1, 'Go to Your Agent Tab is Agents: Open');
+  const made = [];
+  ui.commands['perch.newClaude'] = () => made.push('claude');
+  ui.commands['perch.newCodex'] = () => made.push('codex');
+  await ui.vscode.commands.executeCommand('roost.newClaudeTab');
+  await ui.vscode.commands.executeCommand('roost.newCodexTab');
+  assert.deepStrictEqual(made, ['claude', 'codex'], 'the step opens either agent');
   await extension.deactivate();
 });
 

@@ -75,7 +75,6 @@ class SettingsTests(_Case):
                 "workbench.startupEditor": "none",
                 "workbench.secondarySideBar.defaultVisibility": "hidden",
                 "workbench.activityBar.location": "top",
-                "agents.firstStart.openClaudeTab": True,
             },
         )
 
