@@ -2085,8 +2085,23 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const last = () => p.got[p.got.length - 1];
       // fire a message, and wait for the panel's next answer of that type
       const ask = async (msg, type) => { const n = p.got.length; p.fire(msg); await until(() => p.got.slice(n).some((x) => x.type === type)); };
+      // no company file: all five ways; ~/.aws is not read, and the AWS CLI not run, until Bedrock is picked (Sean, 2026-11-24)
+      fs.mkdirSync(path.join(dir, '.aws'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.aws', 'config'), '[profile dev]\nregion = eu-west-1\n');
+      const early = []; m.perch.runArgv = async (argv) => { early.push(argv); throw Object.assign(new Error('spawn aws ENOENT'), { code: 'ENOENT' }); };
       p.fire({ type: 'ready' });
-      assert.deepStrictEqual(last(), { type: 'state', state: { company: null, connection: null, connected: false, terminal: { on: false, offered: true }, apiKeySet: false, profiles: [], bedrock: { profile: '', region: 'us-east-1' }, loggedIn: false } });
+      assert.deepStrictEqual(last(), { type: 'state', state: { company: null, connection: null, connected: false, terminal: { on: false, offered: true }, apiKeySet: false, bedrockOpen: false, profiles: [], bedrock: null, loggedIn: false } });
+      await flush();
+      assert.deepStrictEqual(early, [], 'no AWS check up front');
+      assert(!/AWS CLI|awscli/.test(JSON.stringify(p.got)), 'nor any AWS text');
+      p.fire({ type: 'bedrockPick' });
+      assert.deepStrictEqual([last().type, last().state.bedrockOpen, last().state.profiles, last().state.bedrock], ['state', true, [{ name: 'dev', region: 'eu-west-1' }], { profile: '', region: 'us-east-1' }], 'picked: its form, with the profiles');
+      assert.deepStrictEqual(early, [], 'picking checks nothing yet');
+      // picked, and no AWS CLI: what to do, not an error
+      await ask({ type: 'bedrock', profile: 'dev', region: 'eu-west-1', force: false }, 'verdict');
+      assert.deepStrictEqual(last(), { type: 'verdict', way: 'bedrock', text: 'Bedrock needs the AWS CLI: install it (on macOS: brew install awscli), then try again.', ok: true, canForce: true });
+      assert.strictEqual(early.length, 1);
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], undefined, 'nothing saved');
 
       // the API key: checked with Anthropic first; a refused one is said, and nothing is written
       const asked = [];
@@ -2162,7 +2177,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       p.fire({ type: 'terminal', on: false });
       m.globalState.update('perch.claude.connection', 'codex');
       await ask({ type: 'bedrock', profile: '', region: 'ap-south-1', force: false }, 'verdict');
-      assert.deepStrictEqual(last(), { type: 'verdict', way: 'bedrock', text: "The AWS CLI isn't installed, so this can't be checked here.", ok: false, canForce: true });
+      assert.deepStrictEqual(last(), { type: 'verdict', way: 'bedrock', text: 'Bedrock needs the AWS CLI: install it (on macOS: brew install awscli), then try again.', ok: true, canForce: true });
       assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'codex', 'not saved unchecked unless asked');
       await ask({ type: 'bedrock', profile: '', region: 'ap-south-1', force: true }, 'saved');
       assert.deepStrictEqual([m.globalState._dump()['perch.claude.connection'], m.globalState._dump()['perch.claude.bedrock']], ['bedrock', { profile: '', region: 'ap-south-1' }]);
@@ -2211,6 +2226,13 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const p = m.ui.panels.filter((x) => x.viewType === 'perch.connectClaude' && !x.disposed)[0], last = () => p.got[p.got.length - 1];
       p.fire({ type: 'ready' });
       assert.deepStrictEqual([last().state.company, last().state.terminal], [{ gatewayName: 'Example Gateway' }, { on: true, offered: true }], 'the company\'s gateway, and terminal claude on by default');
+      // the company's gateway only (and Codex only): the other ways are a tab footer's, and the host keeps to it (Sean, 2026-11-24)
+      assert.deepStrictEqual([last().state.bedrockOpen, last().state.profiles, last().state.bedrock], [false, [], null], 'nothing about AWS');
+      const runs = []; m.perch.runArgv = async (argv) => { runs.push(argv); return { code: 0, stdout: '{}', stderr: '' }; };
+      const n0 = p.got.length;
+      for (const msg of [{ type: 'subscription' }, { type: 'apiKey', key: 'sk-ant-1' }, { type: 'bedrockPick' }, { type: 'bedrock', profile: '', region: 'us-west-2', force: true }]) p.fire(msg);
+      await flush(); await wait(20);
+      assert.deepStrictEqual([p.got.length - n0, runs, m.globalState._dump()['perch.claude.connection']], [0, [], undefined], 'not offered: no answer, no check, nothing recorded');
       // the gateway way: the gateway form; its save, while this panel is open, is the choice
       p.fire({ type: 'gateway' });
       const form = m.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0];

@@ -2054,9 +2054,14 @@ class PerchView {
     Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.claudeConnected', on)).catch(() => { /* an older VS Code */ });
   }
 
-  /** What the panel is shown: the ways on offer and what is set up, never a key. */
+  /**
+   * What the panel is shown: the ways on offer and what is set up, never a key. With a company gateway, that gateway and
+   * Codex only (a tab's footer still switches backend). ~/.aws is read only once Bedrock is picked, or is the way in use.
+   */
   connectState() {
-    const cg = this.companyGateway(), connection = this.claudeConnection(), profiles = Connections.awsProfiles();
+    const cg = this.companyGateway(), connection = this.claudeConnection();
+    const bedrockOpen = !cg && (connection === 'bedrock' || !!(this.connect && this.connect.bedrockOpen));
+    const profiles = bedrockOpen ? Connections.awsProfiles() : [];
     const dflt = profiles.find((p) => p.name === 'default');
     let loggedIn = false;
     try { loggedIn = !!(this.meter && this.meter.meter.readCredentials()); } catch (_) { /* none */ }
@@ -2066,8 +2071,9 @@ class PerchView {
       connected: this.claudeConnected(),
       terminal: { on: !!(this.connect && this.connect.terminal), offered: connection !== 'codex' },
       apiKeySet: !!this.anthropicKey(),
+      bedrockOpen,
       profiles,
-      bedrock: this.claudeBedrock() || { profile: '', region: process.env.AWS_REGION || (dflt && dflt.region) || 'us-east-1' },
+      bedrock: bedrockOpen ? this.claudeBedrock() || { profile: '', region: process.env.AWS_REGION || (dflt && dflt.region) || 'us-east-1' } : null,
       loggedIn,
     };
   }
@@ -2087,7 +2093,7 @@ class PerchView {
       Promise.resolve(panel.webview.postMessage(m)).catch(() => { /* the page is gone */ });
     };
     const cg = this.companyGateway();
-    const ctx = this.connect = { panel, post, terminal: !!(cg && cg.terminal), pending: null, last: null };
+    const ctx = this.connect = { panel, post, terminal: !!(cg && cg.terminal), pending: null, last: null, bedrockOpen: false };
     panel.webview.html = getConnectClaudeHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
     // the gateway way is the gateway form's: its save, while this panel is open, is the choice
     const onSaved = (gw) => { this.connectSaved('gateway', { gw }).catch((e) => post({ type: 'verdict', way: 'gateway', text: connectErrorText(e), ok: false, canForce: false })); };
@@ -2103,6 +2109,9 @@ class PerchView {
   async connectMessage(msg, ctx) {
     const post = ctx.post;
     const verdict = (way, text, ok = false, canForce = false) => post({ type: 'verdict', way, text, ok, canForce });
+    // a company gateway: the panel offers that gateway and Codex only, and the host keeps to it
+    const offered = (w) => !Connections.WAYS.includes(w) || Connections.COMPANY_WAYS.includes(w);
+    if (!offered(msg.type === 'bedrockPick' ? 'bedrock' : msg.type) && this.companyGateway()) return;
     switch (msg.type) {
       case 'ready': {
         const again = ctx.last;   // a page made anew: what it was last shown, after the state
@@ -2131,13 +2140,15 @@ class PerchView {
         await this.connectSaved('apiKey');
         return;
       }
+      case 'bedrockPick': ctx.bedrockOpen = true; post({ type: 'state', state: this.connectState() }); return;
       case 'bedrock': {
         const profile = typeof msg.profile === 'string' ? msg.profile.trim() : '', region = String(msg.region || '').trim();
         if (!region) { verdict('bedrock', 'A region is needed.'); return; }
         if (profile && !/^[\w.@+-]+$/.test(profile)) { verdict('bedrock', 'That is not a profile name.'); return; }
         if (!/^[a-z0-9-]+$/.test(region)) { verdict('bedrock', 'That is not a region.'); return; }
         const check = await Connections.checkBedrock({ profile, region, run: this.runArgv });
-        if (check.verdict !== 'works' && !(check.verdict === 'unchecked' && msg.force)) { verdict('bedrock', check.text, false, check.verdict === 'unchecked'); return; }
+        // no AWS CLI: what to do (not an error), and Save anyway
+        if (check.verdict !== 'works' && !(check.verdict === 'unchecked' && msg.force)) { verdict('bedrock', check.text, check.verdict === 'unchecked', check.verdict === 'unchecked'); return; }
         await this.context.globalState.update(Connections.BEDROCK_KEY, { profile, region });
         await this.connectSaved('bedrock');
         return;

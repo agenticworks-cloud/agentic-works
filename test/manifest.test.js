@@ -320,7 +320,7 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   const cc = w.steps.find((st) => st.id === 'connectClaude');
   assert.deepStrictEqual(cc.completionEvents, ['onContext:perch.claudeConnected', 'onCommand:roost.connectClaudeNotNow'], 'done when Claude is connected, or left for now');
   assert.deepStrictEqual([cc.title, cc.media.markdown], ['Connect Claude', 'media/walkthrough/connect-claude.md']);
-  assert.strictEqual(cc.description, 'Choose how Claude runs: your company\'s gateway when it has one, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)');
+  assert.strictEqual(cc.description, 'Choose how Claude runs: your company\'s gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only. Any tab\'s footer switches backend later.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)');
   assert(!m.contributes.commands.some((c) => c.command === 'roost.gatewayNotNow'), 'roost.gatewayNotNow is gone');
   const commands = new Set(m.contributes.commands.map((c) => c.command));
   for (const step of w.steps) {

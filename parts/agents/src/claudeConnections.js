@@ -14,6 +14,10 @@ const CONNECTION_KEY = 'perch.claude.connection';
 /** globalState: Bedrock's { profile, region }, as saved in Connect Claude. */
 const BEDROCK_KEY = 'perch.claude.bedrock';
 const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex'];
+/** The ways Connect Claude offers with a company gateway: that gateway, and Codex only. (Sean, 2026-11-24; note 101.) */
+const COMPANY_WAYS = ['gateway', 'codex'];
+/** Bedrock's check without the AWS CLI: said as what to do. */
+const BEDROCK_NEEDS_CLI = 'Bedrock needs the AWS CLI: install it (on macOS: brew install awscli), then try again.';
 
 const underHome = (p, home) => path.join(home, p.replace(/^~\//, ''));
 const anthropicKeyFile = (home = os.homedir()) => underHome(ANTHROPIC_KEY_FILE, home);
@@ -83,7 +87,8 @@ async function checkBedrock({ profile = '', region, run = runArgv } = {}) {
   const argv = ['aws', 'bedrock', 'list-foundation-models', '--by-provider', 'anthropic', '--region', region, '--output', 'json', ...(profile ? ['--profile', profile] : [])];
   let got;
   try { got = await run(argv); } catch (e) {
-    if (e && e.code === 'ENOENT') return { verdict: 'unchecked', text: "The AWS CLI isn't installed, so this can't be checked here.", models: [] };
+    // no AWS CLI: what to do, not an error; asked only once Bedrock was picked (Sean, 2026-11-24)
+    if (e && e.code === 'ENOENT') return { verdict: 'unchecked', text: BEDROCK_NEEDS_CLI, models: [] };
     return { verdict: 'failed', text: String((e && e.message) || e), models: [] };
   }
   const stderr = String((got && got.stderr) || '');
@@ -130,4 +135,4 @@ function newTabBackend(connection) {
   }
 }
 
-module.exports = { ANTHROPIC_KEY_FILE, GATEWAY_KEY_FILE, CONNECTION_KEY, BEDROCK_KEY, WAYS, anthropicKeyFile, gatewayKeyFile, readSecretFile, awsProfiles, runArgv, checkBedrock, isConnected, newTabBackend };
+module.exports = { ANTHROPIC_KEY_FILE, GATEWAY_KEY_FILE, CONNECTION_KEY, BEDROCK_KEY, WAYS, COMPANY_WAYS, BEDROCK_NEEDS_CLI, anthropicKeyFile, gatewayKeyFile, readSecretFile, awsProfiles, runArgv, checkBedrock, isConnected, newTabBackend };

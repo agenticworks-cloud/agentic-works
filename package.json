@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -894,7 +894,7 @@
           {
             "id": "connectClaude",
             "title": "Connect Claude",
-            "description": "Choose how Claude runs: your company's gateway when it has one, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
+            "description": "Choose how Claude runs: your company's gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only. Any tab's footer switches backend later.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
             "media": {
               "markdown": "media/walkthrough/connect-claude.md"
             },

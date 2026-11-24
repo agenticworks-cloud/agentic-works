@@ -12,24 +12,32 @@ const out = [];
 const dom = new JSDOM(html, { runScripts: 'dangerously', virtualConsole, beforeParse(w) { w.acquireVsCodeApi = () => ({ postMessage: (m) => out.push(JSON.parse(JSON.stringify(m))) }); } });
 const w = dom.window, d = w.document, $ = (id) => d.getElementById(id);
 const host = (m) => w.dispatchEvent(new w.MessageEvent('message', { data: m }));
-const state = (o) => Object.assign({ company: null, connection: null, connected: false, terminal: { on: false, offered: true }, apiKeySet: false, profiles: [], bedrock: { profile: '', region: 'us-east-1' }, loggedIn: false }, o);
-const ways = () => [...d.querySelectorAll('.way')].map((s) => s.dataset.way);
-const names = () => [...d.querySelectorAll('.way .name')].map((n) => n.textContent);
+const state = (o) => Object.assign({ company: null, connection: null, connected: false, terminal: { on: false, offered: true }, apiKeySet: false, bedrockOpen: false, profiles: [], bedrock: null, loggedIn: false }, o);
 const shown = (el) => { for (let e = el; e && e !== d.body; e = e.parentElement) if (e.hidden) return false; return true; };
+const ways = () => [...d.querySelectorAll('.way')].filter(shown).map((s) => s.dataset.way);
+const names = () => [...d.querySelectorAll('.way')].filter(shown).map((s) => s.querySelector('.name').textContent);
+const SWITCH = "Using your own Claude subscription, an API key or Bedrock instead? Switch any tab's backend in its footer (subscription / gateway / API) whenever you like.";
+const awsShown = () => /AWS CLI|\.aws|aws sso|awscli/.test([...d.body.querySelectorAll('*')].filter((e) => shown(e) && !e.children.length).map((e) => e.textContent).join('\n'));
 
 assert.deepStrictEqual(out, [{ type: 'ready' }], 'the page asks for its state');
 
-// a company with a gateway: five ways, the company's first and recommended
+// a company with a gateway: that gateway and Codex only, and the footer line for the other ways (Sean, 2026-11-24)
 host({ type: 'state', state: state({ company: { gatewayName: 'Example Gateway' }, terminal: { on: true, offered: true } }) });
-assert.deepStrictEqual(ways(), ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex']);
-assert.deepStrictEqual(names(), ['Example Gateway', 'Claude subscription', 'Anthropic API key', 'AWS Bedrock', 'Codex only']);
+assert.deepStrictEqual(ways(), ['gateway', 'codex']);
+assert.deepStrictEqual(names(), ['Example Gateway', 'Codex only']);
 assert(shown($('recommended')) && $('recommended').textContent === 'Recommended', 'the company\'s gateway is recommended');
+assert.deepStrictEqual([shown($('switchNote')), $('switchNote').textContent], [true, SWITCH], 'one line: a tab\'s footer switches backend');
+assert.strictEqual($('gatewayBtn').textContent, 'Set Up…', 'the gateway form: Get a key, Check and save');
+assert.strictEqual(awsShown(), false, 'nothing about AWS');
 assert.deepStrictEqual([shown($('terminalRow')), $('terminal').checked], [true, true], 'the terminal box, on as the company says');
 
-// no company: an LLM gateway, not recommended
+// no company: all five ways, an LLM gateway first and not recommended, no footer line, Bedrock's form closed
 host({ type: 'state', state: state() });
-assert.deepStrictEqual(names()[0], 'An LLM gateway');
+assert.deepStrictEqual(ways(), ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex']);
+assert.deepStrictEqual(names(), ['An LLM gateway', 'Claude subscription', 'Anthropic API key', 'AWS Bedrock', 'Codex only']);
 assert.strictEqual(shown($('recommended')), false);
+assert.strictEqual(shown($('switchNote')), false);
+assert.deepStrictEqual([shown($('bedrockPick')), shown($('bedrockForm')), awsShown()], [true, false, false], 'Bedrock not picked: no AWS text');
 assert.strictEqual($('terminal').checked, false);
 $('terminal').checked = true; $('terminal').dispatchEvent(new w.Event('change'));
 assert.deepStrictEqual(out.pop(), { type: 'terminal', on: true });
@@ -42,8 +50,10 @@ $('apiKey').value = '  sk-ant-1\n'; $('apiKeyBtn').click();
 assert.deepStrictEqual(out.pop(), { type: 'apiKey', key: 'sk-ant-1' }, 'the key trimmed');
 assert.strictEqual($('apiKey').type, 'password');
 
-// Bedrock: the profiles, plus default credentials; the region follows the profile picked
-host({ type: 'state', state: state({ profiles: [{ name: 'ci', region: '' }, { name: 'dev', region: 'eu-west-1' }], bedrock: { profile: '', region: 'us-east-2' } }) });
+// Bedrock picked: the host is asked, and opens its form with the profiles, plus default credentials
+$('bedrockPick').click(); assert.deepStrictEqual(out.pop(), { type: 'bedrockPick' });
+host({ type: 'state', state: state({ bedrockOpen: true, profiles: [{ name: 'ci', region: '' }, { name: 'dev', region: 'eu-west-1' }], bedrock: { profile: '', region: 'us-east-2' } }) });
+assert.deepStrictEqual([shown($('bedrockPick')), shown($('bedrockForm'))], [false, true]);
 assert.deepStrictEqual([...$('profile').options].map((o) => [o.value, o.textContent]), [['', 'default credentials'], ['ci', 'ci'], ['dev', 'dev']]);
 assert.strictEqual($('region').value, 'us-east-2');
 $('profile').value = 'dev'; $('profile').dispatchEvent(new w.Event('change'));
@@ -53,8 +63,10 @@ assert.strictEqual($('region').value, 'us-east-2', 'a profile without one: the d
 $('profile').value = 'dev'; $('region').value = ' eu-west-1 '; $('bedrockBtn').click();
 assert.deepStrictEqual(out.pop(), { type: 'bedrock', profile: 'dev', region: 'eu-west-1', force: false });
 assert.strictEqual(shown($('bedrockForce')), false, 'no Save anyway until the host offers it');
-host({ type: 'verdict', way: 'bedrock', text: "The AWS CLI isn't installed, so this can't be checked here.", ok: false, canForce: true });
-assert.deepStrictEqual([$('verdict-bedrock').textContent, shown($('bedrockForce'))], ["The AWS CLI isn't installed, so this can't be checked here.", true]);
+// no AWS CLI: what to do, not styled as an error
+const NEEDS = 'Bedrock needs the AWS CLI: install it (on macOS: brew install awscli), then try again.';
+host({ type: 'verdict', way: 'bedrock', text: NEEDS, ok: true, canForce: true });
+assert.deepStrictEqual([$('verdict-bedrock').textContent, $('verdict-bedrock').className, shown($('bedrockForce'))], [NEEDS, 'verdict ok', true]);
 $('bedrockForce').click();
 assert.deepStrictEqual(out.pop(), { type: 'bedrock', profile: 'dev', region: 'eu-west-1', force: true }, 'Save anyway saves unchecked');
 host({ type: 'verdict', way: 'apiKey', text: 'Anthropic rejected the key.', ok: false, canForce: false });

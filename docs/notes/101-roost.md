@@ -629,6 +629,23 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
       step on Ubuntu and Debian runs `apt-get update` and then a non-interactive `apt-get install -y git`; the
       `claude` step's sudo (curl and ca-certificates) is listed up front. (5) A `command` sign-in's row says "If the
       sign-in failed, close its terminal to try again." while its terminal is open.
+  - **Connect Claude, two decisions after 0.4.0** *(Sean, 2026-11-24; built in 0.4.2)*:
+    - *With a company gateway, that gateway only.* When `company.json` is valid and has a `gateway`, the panel shows
+      the company's gateway (its form: get a key, Check and save) and Codex only, and one line below: "Using your
+      own Claude subscription, an API key or Bedrock instead? Switch any tab's backend in its footer (subscription /
+      gateway / API) whenever you like." No subscription, API key or Bedrock way; the host ignores those messages
+      too. Why: each tab's footer already switches backend, *Agents: Log in to Claude (subscription)* exists, and so
+      does the window switch, so a company user can still use a subscription without the walkthrough offering it.
+      Codex only stays (my call): it is not another Claude backend, and it lets a user with no Claude yet tick the
+      step. If wrong: drop `codex` from `COMPANY_WAYS` in `claudeConnections.js` and from the page's list.
+    - *Without one, Bedrock is checked only once picked.* The five ways stay, but Bedrock's section shows only
+      **Use Bedrock…** until pressed; its form, its AWS text and the reading of `~/.aws` (`awsProfiles`) come after
+      (`bedrockPick`, `state.bedrockOpen`; open at once when Bedrock is the way in use). Before, `connectState` read
+      `~/.aws` on every open and the Bedrock section's AWS CLI text was shown to everyone; the CLI itself ran only on
+      Bedrock's Check and save. Picked with no AWS CLI, the panel says, not as an error: "Bedrock needs the AWS CLI:
+      install it (on macOS: brew install awscli), then try again." (Save anyway is still offered.) No AWS text shows
+      unless Bedrock was chosen. The walkthrough page, being static, says a company's setup may offer its gateway
+      only, and that any tab's footer switches backend.
   - **Built (0.4.0), not checked live.** Everything above was run by the offline tests only (`make test`, the
     installer's tests: 127 run, 4 skipped on this machine). Not run: hidden webviews in a real VS Code (the resend
     after a hidden page is covered by a stub that drops messages); a real gateway (the key check, the re-probe, the

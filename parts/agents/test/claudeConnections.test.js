@@ -62,7 +62,9 @@ const C = require('../src/claudeConnections');
     assert.deepStrictEqual(r, { verdict: 'denied', text: 'The AWS account may not list Bedrock models in us-east-1.', models: [] });
 
     r = await C.checkBedrock({ profile: '', region: 'us-east-1', run: fake(enoent) });
-    assert.deepStrictEqual(r, { verdict: 'unchecked', text: "The AWS CLI isn't installed, so this can't be checked here.", models: [] });
+    assert.deepStrictEqual(r, { verdict: 'unchecked', text: 'Bedrock needs the AWS CLI: install it (on macOS: brew install awscli), then try again.', models: [] }, 'no AWS CLI: what to do');
+    assert.strictEqual(C.BEDROCK_NEEDS_CLI, r.text);
+    assert.deepStrictEqual(C.COMPANY_WAYS, ['gateway', 'codex']);
 
     r = await C.checkBedrock({ profile: '', region: 'mars-1', run: fake({ code: 255, stdout: '', stderr: '\nCould not connect to the endpoint URL: "https://bedrock.mars-1.amazonaws.com/"\n\n' }) });
     assert.deepStrictEqual(r, { verdict: 'failed', text: 'Could not connect to the endpoint URL: "https://bedrock.mars-1.amazonaws.com/"', models: [] }, 'the last non-empty line');

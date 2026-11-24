@@ -1,10 +1,12 @@
 'use strict';
-// The page of Agents: Connect Claude…: the ways Claude can run, one section each, in order: the company's gateway
-// (recommended) or an LLM gateway, the Claude subscription, an Anthropic API key, AWS Bedrock, Codex only. The host
-// does each way's work (the gateway form, the login, the checks, the saves) and answers; the page never holds a saved
-// key, only whether there is one. The terminal box asks for terminal claude's settings too, for every way but Codex only.
-// Messages, page to host: ready; gateway; subscription; apiKey {key}; bedrock {profile, region, force}; codex;
-// terminal {on}; replace {keys}; keep; newTab. Host to page: state {state}; verdict {way, text, ok, canForce};
+// The page of Agents: Connect Claude…: the ways Claude can run, one section each, in order: an LLM gateway, the Claude
+// subscription, an Anthropic API key, AWS Bedrock, Codex only. With a company gateway (state.company) the page offers
+// that gateway and Codex only, and a line on switching a tab's backend in its footer instead. (Sean, 2026-11-24.)
+// Bedrock's form, and anything about AWS, shows only once Bedrock is picked (state.bedrockOpen). The host does each
+// way's work (the gateway form, the login, the checks, the saves) and answers; the page never holds a saved key, only
+// whether there is one. The terminal box asks for terminal claude's settings too, for every way but Codex only.
+// Messages, page to host: ready; gateway; subscription; apiKey {key}; bedrockPick; bedrock {profile, region, force};
+// codex; terminal {on}; replace {keys}; keep; newTab. Host to page: state {state}; verdict {way, text, ok, canForce};
 // conflicts {way, list: [{key, from, to}]} (masked); saved {way, terminalNote}. No VS Code dependency. (Sean, 2026-11-24)
 
 function getConnectClaudeHtml({ nonce, cspSource }) {
@@ -69,12 +71,16 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
 
   <section class="way" data-way="bedrock">
     <h2><span class="name">AWS Bedrock</span><span class="inuse" hidden>in use</span></h2>
-    <p class="muted">An AWS profile or SSO sign-in already on this machine, and a region. Checked with the AWS CLI's model list.</p>
-    <label for="profile">Profile</label>
-    <select id="profile"></select>
-    <label for="region">Region</label>
-    <input id="region" type="text" spellcheck="false" autocomplete="off">
-    <div class="row"><button type="button" id="bedrockBtn">Check and save</button><button type="button" class="secondary" id="bedrockForce" hidden>Save anyway</button></div>
+    <p class="muted">Claude through Amazon Bedrock, in a region you choose.</p>
+    <div class="row" id="bedrockPickRow"><button type="button" id="bedrockPick">Use Bedrock…</button></div>
+    <div id="bedrockForm" hidden>
+      <p class="muted">An AWS profile or SSO sign-in already on this machine, and a region. Checked with the AWS CLI's model list.</p>
+      <label for="profile">Profile</label>
+      <select id="profile"></select>
+      <label for="region">Region</label>
+      <input id="region" type="text" spellcheck="false" autocomplete="off">
+      <div class="row"><button type="button" id="bedrockBtn">Check and save</button><button type="button" class="secondary" id="bedrockForce" hidden>Save anyway</button></div>
+    </div>
     <div class="verdict" id="verdict-bedrock"></div>
   </section>
 
@@ -84,6 +90,8 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
     <div class="row"><button type="button" id="codexBtn">Use Codex Only</button></div>
     <div class="verdict" id="verdict-codex"></div>
   </section>
+
+  <p class="muted" id="switchNote" hidden>Using your own Claude subscription, an API key or Bedrock instead? Switch any tab's backend in its footer (subscription / gateway / API) whenever you like.</p>
 
   <label id="terminalRow"><input type="checkbox" id="terminal"> <span>Use for <code>claude</code> in the terminal too (writes <code>~/.claude/settings.json</code>)</span></label>
 
@@ -101,7 +109,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
 (function () {
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
-  const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex'];
+  const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex'], COMPANY_WAYS = ['gateway', 'codex'];
   let profiles = [], defaultRegion = 'us-east-1', conflictKeys = [];
   const post = (m) => vscode.postMessage(m);
   function clearVerdicts() { for (const w of WAYS) { $('verdict-' + w).textContent = ''; $('verdict-' + w).className = 'verdict'; } $('bedrockForce').hidden = true; }
@@ -110,6 +118,11 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
     document.querySelector('.way[data-way="gateway"] .name').textContent = company ? company.gatewayName : 'An LLM gateway';
     $('recommended').hidden = !company;
     $('gatewayAbout').textContent = company ? 'Your company\\'s gateway: get a key from its page, and it is checked before it is saved.' : 'An Anthropic-compatible endpoint, such as a company\\'s LLM proxy: its address and a key, in a short form.';
+    // a company gateway: that gateway and Codex only; the other ways are a tab footer's
+    for (const sec of document.querySelectorAll('.way')) sec.hidden = !!company && !COMPANY_WAYS.includes(sec.dataset.way);
+    $('switchNote').hidden = !company;
+    $('bedrockForm').hidden = !st.bedrockOpen;
+    $('bedrockPickRow').hidden = !!st.bedrockOpen;
     for (const sec of document.querySelectorAll('.way')) {
       const cur = sec.dataset.way === st.connection;
       sec.classList.toggle('current', cur);
@@ -140,6 +153,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
   $('terminal').addEventListener('change', () => post({ type: 'terminal', on: $('terminal').checked }));
   $('gatewayBtn').addEventListener('click', () => { clearVerdicts(); post({ type: 'gateway' }); });
   $('subscriptionBtn').addEventListener('click', () => { clearVerdicts(); post({ type: 'subscription' }); });
+  $('bedrockPick').addEventListener('click', () => { clearVerdicts(); post({ type: 'bedrockPick' }); });
   $('codexBtn').addEventListener('click', () => { clearVerdicts(); post({ type: 'codex' }); });
   $('apiKeyBtn').addEventListener('click', () => { clearVerdicts(); $('saved').hidden = true; post({ type: 'apiKey', key: $('apiKey').value.trim() }); });
   const bedrock = (force) => { clearVerdicts(); $('saved').hidden = true; post({ type: 'bedrock', profile: $('profile').value, region: $('region').value.trim(), force: !!force }); };
