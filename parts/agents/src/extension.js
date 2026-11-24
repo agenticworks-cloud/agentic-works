@@ -1245,7 +1245,7 @@ class PerchView {
     this.meter = new MeterHost(context, (state, why, codex) => this.onMeter(state, why, codex), { program: () => program('claude') });
     // list prices for a gateway's models, in the extension's own storage: read when a tab goes through the gateway
     this.prices = Prices.createPrices({ file: require('path').join((context.globalStorageUri && context.globalStorageUri.fsPath) || require('path').join(require('os').tmpdir(), 'perch'), 'litellm-prices.json') });
-    this.onGatewaySaved = new Set();      // (gw) => void: told after each save of the gateway form, with the file read back
+    this.onGatewaySaved = new Set();      // (gw, { from }) => void: told after each save of the gateway form, with the file read back; from: 'panel' or 'page'
     this.onGatewayResolved = new Set();   // (baseUrl) => void: told the address a tab's start found answering, of a company's gateway
     this.root = (context.extensionUri && (context.extensionUri.fsPath || context.extensionUri.path)) || context.extensionPath || require('path').join(__dirname, '..');
     this.voice = new VoiceHost({
@@ -1615,7 +1615,7 @@ class PerchView {
    * keyFiles. Otherwise the typed base URL; on an unexpected answer only, Save anyway (force) saves unchecked.
    * Neither the key nor anything holding it goes to the page or the output channel.
    */
-  async saveGatewayForm(msg, post) {
+  async saveGatewayForm(msg, post, { from = 'panel' } = {}) {
     const file = this.gatewayPath(), before = this.gateway();
     const typed = String(msg.token || '').trim();
     const cg = this.companyGateway();
@@ -1624,30 +1624,31 @@ class PerchView {
     const key = typed || (keep && Gateway.TOKEN_VARS.map((k) => before.vars[k]).find(Boolean)) || '';
     let form, check = null;
     if (cg) {
-      if (!key) { post({ type: 'error', text: 'A key is needed.' }); return; }
+      if (!key) { post({ type: 'error', text: 'A key is needed.' }); return null; }
       check = await checkKey({ baseUrls: cg.baseUrls, key, requiredModel: cg.requiredModel, name: cg.name, style: 'gateway' });
-      if (check.verdict !== 'works') { post({ type: 'verdict', text: check.text, canForce: false }); return; }
+      if (check.verdict !== 'works') { post({ type: 'verdict', text: check.text, canForce: false }); return null; }
       form = { baseUrl: check.baseUrl, token: typed, env: cg.env };
     } else {
       const models = {};
       for (const k of Gateway.MODEL_VARS) if (msg.models && typeof msg.models[k] === 'string') models[k] = msg.models[k];
       form = { baseUrl: String(msg.baseUrl || '').trim(), token: typed, models };
       const wrong = Gateway.checkForm({ baseUrl: form.baseUrl, token: typed, keepToken: !!key });
-      if (wrong) { post({ type: 'error', text: wrong }); return; }
+      if (wrong) { post({ type: 'error', text: wrong }); return null; }
       if (!msg.force) {
         check = await checkKey({ baseUrls: [form.baseUrl], key, style: 'gateway' });
-        if (check.verdict !== 'works') { post({ type: 'verdict', text: check.text, canForce: check.verdict === 'unexpected' }); return; }
+        if (check.verdict !== 'works') { post({ type: 'verdict', text: check.text, canForce: check.verdict === 'unexpected' }); return null; }
       }
     }
     let gw;
     try {
       gw = Gateway.saveGateway(file, form);
       if (cg) Gateway.saveKeyFiles(cg.keyFiles, key);
-    } catch (e) { post({ type: 'error', text: (e && e.message) || String(e) }); return; }
+    } catch (e) { post({ type: 'error', text: (e && e.message) || String(e) }); return null; }
     this.syncGatewayContext();
     this.sendTabs();   // the tabs' footers and menus learn of the gateway now
     post(Object.assign({ type: 'saved', state: this.gatewayFormState(gw) }, check ? { answeredAt: check.baseUrl } : {}));
-    for (const f of this.onGatewaySaved) { try { f(gw); } catch (e) { this.trace(`gateway saved: ${(e && e.message) || e}`); } }
+    for (const f of this.onGatewaySaved) { try { f(gw, { from }); } catch (e) { this.trace(`gateway saved: ${(e && e.message) || e}`); } }
+    return gw;
   }
 
   /** The gateway's file, made from the template when there is none, so there is something to fill in. Owner-readable only. */
@@ -2058,9 +2059,9 @@ class PerchView {
    * What the panel is shown: the ways on offer and what is set up, never a key. With a company gateway, that gateway only
    * (a tab's footer still switches backend). ~/.aws is read only once Bedrock is picked, or is the way in use.
    */
-  connectState() {
+  connectState(ctx = this.connect) {
     const cg = this.companyGateway(), connection = this.claudeConnection();
-    const bedrockOpen = !cg && (connection === 'bedrock' || !!(this.connect && this.connect.bedrockOpen));
+    const bedrockOpen = !cg && (connection === 'bedrock' || !!(ctx && ctx.bedrockOpen));
     const profiles = bedrockOpen ? Connections.awsProfiles() : [];
     const dflt = profiles.find((p) => p.name === 'default');
     let loggedIn = false;
@@ -2069,7 +2070,7 @@ class PerchView {
       company: cg ? { gatewayName: cg.name } : null,
       connection: connection || null,
       connected: this.claudeConnected(),
-      terminal: { on: !!(this.connect && this.connect.terminal) },
+      terminal: { on: !!(ctx && ctx.terminal) },
       apiKeySet: !!this.anthropicKey(),
       bedrockOpen,
       profiles,
@@ -2095,8 +2096,11 @@ class PerchView {
     const cg = this.companyGateway();
     const ctx = this.connect = { panel, post, terminal: !!(cg && cg.terminal), pending: null, last: null, bedrockOpen: false };
     panel.webview.html = getConnectClaudeHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
-    // the gateway way is the gateway form's: its save, while this panel is open, is the choice
-    const onSaved = (gw) => { this.connectSaved('gateway', { gw }).catch((e) => post({ type: 'verdict', way: 'gateway', text: connectErrorText(e), ok: false, canForce: false })); };
+    // the gateway way is the gateway form's: its save, while this panel is open, is the choice (a save from a page is the page's)
+    const onSaved = (gw, { from } = {}) => {
+      if (from === 'page') return;
+      this.connectSaved('gateway', { gw }, ctx, post).catch((e) => post({ type: 'verdict', way: 'gateway', text: connectErrorText(e), ok: false, canForce: false }));
+    };
     this.onGatewaySaved.add(onSaved);
     panel.webview.onDidReceiveMessage((msg) => {
       if (!msg || typeof msg !== 'object') return;
@@ -2106,8 +2110,7 @@ class PerchView {
     return panel;
   }
 
-  async connectMessage(msg, ctx) {
-    const post = ctx.post;
+  async connectMessage(msg, ctx, post = ctx.post) {
     const verdict = (way, text, ok = false, canForce = false) => post({ type: 'verdict', way, text, ok, canForce });
     // a company gateway: the panel offers that gateway only, and the host keeps to it
     const offered = (w) => !Connections.WAYS.includes(w) || Connections.COMPANY_WAYS.includes(w);
@@ -2115,18 +2118,18 @@ class PerchView {
     switch (msg.type) {
       case 'ready': {
         const again = ctx.last;   // a page made anew: what it was last shown, after the state
-        post({ type: 'state', state: this.connectState() });
+        post({ type: 'state', state: this.connectState(ctx) });
         if (again) post(again);
         return;
       }
       case 'terminal': ctx.terminal = !!msg.on; return;
-      case 'gateway': this.setUpGateway(vscode.ViewColumn.Beside); return;   // beside: this panel stays in view
+      case 'gateway': if (!ctx.page) this.setUpGateway(vscode.ViewColumn.Beside); return;   // beside: this panel stays in view; a page has its own form
       case 'subscription': {
-        if (this.meter.meter.readCredentials()) { await this.connectSaved('subscription'); return; }
+        if (this.meter.meter.readCredentials()) { await this.connectSaved('subscription', {}, ctx, post); return; }
         verdict('subscription', 'Sign in in the terminal that opened; this panel notes it when you are done.', true);
         const opened = await this.meter.login();
         if (!opened && !this.meter.signIn) { verdict('subscription', 'No sign-in could be opened here.'); return; }
-        if (await this.meter.waitForLogin()) await this.connectSaved('subscription');
+        if (await this.meter.waitForLogin()) await this.connectSaved('subscription', {}, ctx, post);
         else verdict('subscription', "The sign-in didn't finish. Press Log In to try again.");
         return;
       }
@@ -2136,10 +2139,10 @@ class PerchView {
         const check = await checkKey({ baseUrls: ['https://api.anthropic.com'], key, name: 'Anthropic', style: 'anthropic' });
         if (check.verdict !== 'works') { verdict('apiKey', check.text); return; }
         Gateway.writeSecretFile(Connections.anthropicKeyFile(), key);
-        await this.connectSaved('apiKey');
+        await this.connectSaved('apiKey', {}, ctx, post);
         return;
       }
-      case 'bedrockPick': ctx.bedrockOpen = true; post({ type: 'state', state: this.connectState() }); return;
+      case 'bedrockPick': ctx.bedrockOpen = true; post({ type: 'state', state: this.connectState(ctx) }); return;
       case 'bedrock': {
         const profile = typeof msg.profile === 'string' ? msg.profile.trim() : '', region = String(msg.region || '').trim();
         if (!region) { verdict('bedrock', 'A region is needed.'); return; }
@@ -2149,7 +2152,7 @@ class PerchView {
         // no AWS CLI: what to do (not an error), and Save anyway
         if (check.verdict !== 'works' && !(check.verdict === 'unchecked' && msg.force)) { verdict('bedrock', check.text, check.verdict === 'unchecked', check.verdict === 'unchecked'); return; }
         await this.context.globalState.update(Connections.BEDROCK_KEY, { profile, region });
-        await this.connectSaved('bedrock');
+        await this.connectSaved('bedrock', {}, ctx, post);
         return;
       }
       case 'replace': case 'keep': {
@@ -2157,10 +2160,11 @@ class PerchView {
         ctx.pending = null;
         if (!pending) return;
         const keys = msg.type === 'replace' && Array.isArray(msg.keys) ? msg.keys.filter((k) => typeof k === 'string') : [];
-        this.finishTerminal(ctx, pending.way, pending.plan, keys);
+        this.finishTerminal(ctx, pending.way, pending.plan, keys, post);
         return;
       }
       case 'newTab':
+        if (ctx.page) return;   // a page has no tab button
         // Roost's, beside the walkthrough, when Roost is there; else Agents' own
         Promise.resolve().then(() => vscode.commands.executeCommand('roost.newClaudeTab'))
           .catch(() => vscode.commands.executeCommand('perch.newClaude'))
@@ -2175,11 +2179,10 @@ class PerchView {
    * holds and what Roost wrote there before. The user's own values go to the page first (masked where their name says
    * token, key or secret); Replace or Keep finishes the write (finishTerminal).
    */
-  async connectSaved(way, o = {}) {
-    const ctx = this.connect, post = ctx ? ctx.post : () => {};
+  async connectSaved(way, o = {}, ctx = this.connect, post = ctx ? ctx.post : () => {}) {
     await this.context.globalState.update(Connections.CONNECTION_KEY, way);
     this.syncClaudeConnected(o.gw);
-    post({ type: 'state', state: this.connectState() });
+    post({ type: 'state', state: this.connectState(ctx) });
     if (!ctx || !ctx.terminal) { post({ type: 'saved', way, terminalNote: '' }); return; }
     const file = this.meter.meter.settingsPath;
     const r = TerminalClaude.readSettings(file);
@@ -2190,7 +2193,38 @@ class PerchView {
       post({ type: 'conflicts', way, list: plan.conflicts.map((c) => ({ key: c.key, from: TerminalClaude.maskValue(c.key, c.from), to: TerminalClaude.maskValue(c.key, c.to) })) });
       return;
     }
-    this.finishTerminal(ctx, way, plan, []);
+    this.finishTerminal(ctx, way, plan, [], post);
+  }
+
+  /**
+   * perch.connectClaude.request: one message of Connect Claude's, or of the gateway form's renamed (gatewayReady, getKey,
+   * gatewaySave), from a page that isn't theirs (Roost's Get started); answered with the replies, in order, that the
+   * panel or the form would have been posted. The page's ctx is its own (this.pageConnect), apart from the panel's. No
+   * reply holds a key: the panel's and the form's never do.
+   */
+  async connectRequest(msg) {
+    if (!msg || typeof msg !== 'object') return [];
+    const replies = [], post = (r) => { replies.push(r); };
+    if (!this.pageConnect) {
+      const cg = this.companyGateway();
+      this.pageConnect = { page: true, terminal: !!(cg && cg.terminal), pending: null, last: null, bedrockOpen: false };
+    }
+    const ctx = this.pageConnect;
+    const gatewayMsg = ['gatewayReady', 'getKey', 'gatewaySave'].includes(msg.type);
+    try {
+      if (msg.type === 'gatewayReady') post({ type: 'gatewayState', state: this.gatewayFormState(this.gateway()) });
+      else if (msg.type === 'getKey') {
+        const cg = this.companyGateway();
+        if (cg) await Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(cg.keyPage))).catch((e) => this.trace(`connect claude: ${(e && e.message) || e}`));
+      } else if (msg.type === 'gatewaySave') {
+        const renamed = { state: 'gatewayState', error: 'gatewayError', verdict: 'gatewayVerdict', saved: 'gatewaySaved' };
+        const gw = await this.saveGatewayForm(msg, (r) => post(Object.assign({}, r, { type: renamed[r.type] || r.type })), { from: 'page' });
+        if (gw) await this.connectSaved('gateway', { gw }, ctx, post);
+      } else await this.connectMessage(msg, ctx, post);
+    } catch (e) {
+      return [{ type: 'verdict', way: gatewayMsg ? 'gateway' : String(msg.type || ''), text: connectErrorText(e), ok: false, canForce: false }];
+    }
+    return replies;
   }
 
   /** What terminal claude's settings should hold for a way (TerminalClaude.desiredSettings). */
@@ -2218,7 +2252,7 @@ class PerchView {
   terminalWritten() { const w = this.context.globalState.get(TerminalClaude.WRITTEN_KEY); return w && typeof w === 'object' ? w : {}; }
 
   /** Write the plan, the conflicts named in `replace` with it, and keep the record current; then the page hears Saved. */
-  finishTerminal(ctx, way, plan, replace) {
+  finishTerminal(ctx, way, plan, replace, post = ctx.post) {
     const file = this.meter.meter.settingsPath;
     let terminalNote = '';
     try {
@@ -2228,7 +2262,7 @@ class PerchView {
         // values changed in the file since the plan was made: not written, and asked about again
         ctx.pending = { way, plan: { changes: [], conflicts: r.conflicts, kept: r.written } };
         this.sendTabs();
-        ctx.post({ type: 'conflicts', way, list: r.conflicts.map((c) => ({ key: c.key, from: TerminalClaude.maskValue(c.key, c.from), to: TerminalClaude.maskValue(c.key, c.to) })) });
+        post({ type: 'conflicts', way, list: r.conflicts.map((c) => ({ key: c.key, from: TerminalClaude.maskValue(c.key, c.from), to: TerminalClaude.maskValue(c.key, c.to) })) });
         return;
       }
     } catch (e) {
@@ -2236,7 +2270,7 @@ class PerchView {
       terminalNote = TerminalClaude.readSettings(file).ok ? "~/.claude/settings.json couldn't be written, so terminal claude is as it was." : NOT_PLAIN_JSON;
     }
     this.sendTabs();   // a key helper there now pins the machine: the tabs' menus follow
-    ctx.post({ type: 'saved', way, terminalNote });
+    post({ type: 'saved', way, terminalNote });
   }
 
   /**
@@ -3168,6 +3202,7 @@ function activate(context) {
     vscode.commands.registerCommand('perch.newCodex', () => perch.addSession('codex')),
     vscode.commands.registerCommand('perch.setUpGateway', () => { perch.setUpGateway(); }),
     vscode.commands.registerCommand('perch.connectClaude', () => { perch.connectClaude(); }),
+    vscode.commands.registerCommand('perch.connectClaude.request', (msg) => perch.connectRequest(msg)),
     vscode.commands.registerCommand('perch.stop', () => { const s = perch.active(); if (s) s.interrupt(); }),
     vscode.commands.registerCommand('perch.closeTab', () => { const s = perch.active(); if (s) perch.closeSession(s.id); }),
     vscode.commands.registerCommand('perch.handoff', () => perch.handoff()),

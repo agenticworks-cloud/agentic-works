@@ -74,6 +74,10 @@
         "title": "Agents: Connect Claude…"
       },
       {
+        "command": "perch.connectClaude.request",
+        "title": "Agents: Connect Claude (request)"
+      },
+      {
         "command": "perch.newCodex",
         "title": "Agents: New Codex Tab",
         "icon": "$(add)"
@@ -235,6 +239,10 @@
         },
         {
           "command": "perch.openPrSession",
+          "when": "false"
+        },
+        {
+          "command": "perch.connectClaude.request",
           "when": "false"
         }
       ],

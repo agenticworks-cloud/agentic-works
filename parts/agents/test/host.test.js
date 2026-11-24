@@ -2208,6 +2208,68 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
+  // ---- perch.connectClaude.request: Connect Claude's and the gateway form's work for a page that isn't theirs (Roost's Get started)
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-connect-req-'));
+    const realFetch = globalThis.fetch, realHome = process.env.HOME;
+    const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
+    try {
+      process.env.HOME = dir;
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json'), keyFile = path.join(dir, '.config', 'roost', 'anthropic-key');
+      const m = install(undefined, { config: { 'claude.gatewayEnv': path.join(dir, 'gateway-env') }, meter: { claudeDir, settingsPath, login: false, apiCreds: false } }); await flush();
+      const req = (msg) => m.commands['perch.connectClaude.request'](msg);
+      const before = m.ui.panels.length;
+      assert.deepStrictEqual(await req({ type: 'ready' }), [{ type: 'state', state: { company: null, connection: null, connected: false, terminal: { on: false }, apiKeySet: false, bedrockOpen: false, profiles: [], bedrock: null, loggedIn: false } }]);
+      globalThis.fetch = async () => reply(200, { data: [{ id: 'claude-x' }] });
+      assert.deepStrictEqual((await req({ type: 'apiKey', key: ' sk-ant-2\n' })).map((r) => r.type), ['state', 'saved']);
+      assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'sk-ant-2\n');
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'apiKey');
+      // the gateway form's messages, renamed; a save records the gateway way on the page's own ctx
+      assert.strictEqual((await req({ type: 'gatewayReady' }))[0].type, 'gatewayState');
+      assert.deepStrictEqual(await req({ type: 'gatewaySave', baseUrl: 'gw.example.com', token: 'sk-g', models: {}, force: false }), [{ type: 'gatewayError', text: 'The base URL must be an http:// or https:// address.' }]);
+      const saved = await req({ type: 'gatewaySave', baseUrl: 'https://gw.example.com', token: 'sk-g', models: {}, force: false });
+      assert.deepStrictEqual(saved.map((r) => r.type), ['gatewaySaved', 'state', 'saved']);
+      assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'gateway');
+      assert.deepStrictEqual(await req({ type: 'gateway' }), [], 'no form opened');
+      assert.deepStrictEqual(await req({ type: 'newTab' }), [], 'no tab button here');
+      assert.strictEqual(m.ui.panels.length, before, 'no panel opened by any request');
+      assert(!JSON.stringify(saved).includes('sk-g') && !m.ui.traces.some((l) => l.includes('sk-g') || l.includes('sk-ant-2')), 'no key in a reply or the log');
+      // the page's ctx is its own: the panel's terminal box and pending conflicts are not the page's
+      m.commands['perch.connectClaude']();
+      const p = m.ui.panels.filter((x) => x.viewType === 'perch.connectClaude' && !x.disposed)[0];
+      p.fire({ type: 'terminal', on: true });
+      assert.strictEqual((await req({ type: 'ready' }))[0].state.terminal.on, false);
+      // and the page's gateway save is not the open panel's choice
+      const n0 = p.got.length;
+      assert.deepStrictEqual((await req({ type: 'gatewaySave', baseUrl: 'https://gw.example.com', token: '', models: {}, force: false })).map((r) => r.type), ['gatewaySaved', 'state', 'saved']);
+      await flush(); await wait(20);
+      assert.deepStrictEqual(p.got.slice(n0), [], 'the panel hears nothing of it');
+      m.perch.dispose();
+    } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+  // ---- perch.connectClaude.request with a company gateway: its key needed, its key page, the other ways not offered
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-connect-req-co-'));
+    const realHome = process.env.HOME;
+    try {
+      process.env.HOME = dir;
+      const file = path.join(dir, 'gateway-env'), company = path.join(dir, 'company.json'), keyFile = path.join(dir, 'keys', 'token');
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      const KEY_PAGE = 'https://ai.example.com/keys';
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: ['https://public.example.com/llm-api'], keyPage: KEY_PAGE, env: { ANTHROPIC_MODEL: 'router-auto' }, keyFiles: [keyFile] } }));
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath } }); await flush();
+      const req = (msg) => m.commands['perch.connectClaude.request'](msg);
+      assert.deepStrictEqual(await req({ type: 'gatewaySave', baseUrl: '', token: '', models: {}, force: false }), [{ type: 'gatewayError', text: 'A key is needed.' }]);
+      assert.deepStrictEqual(await req({ type: 'subscription' }), [], 'not offered, as the panel\'s host ignores it');
+      assert.deepStrictEqual(await req({ type: 'getKey' }), []);
+      await flush();
+      assert.deepStrictEqual(m.ui.external, [KEY_PAGE], 'Get a key opens the company\'s key page');
+      m.perch.dispose();
+    } finally { process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
   // ---- Connect Claude with a company gateway: recommended, terminal claude on by default, recorded when the gateway is saved
   {
     const fs = require('fs'), os = require('os'), path = require('path');
