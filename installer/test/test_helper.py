@@ -75,6 +75,7 @@ class SettingsTests(_Case):
                 "workbench.startupEditor": "none",
                 "workbench.secondarySideBar.defaultVisibility": "hidden",
                 "workbench.activityBar.location": "top",
+                "agents.firstStart.openClaudeTab": True,
             },
         )
 
@@ -120,7 +121,8 @@ class SettingsTests(_Case):
         self.user.mkdir()
         raw = (
             b'{"chat.disableAIFeatures":true,"workbench.startupEditor":"none",'
-            b'"workbench.secondarySideBar.defaultVisibility":"hidden","workbench.activityBar.location":"top"}'
+            b'"workbench.secondarySideBar.defaultVisibility":"hidden","workbench.activityBar.location":"top",'
+            b'"agents.firstStart.openClaudeTab":false}'  # false: the Agents part already opened its tab
         )
         (self.user / "settings.json").write_bytes(raw)
         code, out = self.run_cli("vscode-settings")

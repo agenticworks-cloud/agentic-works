@@ -174,11 +174,11 @@ same `part.json` files at runtime, so it has no list of parts to edit either.
 
 ### First start
 
-On its very first activation Roost opens, once: the side bar on Perch's view (`workbench.view.extension.perch`,
-while Agents is on), since a fresh window can start with the side bar closed and, with the activity bar on top, the
-part icons are then hidden with it *(Sean, after the first installer run, 2026-11-24)*; then the PRs tab
-(`workbench.view.extension.kestrel`, kestrel's panel container), so the bottom panel, closed on a fresh profile,
-shows it. It runs after the parts have started, is not
+On its very first activation Roost opens, once: the PRs tab (`workbench.view.extension.kestrel`, kestrel's panel
+container), so the bottom panel, closed on a fresh profile, shows it; the walkthrough (below); and last the side bar
+on Perch's view (`workbench.view.extension.perch`, while Agents is on), since a fresh window can start with the side
+bar closed and, with the activity bar on top, the part icons are then hidden with it *(Sean, after the first
+installer run, 2026-11-24)*. Opened first, the Perch view gave way to Explorer in that run, so it goes last. It runs after the parts have started, is not
 awaited by `activate`, and has no setting. Whatever happens (PRs off or failed, the command failing, which is
 logged to the Roost output channel) `roost.firstStart.done` is then recorded in the base context's `globalState`,
 so it never happens again. The Agents part's own `agents.firstStart.openClaudeTab` (was `perch.…`) stays separate, for installers.

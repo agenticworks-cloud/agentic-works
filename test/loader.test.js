@@ -571,10 +571,10 @@ test('first start: a failing command is logged and still recorded', async () => 
   await env.extension.deactivate();
 });
 
-test('first start: the Perch view, then the PRs tab, then the walkthrough in the editor; Perch only while Agents is on', async () => {
+test('first start: the PRs tab, the walkthrough in the editor, then the Perch view; Perch only while Agents is on', async () => {
   let env = firstStartSetup({});
   await activateFirst(env);
-  assert.deepStrictEqual(env.order, ['perch', 'prs', 'walkthrough']);
+  assert.deepStrictEqual(env.order, ['prs', 'walkthrough', 'perch']);
   await env.extension.deactivate();
   env = firstStartSetup({ 'roost.agents.enabled': false });
   await activateFirst(env);

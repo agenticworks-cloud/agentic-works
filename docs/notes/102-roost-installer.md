@@ -104,6 +104,9 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    - `"workbench.secondarySideBar.defaultVisibility": "hidden"` — Claude Code's and ChatGPT's own chat views stay
      closed;
    - `"workbench.activityBar.location": "top"`;
+   - `"agents.firstStart.openClaudeTab": true` — one Claude tab beside the walkthrough on VS Code's first start; the
+     Agents part sets it back to false, so it happens once *(Sean, after the first installer run, 2026-11-24: "no tab in
+     the main editor section")*;
    - `"agents.codebaseIndex.enabled": true` — the agents' `codebase_search` tool, when the user answers yes to
      "Turn on codebase search in Claude and Codex tabs (search the workspace by keywords)? [Y/n]", asked just before
      this step. Enter, no terminal, or no answer is yes; `n` or `--no-codebase-search` leaves the key out (its

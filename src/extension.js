@@ -210,9 +210,9 @@ class Roost {
     await Promise.allSettled([...keys, ...starts]);
   }
 
-  // Roost's very first activation: once the parts have started, the side bar opens on Perch's view (a fresh window
-  // may have it closed, and with the activity bar on top its icons go with it), the bottom panel on the PRs tab (closed
-  // on a fresh profile), and last the Get started walkthrough, in the editor. Then roost.firstStart.done is recorded,
+  // Roost's very first activation: once the parts have started, the bottom panel opens on the PRs tab (closed on a
+  // fresh profile), the Get started walkthrough in the editor, and last the side bar on Perch's view (a fresh window
+  // may have it closed, and with the activity bar on top its icons go with it). Then roost.firstStart.done is recorded,
   // whatever happened: a part that is off or failed, or a command that fails, is not retried later.
   async firstStart() {
     if (this.base.globalState.get(FIRST_START_KEY)) return;
@@ -224,9 +224,10 @@ class Roost {
       }
     };
     const on = (id) => this.parts.has(id) && this.state(id) === 'on';
-    if (on('agents')) await open('the Perch view', () => vscode.commands.executeCommand(AGENTS_VIEW_COMMAND));
     if (on('pullRequests')) await open('the PRs tab', () => vscode.commands.executeCommand(PRS_VIEW_COMMAND));
     await open('its walkthrough', openWalkthrough);
+    // last: opened first, the side bar ended on Explorer in a fresh window (installer run, 2026-11-24)
+    if (on('agents')) await open('the Perch view', () => vscode.commands.executeCommand(AGENTS_VIEW_COMMAND));
     try {
       await this.base.globalState.update(FIRST_START_KEY, true);
     } catch (err) {
