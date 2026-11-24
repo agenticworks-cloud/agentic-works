@@ -15,6 +15,10 @@ class Emitter {
 function install() {
   const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve() };
   const configChange = new Emitter();
+  const terminalClose = new Emitter();
+  // a terminal closing, as when its shell exits; closeListeners: how many onDidCloseTerminal listeners are left
+  ui.closeTerminal = (t) => terminalClose.fire(t);
+  ui.closeListeners = () => terminalClose.fns.length;
   ui.changeConfig = (keys) => configChange.fire({ affectsConfiguration: (s) => keys.some((k) => k === s || k.startsWith(s + '.')) });
   const Uri = {
     file: (p) => ({ fsPath: p, path: p, scheme: 'file', toString: () => 'file://' + p }),
@@ -36,6 +40,7 @@ function install() {
     ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     window: {
       createOutputChannel: (name) => ({ name, appendLine: (l) => ui.out.push(l), show() { ui.shown++; }, dispose() {} }),
+      onDidCloseTerminal: terminalClose.event,
       createTerminal: (opts) => {
         const t = { ...opts, sent: [], shown: false, show() { t.shown = true; }, sendText(x) { t.sent.push(x); }, dispose() {} };
         (ui.terminals = ui.terminals || []).push(t);

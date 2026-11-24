@@ -56,6 +56,13 @@ function activate(context, deps = {}) {
   // channels: 'enabled' | 'off' | 'failed' | 'forbidden'; signIn: null | { stage, userCode?, verificationUri? }
   const s = { me: null, teams: [], chats: [], lastPreview: new Map(), counts: new Map(), status: null, throttle: null,
     signedOut: false, signIn: null, channels: 'off' };
+  // chirp.signedIn: true while a login works, for Roost's walkthrough step; sent only when it changes
+  let signedInKey;
+  const setSignedIn = (v) => {
+    if (signedInKey === v) return;
+    signedInKey = v;
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'chirp.signedIn', v)).catch(() => { /* an older VS Code */ });
+  };
   const sidebar = new Sidebar(context.extensionUri, { meName: () => (s.me && s.me.displayName) || '' });
   const pollers = [];
 
@@ -164,6 +171,7 @@ function activate(context, deps = {}) {
   function signedOut({ lost = false } = {}) {
     if (s.signedOut) return;
     s.signedOut = true;
+    setSignedIn(false);
     for (const p of pollers) p.stop();
     s.signIn = { stage: 'signedOut' };
     const method = cfg('signIn.method') || 'auto';
@@ -187,6 +195,7 @@ function activate(context, deps = {}) {
   }
   function signedIn() {
     s.signedOut = false;
+    setSignedIn(true);
     stopWatching();
     s.signIn = null;
     if (s.status && s.status.kind === 'signin') s.status = null;
@@ -410,6 +419,7 @@ function activate(context, deps = {}) {
     if (switchingOff) saved.switchOff(() => conversations.closeAll()); else saved.windowClosing();
     saved.dispose();
     for (const p of pollers) p.stop(); stopWatching();
+    setSignedIn(false);
   }
 
   // the lists from the last run show at once; the first polls replace them

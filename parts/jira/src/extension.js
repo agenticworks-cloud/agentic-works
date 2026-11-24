@@ -103,6 +103,13 @@ function activate(context, deps = {}) {
     conf: null };   // conf: this sign-in's Confluence (confluenceSide.js), or null
   const note = () => { for (const k of NOTE_POLLS) { const n = s.notes[k]; if (n && (n.offline || n.throttle)) return n.offline || n.throttle; } return null; };
   const setNote = (poll, kind, text) => { const n = s.notes[poll] || (s.notes[poll] = {}); if (n[kind] === text) return; n[kind] = text; render(); };
+  // jay.signedIn: true while jay runs with a sign-in, for Roost's walkthrough step; sent only when it changes
+  let signedInKey;
+  const setSignedIn = (v) => {
+    if (signedInKey === v) return;
+    signedInKey = v;
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'jay.signedIn', v)).catch(() => { /* an older VS Code */ });
+  };
   const me = { accountId: null, displayName: null };   // the tabs hold this object; it is filled in at each sign-in
 
   // The tabs, loader and mirror live as long as the extension; they reach the current sign-in through these.
@@ -266,6 +273,7 @@ function activate(context, deps = {}) {
     // nothing of the last sign-in shows until this one says who it is
     Object.assign(s, { running: false, starting: true, auth: null, api: null, writer: null, me: null, session: null, error: null, notes: {}, view: null, fresh: false,
       projects: [], trusted: null, remembered: false, conf: null });
+    setSignedIn(false);
     Object.assign(me, { accountId: null, displayName: null });
     render();
     watchTokenFile();
@@ -288,6 +296,7 @@ function activate(context, deps = {}) {
       s.view = cachedView(choice().key);
     }
     s.running = true;
+    setSignedIn(true);
     render();
     for (const p of pollers) p.start();
     conf.start();
@@ -298,6 +307,7 @@ function activate(context, deps = {}) {
     s.starting = false;
     stopAll();
     s.running = false; s.error = signInText(reason, s.auth && s.auth.kind, userCfg('signIn.tokenFile', ''));
+    setSignedIn(false);
     render();
     startFileCheck();
   }
@@ -377,6 +387,7 @@ function activate(context, deps = {}) {
     tickets.disposeAll(); atlassian.clear(); conf.signOut();
     Object.assign(s, { running: false, starting: false, auth: null, api: null, writer: null, me: null, session: null, events: null, view: null, fresh: false,
       projects: [], trusted: null, remembered: false, mineKeys: new Set(), mineOkAt: null, error: null, notes: {}, cleared: true });
+    setSignedIn(false);
     Object.assign(me, { accountId: null, displayName: null });
     mirror.clearAll(); periods.clear();
     render();
@@ -554,6 +565,7 @@ function activate(context, deps = {}) {
   let switchingOff = false;   // confirmStop said yes: dispose closes the tabs
   function dispose() {
     stopAll();
+    setSignedIn(false);
     if (watcher) watcher.dispose();
     watcher = null;
     stopFileCheck();

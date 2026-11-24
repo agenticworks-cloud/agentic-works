@@ -27,7 +27,7 @@
           "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:chirp.signIn)",
           "media": { "markdown": "media/walkthrough/teams.md" },
           "when": "config.roost.teams.enabled && !roost.teams.failed",
-          "completionEvents": ["onCommand:chirp.signIn"]
+          "completionEvents": ["onContext:chirp.signedIn"]
         },
         {
           "id": "jira",
@@ -35,7 +35,7 @@
           "description": "Set your Atlassian site, then sign in.\n[Set Site URL](command:jay.siteUrl)\n[Sign In to Jira](command:jay.signIn)",
           "media": { "markdown": "media/walkthrough/jira.md" },
           "when": "config.roost.jira.enabled && !roost.jira.failed",
-          "completionEvents": ["onCommand:jay.signIn"]
+          "completionEvents": ["onContext:jay.signedIn"]
         },
         {
           "id": "github",
@@ -43,7 +43,7 @@
           "description": "The PRs tab shows the PRs waiting on you, using the GitHub CLI's sign-in.\n[Sign In to GitHub](command:roost.githubSignIn)",
           "media": { "markdown": "media/walkthrough/github.md" },
           "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed",
-          "completionEvents": ["onCommand:roost.githubSignIn"]
+          "completionEvents": ["onContext:kestrel.signedIn"]
         },
         {
           "id": "parts",

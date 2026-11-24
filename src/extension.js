@@ -268,8 +268,15 @@ function activate(context) {
   // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal
   context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', () => {
     const terminal = vscode.window.createTerminal({ name: 'GitHub sign-in' });
+    // the terminal closes once gh is done: the PRs part looks for the new login then, not at its next 30 s retry
+    const closed = vscode.window.onDidCloseTerminal((t) => {
+      if (t !== terminal) return;
+      closed.dispose();
+      Promise.resolve(vscode.commands.executeCommand('kestrel.refresh')).catch(() => { /* the PRs part is off */ });
+    });
+    context.subscriptions.push(closed);
     terminal.show();
-    terminal.sendText('gh auth login --hostname github.com');
+    terminal.sendText('gh auth login --hostname github.com && exit');
   }));
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
   r.ready = r.startAll().catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));

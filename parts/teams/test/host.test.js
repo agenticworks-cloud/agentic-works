@@ -747,6 +747,18 @@ test('sign out clears lists, mentions and tabs', async () => {
   assert.strictEqual(graphCalls(h).length, n, 'polling stopped');
 });
 
+test('chirp.signedIn is true once signed in, false after sign out', async () => {
+  ui.focused = true; ui.panels.length = 0;
+  const signedIn = () => ui.executed.filter((c) => c[0] === 'setContext' && c[1] === 'chirp.signedIn').map((c) => c[2]);
+  const before = signedIn().length;
+  start(chatWorld(), { method: 'deviceCode' }); ui.resolveSidebar(); await settle();
+  assert.deepStrictEqual(signedIn().slice(before), [false], 'signed out at first');
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.deepStrictEqual(signedIn().slice(before), [false, true]);
+  await ui.commands['chirp.signOut'](); await settle();
+  assert.deepStrictEqual(signedIn().slice(before), [false, true, false]);
+});
+
 test('a different account clears the old one\'s data first', async () => {
   ui.focused = true;
   const mem = memento();

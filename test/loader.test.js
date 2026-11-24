@@ -599,7 +599,7 @@ test('first start: a walkthrough that fails to open is logged and still recorded
   await env.extension.deactivate();
 });
 
-test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh auth login in a terminal', async () => {
+test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh auth login in a terminal, and refreshes the PRs when it closes', async () => {
   const { ui, extension, base } = setup({});
   await (await activate(extension, base)).firstStarted;   // its own walkthrough call done first
   const opened = [];
@@ -609,7 +609,20 @@ test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh
   await ui.vscode.commands.executeCommand('roost.githubSignIn');
   assert.strictEqual(ui.terminals.length, 1);
   assert.ok(ui.terminals[0].shown);
-  assert.deepStrictEqual(ui.terminals[0].sent, ['gh auth login --hostname github.com']);
+  assert.deepStrictEqual(ui.terminals[0].sent, ['gh auth login --hostname github.com && exit']);
+  const refreshed = [];
+  ui.commands['kestrel.refresh'] = () => { refreshed.push(1); };
+  ui.closeTerminal({ name: 'another terminal' });
+  assert.deepStrictEqual(refreshed, [], 'another terminal closing does nothing');
+  ui.closeTerminal(ui.terminals[0]);
+  assert.deepStrictEqual(refreshed, [1], 'the sign-in terminal closing refreshes the PRs');
+  assert.strictEqual(ui.closeListeners(), 0, 'the listener is disposed');
+  ui.closeTerminal(ui.terminals[0]);
+  assert.deepStrictEqual(refreshed, [1]);
+  delete ui.commands['kestrel.refresh'];
+  await ui.vscode.commands.executeCommand('roost.githubSignIn');
+  ui.closeTerminal(ui.terminals[1]);   // the PRs part off: kestrel.refresh is not found, and that is ignored
+  await new Promise((r) => setImmediate(r));
   await extension.deactivate();
 });
 

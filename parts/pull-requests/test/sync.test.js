@@ -18,7 +18,7 @@ const full = (it) => ({
 const RATE_OK = { remaining: 4000, resetAt: '2026-03-01T01:00:00Z', cost: 1 };
 const T0 = Date.parse('2026-03-01T00:00:00Z');
 
-function setup({ logins = ['octo-dev'], lists = {}, byUrl = {}, tokenFails = {}, rate = () => RATE_OK, onRound } = {}) {
+function setup({ logins = ['octo-dev'], lists = {}, byUrl = {}, tokenFails = {}, rate = () => RATE_OK, onRound, onSignedIn } = {}) {
   const calls = { list: [], detail: [], tokens: [], byUrl: [], accounts: 0 };
   const clock = { t: T0 };
   const state = { lists: { ...lists }, auth: {}, logins: [...logins], allowed: null };
@@ -53,7 +53,7 @@ function setup({ logins = ['octo-dev'], lists = {}, byUrl = {}, tokenFails = {},
     prByUrl: async (token, url) => { calls.byUrl.push([token, url]); if (state.byUrlError) throw state.byUrlError; return byUrl[url] ? full(byUrl[url]) : null; },
   };
   const tracker = createTracker({ now: () => clock.t });
-  const sync = createSync({ accounts, client, tracker, now: () => clock.t, onRound });
+  const sync = createSync({ accounts, client, tracker, now: () => clock.t, onRound, onSignedIn });
   return { sync, tracker, calls, clock, state };
 }
 const nums = (tr) => tr.rows().map((r) => r.pr.number).sort();
@@ -243,6 +243,20 @@ test('no gh sets note and retries in 30 s', async () => {
   const { sync, tracker } = setup({ logins: [] });
   await assert.rejects(sync.run(), (e) => e.kind === 'rate' && e.retryAfterMs === 30000 && e.local === true && e.message === 'Sign in with `gh auth login`');
   assert.deepStrictEqual(tracker.notes(), ['Sign in with `gh auth login`']);
+});
+
+test('onSignedIn: true when gh lists a login, false when it has none', async () => {
+  const seen = [];
+  const { sync, state } = setup({ logins: [], lists: { 'octo-dev': [item(1)] }, onSignedIn: (v) => seen.push(v) });
+  await assert.rejects(sync.run(), (e) => e.local);
+  assert.deepStrictEqual(seen, [false]);
+  state.logins = ['octo-dev'];
+  await sync.run();
+  assert.deepStrictEqual(seen, [false, true]);
+  state.logins = [];
+  sync.relist();
+  await assert.rejects(sync.run(), (e) => e.local);
+  assert.deepStrictEqual(seen, [false, true, false]);
 });
 
 test('a good account list clears the global note', async () => {

@@ -794,7 +794,7 @@
             },
             "when": "config.roost.teams.enabled && !roost.teams.failed",
             "completionEvents": [
-              "onCommand:chirp.signIn"
+              "onContext:chirp.signedIn"
             ]
           },
           {
@@ -806,7 +806,7 @@
             },
             "when": "config.roost.jira.enabled && !roost.jira.failed",
             "completionEvents": [
-              "onCommand:jay.signIn"
+              "onContext:jay.signedIn"
             ]
           },
           {
@@ -818,7 +818,7 @@
             },
             "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed",
             "completionEvents": [
-              "onCommand:roost.githubSignIn"
+              "onContext:kestrel.signedIn"
             ]
           },
           {

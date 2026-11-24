@@ -56,6 +56,17 @@ test('activate wires the panel: rows from both accounts arrive', async () => {
   ext.deactivate();
 });
 
+test('kestrel.signedIn: true once gh has a login, sent once, false at deactivate', async () => {
+  ui.executed.length = 0;
+  await boot();
+  const key = () => ui.executed.filter((c) => c[0] === 'setContext' && c[1] === 'kestrel.signedIn').map((c) => c[2]);
+  assert.deepStrictEqual(key(), [true]);
+  await ui.commands['kestrel.refresh'](); await settle(); await settle();
+  assert.deepStrictEqual(key(), [true], 'the same value is not sent again');
+  ext.deactivate();
+  assert.deepStrictEqual(key(), [true, false]);
+});
+
 test('the output channel logs each account round with its cost', async () => {
   await boot();
   assert.ok(ui.out.some((l) => /^\d{4}-\d\d-\d\dT[\d:.]+Z octo-dev: 1 PRs, cost 2$/.test(l)), ui.out.join('\n'));

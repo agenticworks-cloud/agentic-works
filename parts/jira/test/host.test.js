@@ -481,6 +481,31 @@ test('signOut deletes secrets and ~/.jay files, not the token file', async () =>
   assert.ok(!fs.existsSync(path.join(h.jayDir, 'cache')));
 });
 
+const signedInKey = () => ui.executed.filter((c) => c[0] === 'setContext' && c[1] === 'jay.signedIn').map((c) => c[2]);
+
+test('jay.signedIn is true once signed in, false after Sign Out, a lost sign-in or deactivate', async () => {
+  let h = start();
+  await settle();
+  assert.deepStrictEqual(signedInKey(), [false, true], 'false while restarting, then true once running');
+  await ui.commands['jay.signOut']();
+  assert.deepStrictEqual(signedInKey(), [false, true, false]);
+
+  h = start({ world: { reject: true } });
+  await settle();
+  assert.strictEqual(signedInKey().at(-1), false, 'the API token rejected: signed out');
+
+  h = start({ signedOut: true, config: { 'jira.site': SITE } });
+  await settle();
+  assert.deepStrictEqual(signedInKey(), [false], 'never signed in: false, sent once');
+  ui.inputs.push(SITE, 'ann@example.com', 'tok-good');
+  await ui.commands['jay.signIn']();
+  await settle();
+  assert.strictEqual(signedInKey().at(-1), true, 'Sign In');
+  ext.deactivate();
+  assert.strictEqual(signedInKey().at(-1), false, 'deactivate');
+  running.splice(0);
+});
+
 test('unfocused window polls four times slower', async () => {
   let h = start();
   await settle();

@@ -32,8 +32,15 @@ function activate(context, deps = {}) {
   const stored = context.globalState ? context.globalState.get('kestrel.hidden', []) : [];
   tracker.setHidden(Array.isArray(stored) ? stored : []);
   tracker.onHiddenChange((urls, entries) => { if (context.globalState) context.globalState.update('kestrel.hidden', entries); });
+  // kestrel.signedIn: true while gh has a login, for Roost's walkthrough step; sent only when it changes
+  let signedInKey;
+  const setSignedIn = (v) => {
+    if (signedInKey === v) return;
+    signedInKey = v;
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'kestrel.signedIn', v)).catch(() => { /* an older VS Code */ });
+  };
   const sync = createSync({
-    accounts, client, tracker, now,
+    accounts, client, tracker, now, onSignedIn: setSignedIn,
     onRound: ({ login, count, cost }) => log(`${new Date(now()).toISOString()} ${login}: ${count} PRs, cost ${cost}`),
   });
 
@@ -77,12 +84,12 @@ function activate(context, deps = {}) {
   );
 
   poller.start();
-  current = { tracker, sync, poller, panel, merger };
+  current = { tracker, sync, poller, panel, merger, setSignedIn };
   return current;
 }
 
 function deactivate() {
-  if (current) { current.poller.stop(); current = null; }
+  if (current) { current.poller.stop(); current.setSignedIn(false); current = null; }
 }
 
 module.exports = { activate, deactivate };

@@ -193,13 +193,19 @@ shown only while its part is switched on and started (`when: config.roost.<id>.e
 | Step | Button | Done when |
 |---|---|---|
 | Talk to Claude | Agents: New Claude Tab | a Claude, gateway or Codex tab is opened from it or the palette |
-| Sign in to Teams | Teams: Sign In | that command runs |
-| Connect Jira and Confluence | Jira: Site URL, then Jira: Sign In | Jira: Sign In runs |
-| Sign in to GitHub | Roost: Sign In to GitHub | that command runs: it opens a terminal running `gh auth login` (the PRs part reads gh's logins) |
+| Sign in to Teams | Teams: Sign In | Teams is signed in (`chirp.signedIn`) |
+| Connect Jira and Confluence | Jira: Site URL, then Jira: Sign In | Jira is signed in (`jay.signedIn`) |
+| Sign in to GitHub | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
 | Choose your parts | Roost: Settings | that command runs |
 
-"Done" follows VS Code's own completion events (`onCommand:`), so a step is ticked when its command runs, not when
-the sign-in succeeds; a part's own view shows whether it did. The step for Choose your parts has no `when`.
+"Done" follows VS Code's own completion events. The Agents and Choose your parts steps are ticked when their command
+runs (`onCommand:`). The three sign-in steps are ticked only once that part is actually signed in (`onContext:`): each
+part sets its own context key, in its own namespace so it still works as an extension of its own, true when signed
+in and false when signed out or stopped, and sends it only when it changes. chirp sets `chirp.signedIn` when a login
+works and clears it when signed out; jay sets `jay.signedIn` while it runs with a sign-in; kestrel sets
+`kestrel.signedIn` when gh lists a login and clears it when gh has none. *(Sean's first-time-user test, 2026-11-24:
+with `onCommand:` the Teams step was ticked although the Microsoft sign-in had been abandoned.)* The pages say what
+each sign-in does, for a first-time user. The step for Choose your parts has no `when`.
 
 ### Links between parts, for now
 

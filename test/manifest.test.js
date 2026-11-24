@@ -292,12 +292,19 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
     jira: 'config.roost.jira.enabled && !roost.jira.failed', github: 'config.roost.pullRequests.enabled && !roost.pullRequests.failed',
     parts: undefined,
   });
+  // a sign-in step is done once its part says it is signed in (a context key it sets), not when its button runs
+  const contexts = Object.fromEntries(w.steps.map((s) => [s.id, s.completionEvents.filter((e) => e.startsWith('onContext:'))]));
+  assert.deepStrictEqual(contexts, {
+    agents: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
+  });
   const commands = new Set(m.contributes.commands.map((c) => c.command));
   for (const step of w.steps) {
     assert.ok(fs.existsSync(path.join(root, step.media.markdown)), `${step.id}: ${step.media.markdown} exists`);
     const buttons = [...step.description.matchAll(/\(command:([\w.]+)\)/g)].map((x) => x[1]);
     assert.ok(buttons.length > 0, `${step.id} has a button`);
-    for (const id of [...buttons, ...step.completionEvents.map((e) => e.replace(/^onCommand:/, ''))]) {
+    const onCommand = step.completionEvents.filter((e) => !e.startsWith('onContext:'));
+    for (const e of onCommand) assert.match(e, /^onCommand:/, `${step.id}: ${e} is onCommand: or onContext:`);
+    for (const id of [...buttons, ...onCommand.map((e) => e.replace(/^onCommand:/, ''))]) {
       assert.ok(commands.has(id), `${step.id}: ${id} is a contributed command`);
     }
   }

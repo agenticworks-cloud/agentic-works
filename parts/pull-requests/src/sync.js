@@ -20,7 +20,7 @@ function rateError(message, retryAfterMs, local = false) {
   return Object.assign(new Error(message), { kind: 'rate', retryAfterMs, local });
 }
 
-function createSync({ accounts, client, tracker, now, onRound = () => {} }) {
+function createSync({ accounts, client, tracker, now, onRound = () => {}, onSignedIn = () => {} }) {
   const caches = new Map();   // login -> Map(pr id -> { key, pr })
   const watched = new Set();  // urls to keep fetching until a list returns them, the PR closes, or it is merged here
   const lastSeen = new Map(); // watched url -> last Pr fetched, kept in the rows when a fetch is skipped or fails
@@ -87,7 +87,7 @@ function createSync({ accounts, client, tracker, now, onRound = () => {} }) {
   async function listAccounts() {
     let next;
     try { next = await accounts.list(); } catch (e) {
-      if (e instanceof NoGhError) { tracker.setGlobalNote(e.message); throw rateError(e.message, NO_GH_RETRY_MS, true); }
+      if (e instanceof NoGhError) { onSignedIn(false); tracker.setGlobalNote(e.message); throw rateError(e.message, NO_GH_RETRY_MS, true); }
       throw e;
     }
     tracker.setGlobalNote(null);
@@ -97,6 +97,7 @@ function createSync({ accounts, client, tracker, now, onRound = () => {} }) {
     }
     logins = next;
     relist = false;
+    onSignedIn(next.length > 0);
   }
 
   /** A hidden PR that a successful list left out is fetched by url (a few per round); merged or closed means it's gone. */
