@@ -90,6 +90,13 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    installs the `.vsix`): `✗ Roost: VS Code couldn't install it; it also fetches Claude Code, ChatGPT and Perch's
    audio from the Marketplace, which may be unreachable from here — see <log>`, and the companions' line then
    leaves out "Roost still works".
+4a. **git, for real** *(Sean, 2026-11-24; for 0.4)*. Claude Code, Codex and the PRs part expect a working `git`, and
+   today it only arrives as a side effect (Apple's Command Line Tools through Homebrew's installer; a dependency of
+   the `gh` package on RHEL/Fedora, and probably on Debian/Ubuntu). The installer checks that `git --version`
+   actually runs (on macOS `/usr/bin/git` is a stub that opens Apple's install dialog until the Command Line Tools
+   are installed) and installs it when not: the Command Line Tools (`xcode-select --install`, or Homebrew's
+   `brew install git` when Homebrew is already there) on macOS, the distro's `git` package on Linux. A checklist
+   line of its own, before GitHub.
 4b. **GitHub, for the PRs panel.** kestrel reads pull requests through the GitHub CLI and cannot sign in by itself, so:
    install `gh` if missing (Homebrew; GitHub's apt repository on Ubuntu/Debian; on RHEL/Rocky GitHub's rpm
    repository, added and then `dnf install gh` without `--repo gh-cli`, which GitHub's page gives but which hides

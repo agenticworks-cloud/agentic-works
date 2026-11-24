@@ -527,6 +527,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     company file, their buttons run the matching tools row instead of the part's own sign-in.
   - **A company installer layered on Roost's** must never pass `--yes` (it would answer "uninstall the standalone
     four?" for the user), and should refuse a machine it wasn't meant for rather than migrate it.
+  - Also: the installer installs `git` explicitly, when `git --version` doesn't run (note 102, step 4a).
   - Also found: the installer adds Homebrew's `brew shellenv` to the login profile only when VS Code came from
     Homebrew; it should whenever Homebrew was used (`gh` from Homebrew is otherwise not on new terminals' PATH, nor
     VS Code's, on a Mac whose profile lacks it).
