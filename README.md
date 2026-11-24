@@ -26,10 +26,10 @@ Run it without `sudo`: it asks for your password when it needs it, after listing
   the PATH;
 - offers to uninstall the standalone Perch, chirp, jay and kestrel extensions, which would clash with Roost;
 - installs Roost (checked against its SHA-256) and its companions, Claude Code, ChatGPT and perch-audio;
-- installs the GitHub CLI, for the PRs panel (you sign in to GitHub from the walkthrough, not the terminal);
+- installs the GitHub CLI, for the PRs panel (you sign in to GitHub from the Get started page, not the terminal);
 - sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
   and trims the activity-bar icons on a VS Code that has never been started;
-- opens VS Code, where Roost's first start opens its Get started walkthrough (again any time: Roost: Get Started).
+- opens VS Code, where Roost's first start opens its Get started page (again any time: Roost: Get Started).
 
 It prints a ✓ / – / ✗ checklist and is safe to run again; a second run changes nothing that is in place. Running
 the newest installer is also how Roost is updated.
@@ -40,7 +40,7 @@ the newest installer is also how Roost is updated.
 | `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions claude git github homebrew settings icons open` |
 | `--yes` | answer yes to uninstalling the standalone four (needed with no terminal) |
 | `--no-open` | don't open VS Code at the end |
-| `--codebase-search` | turn codebase search on in Claude and Codex tabs (off otherwise; the Get started walkthrough offers it) |
+| `--codebase-search` | turn codebase search on in Claude and Codex tabs (off otherwise; the Get started page offers it) |
 | `--teams-app <clientId>:<tenant>` | sign Teams in with your company's own Microsoft app: its Application (client) ID, then the Directory (tenant) ID or domain, from your IT team (written to `teams.signIn.clientId` and `teams.signIn.tenant` only when neither is set) |
 | `--help` | the options |
 
@@ -72,7 +72,12 @@ the new one is already set there; the old entries stay in your `settings.json`, 
 
 ## First start
 
-On its very first start Roost opens the PRs tab once, so the bottom panel shows it. After that it is up to you.
+On its very first start Roost opens the PRs tab once, so the bottom panel shows it, and its **Get started** page in
+an editor tab. Open the page again any time with **Roost: Get Started** in the Command Palette. It is Roost's own
+page, with each step's controls in place: sign in to GitHub, connect Claude, connect your tools, sign in to Teams and
+Jira, talk to Claude or Codex, search your code, and choose your parts. The first step not yet done is open, the
+others closed with their tick, and a step once done stays done. VS Code's own walkthrough is still there as a
+fallback, on the Welcome page.
 
 ## For a company's installer
 
@@ -150,8 +155,10 @@ files. Required keys are marked **required**.
 
 What Roost does with it (the design and what was built: [note 101](docs/notes/101-roost.md), the 0.4 bullets under Follow-ups):
 
-- **Sign in to GitHub** is the walkthrough's first step (without a company file it comes later), since a server's
+- **Sign in to GitHub** is the Get started page's first step (without a company file it comes later), since a server's
   `install` downloads through that sign-in.
+- The page's heading reads "Get started with" and the company's `title`; its Claude and tools steps are named by
+  `steps.gateway` and `steps.tools`.
 - **Connect Claude** offers the company's gateway only. The other ways (a Claude subscription, an Anthropic API key,
   AWS Bedrock, and Codex's ChatGPT login, OpenAI API key or Bedrock) are a tab's footer away, whenever the person
   likes. With `gateway.terminal`, `claude` in the terminal uses the same connection, and its address in `~/.claude/settings.json` follows whichever of `baseUrls` answers.
