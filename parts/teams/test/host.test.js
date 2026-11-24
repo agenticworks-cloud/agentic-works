@@ -80,7 +80,7 @@ function start(world, o = {}) {
   ui.config['teams.signIn.clientId'] = o.clientId || '';
   ui.config['teams.signIn.tenant'] = o.tenant || '';
   const sec = o.secrets || secrets();
-  const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: (f, opts, fn) => watched.push(fn), unwatchFile: () => {}, secrets: sec, sleep: async () => {}, clientId: 'cid', restoreGraceMs: o.restoreGraceMs });
+  const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: (f, opts, fn) => watched.push(fn), unwatchFile: () => {}, secrets: sec, sleep: o.sleep || (async () => {}), clientId: 'cid', restoreGraceMs: o.restoreGraceMs });
   const h = { api, fetch, dir, context, watched, world, secrets: sec };
   running.push(h);
   return h;
@@ -798,7 +798,24 @@ test('the sidebar\'s buttons run the sign-in commands', async () => {
   ui.executed.length = 0;
   for (const type of ['signIn', 'cancelSignIn', 'copyCode', 'enableChannels', 'copyAdminLink']) view.webview._receive({ type });
   await settle();
-  assert.deepStrictEqual(ui.executed.map((x) => x[0]), ['chirp.signIn', 'chirp.cancelSignIn', 'chirp.copyCode', 'chirp.enableChannels', 'chirp.copyAdminLink']);
+  assert.deepStrictEqual(ui.executed.map((x) => x[0]).filter((c) => c.startsWith('chirp.')), ['chirp.signIn', 'chirp.cancelSignIn', 'chirp.copyCode', 'chirp.enableChannels', 'chirp.copyAdminLink']);
+});
+
+test('a sign-in code opens the Teams view and a notification with a button; Sign In again shows them again', async () => {
+  ui.focused = true;
+  const world = chatWorld();
+  world.loginAnswers = { shift: () => ({ body: { error: 'authorization_pending' } }) };   // the code is never entered
+  start(world, { method: 'deviceCode', sleep: () => new Promise((r) => setTimeout(r, 10)) }); const view = ui.resolveSidebar(); await settle();
+  ui.executed.length = 0; ui.infos.length = 0;
+  ui.commands['chirp.signIn'](); await settle();
+  assert.deepStrictEqual(signInState(view) && signInState(view).stage, 'code', 'waiting for the code to be entered');
+  const reveals = () => ui.executed.filter((x) => x[0] === 'workbench.view.extension.chirp').length;
+  assert.strictEqual(reveals(), 1, 'the Teams view is opened');
+  assert.strictEqual(ui.infos.filter((m) => m.includes('ABCD-1234')).length, 1, 'the notification has the code');
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.strictEqual(reveals(), 2, 'Sign In while waiting shows the code again');
+  assert.strictEqual(ui.infos.filter((m) => m.includes('ABCD-1234')).length, 2);
+  await ui.commands['chirp.cancelSignIn'](); await settle();
 });
 
 test('turning agent files off stops writing at once', async () => {

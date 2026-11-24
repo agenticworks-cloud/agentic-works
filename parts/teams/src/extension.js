@@ -99,10 +99,22 @@ function activate(context, deps = {}) {
   // every Sign Out, settings change or account change starts a new generation; poll results from an older one are dropped
   let gen = 0;
   function accountRow() { const a = auth.account(); return a ? { username: a.username || a.name || '', method: methodNow() } : null; }
+  // The code shows in the Teams view, which is opened, and in a notification whose button copies it and opens the
+  // page; signing in again while it waits shows them again (Sean's first-time run, 2026-11-24: a code in a plain
+  // notification was gone before it could be used, and a second click did nothing).
+  const COPY_AND_OPEN = 'Copy Code and Open Sign-in Page';
   function showCode({ userCode, verificationUri }) {
     s.signIn = { stage: 'code', userCode, verificationUri };
     sidebar.update({ signIn: s.signIn });
-    vscode.window.showInformationMessage(`chirp: enter the code ${userCode} at ${verificationUri}`);
+    revealCode();
+  }
+  function revealCode() {
+    const c = s.signIn;
+    if (!c || c.stage !== 'code') return;
+    Promise.resolve(vscode.commands.executeCommand('workbench.view.extension.chirp')).catch(() => { /* no Teams view */ });
+    Promise.resolve(vscode.window.showInformationMessage(`Teams: enter the code ${c.userCode} at ${c.verificationUri}`, COPY_AND_OPEN))
+      .then((pick) => { if (pick === COPY_AND_OPEN) return vscode.commands.executeCommand('chirp.copyCode'); })
+      .catch(log);
   }
 
   function showStatus() { sidebar.update({ status: s.status || s.throttle }); }
@@ -229,7 +241,11 @@ function activate(context, deps = {}) {
   }
 
   async function signIn() {
-    if (cancelSignIn) return;
+    if (cancelSignIn) {   // already signing in: show where it waits
+      if (s.signIn && s.signIn.stage === 'code') return revealCode();
+      Promise.resolve(vscode.commands.executeCommand('workbench.view.extension.chirp')).catch(() => { /* no Teams view */ });
+      return;
+    }
     const listeners = [];
     const cancel = { isCancellationRequested: false, onCancellationRequested: (fn) => { listeners.push(fn); return { dispose() {} }; } };
     cancelSignIn = () => { userCancelled = true; cancel.isCancellationRequested = true; listeners.forEach((f) => f()); };

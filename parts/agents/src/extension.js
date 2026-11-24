@@ -1959,7 +1959,15 @@ class PerchView {
     const groups = () => (vscode.window.tabGroups && vscode.window.tabGroups.all) || [];
     const until = async (ok) => { for (let n = 0; n < 20 && !ok(); n++) await new Promise((r) => setTimeout(r, 50)); return ok(); };
     if (!(await until(() => groups().some((g) => (g.tabs || []).some(isPerchTab))))) { this.trace('the first Claude tab did not show among the editor groups within a second: the left group is left as it is'); return; }
-    if (this.closing || groups().length !== 1) return;
+    if (this.closing) return;
+    if (groups().length === 2) {
+      // beside something already open (Roost's Get started walkthrough): that keeps most of the width, since VS Code
+      // drops a walkthrough's detail column when its group is narrow (Sean's first-time run, 2026-11-24)
+      await Promise.resolve(vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: [{ size: 0.7 }, { size: 0.3 }] }))
+        .catch((e) => this.trace(`the first Claude tab's group could not be narrowed: ${(e && e.message) || e}`));
+      return;
+    }
+    if (groups().length !== 1) return;
     // the left group did not stay: an empty one, with VS Code's watermark; failing that, an empty untitled editor moved left
     const focusTab = () => { const e = this.panels.get(s.id); if (e) e.panel.reveal(undefined, false); };
     try {
