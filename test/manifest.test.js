@@ -288,19 +288,26 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   assert.strictEqual(w.id, 'roost.getStarted');
   const when = Object.fromEntries(w.steps.map((s) => [s.id, s.when]));
   assert.deepStrictEqual(when, {
+    githubFirst: 'roost.company && config.roost.pullRequests.enabled && !roost.pullRequests.failed',
     connectClaude: 'config.roost.agents.enabled && !roost.agents.failed', agents: 'config.roost.agents.enabled && !roost.agents.failed', tools: 'roost.companyTools', codebaseSearch: 'config.roost.agents.enabled && !roost.agents.failed', teams: 'config.roost.teams.enabled && !roost.teams.failed',
-    jira: 'config.roost.jira.enabled && !roost.jira.failed', github: 'config.roost.pullRequests.enabled && !roost.pullRequests.failed',
+    jira: 'config.roost.jira.enabled && !roost.jira.failed', github: 'config.roost.pullRequests.enabled && !roost.pullRequests.failed && !roost.company',
     parts: undefined,
   });
   // a sign-in step is done once its part says it is signed in (a context key it sets), not when its button runs
   const contexts = Object.fromEntries(w.steps.map((s) => [s.id, s.completionEvents.filter((e) => e.startsWith('onContext:'))]));
   assert.deepStrictEqual(contexts, {
+    githubFirst: ['onContext:kestrel.signedIn'],
     connectClaude: ['onContext:perch.claudeConnected'], agents: ['onContext:perch.messageSent'], tools: ['onContext:roost.toolsConnected'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
   });
-  assert.deepStrictEqual(w.steps.map((st) => st.id).slice(0, 2), ['connectClaude', 'agents'], 'Connect Claude first, then the agents step');
-  assert.deepStrictEqual(w.steps.map((st) => st.id), ['connectClaude', 'agents', 'tools', 'codebaseSearch', 'teams', 'jira', 'github', 'parts']);
-  assert(!w.steps.some((st) => st.id === 'gateway'), 'no gateway step: Connect Claude replaces it');
   const buttonsOf = (id) => [...w.steps.find((st) => st.id === id).description.matchAll(/\(command:([\w.]+)\)/g)].map((x) => x[1]);
+  // with a company file, GitHub comes first (its tools download through gh); without one, it keeps its place
+  assert.deepStrictEqual(w.steps.map((st) => st.id).slice(0, 3), ['githubFirst', 'connectClaude', 'agents'], 'GitHub (company), Connect Claude, then the agents step');
+  assert.deepStrictEqual(w.steps.map((st) => st.id), ['githubFirst', 'connectClaude', 'agents', 'tools', 'codebaseSearch', 'teams', 'jira', 'github', 'parts']);
+  const [ghFirst, ghLater] = ['githubFirst', 'github'].map((id) => w.steps.find((st) => st.id === id));
+  assert.deepStrictEqual([ghFirst.title, ghFirst.media.markdown, ghFirst.completionEvents], [ghLater.title, ghLater.media.markdown, ghLater.completionEvents], 'two copies of one step');
+  assert.deepStrictEqual(buttonsOf('githubFirst'), ['roost.githubSignIn']);
+  assert.deepStrictEqual(buttonsOf('github'), ['roost.githubSignIn']);
+  assert(!w.steps.some((st) => st.id === 'gateway'), 'no gateway step: Connect Claude replaces it');
   assert.deepStrictEqual(buttonsOf('agents'), ['roost.newClaudeTab', 'roost.newCodexTab'], 'either agent, opened from here');
   assert.deepStrictEqual(buttonsOf('connectClaude'), ['perch.connectClaude', 'roost.connectClaudeNotNow']);
   // Connect your tools: shown with a company file that lists servers; done when all are connected, or left for now

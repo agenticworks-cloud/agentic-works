@@ -892,6 +892,18 @@
         "description": "Claude and Codex tabs, Teams, Jira and Confluence, and your pull requests, in one place.",
         "steps": [
           {
+            "id": "githubFirst",
+            "title": "Sign in to GitHub",
+            "description": "Sign in to GitHub first: your company's tools may download through it, and the PRs tab shows the PRs waiting on you.\n[Sign In to GitHub](command:roost.githubSignIn)",
+            "media": {
+              "markdown": "media/walkthrough/github.md"
+            },
+            "when": "roost.company && config.roost.pullRequests.enabled && !roost.pullRequests.failed",
+            "completionEvents": [
+              "onContext:kestrel.signedIn"
+            ]
+          },
+          {
             "id": "connectClaude",
             "title": "Connect Claude",
             "description": "Choose how Claude runs: your company's gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only. Any tab's footer switches backend later.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
@@ -973,7 +985,7 @@
             "media": {
               "markdown": "media/walkthrough/github.md"
             },
-            "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed",
+            "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed && !roost.company",
             "completionEvents": [
               "onContext:kestrel.signedIn"
             ]
