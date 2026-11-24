@@ -2055,8 +2055,8 @@ class PerchView {
   }
 
   /**
-   * What the panel is shown: the ways on offer and what is set up, never a key. With a company gateway, that gateway and
-   * Codex only (a tab's footer still switches backend). ~/.aws is read only once Bedrock is picked, or is the way in use.
+   * What the panel is shown: the ways on offer and what is set up, never a key. With a company gateway, that gateway only
+   * (a tab's footer still switches backend). ~/.aws is read only once Bedrock is picked, or is the way in use.
    */
   connectState() {
     const cg = this.companyGateway(), connection = this.claudeConnection();
@@ -2069,7 +2069,7 @@ class PerchView {
       company: cg ? { gatewayName: cg.name } : null,
       connection: connection || null,
       connected: this.claudeConnected(),
-      terminal: { on: !!(this.connect && this.connect.terminal), offered: connection !== 'codex' },
+      terminal: { on: !!(this.connect && this.connect.terminal) },
       apiKeySet: !!this.anthropicKey(),
       bedrockOpen,
       profiles,
@@ -2109,7 +2109,7 @@ class PerchView {
   async connectMessage(msg, ctx) {
     const post = ctx.post;
     const verdict = (way, text, ok = false, canForce = false) => post({ type: 'verdict', way, text, ok, canForce });
-    // a company gateway: the panel offers that gateway only, and the host keeps to it (a codex message too)
+    // a company gateway: the panel offers that gateway only, and the host keeps to it
     const offered = (w) => !Connections.WAYS.includes(w) || Connections.COMPANY_WAYS.includes(w);
     if (!offered(msg.type === 'bedrockPick' ? 'bedrock' : msg.type) && this.companyGateway()) return;
     switch (msg.type) {
@@ -2121,7 +2121,6 @@ class PerchView {
       }
       case 'terminal': ctx.terminal = !!msg.on; return;
       case 'gateway': this.setUpGateway(vscode.ViewColumn.Beside); return;   // beside: this panel stays in view
-      case 'codex': await this.connectSaved('codex'); return;
       case 'subscription': {
         if (this.meter.meter.readCredentials()) { await this.connectSaved('subscription'); return; }
         verdict('subscription', 'Sign in in the terminal that opened; this panel notes it when you are done.', true);
@@ -2181,7 +2180,7 @@ class PerchView {
     await this.context.globalState.update(Connections.CONNECTION_KEY, way);
     this.syncClaudeConnected(o.gw);
     post({ type: 'state', state: this.connectState() });
-    if (!ctx || !ctx.terminal || way === 'codex') { post({ type: 'saved', way, terminalNote: '' }); return; }
+    if (!ctx || !ctx.terminal) { post({ type: 'saved', way, terminalNote: '' }); return; }
     const file = this.meter.meter.settingsPath;
     const r = TerminalClaude.readSettings(file);
     if (!r.ok) { this.trace(`terminal claude: ${r.error}; left alone`); post({ type: 'saved', way, terminalNote: NOT_PLAIN_JSON }); return; }

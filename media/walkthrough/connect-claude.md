@@ -19,7 +19,9 @@ Otherwise the panel offers:
   region. Nothing is checked until you pick it. It is checked with the AWS CLI's list of Anthropic models; if the
   CLI isn't installed, the panel says how to install it, and **Save anyway** saves it unchecked. If your sign-in has
   run out, the panel names the `aws sso login` to run.
-- **Codex only**: no Claude. Codex tabs work as they always do.
+
+Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or
+Bedrock).
 
 Only Claude tabs use the choice. `claude` in a terminal, and Claude Code's own settings
 (`~/.claude/settings.json`), are left as they are, unless you tick **Use for `claude` in the terminal too**. Then

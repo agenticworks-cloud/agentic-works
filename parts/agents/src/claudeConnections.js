@@ -13,7 +13,7 @@ const GATEWAY_KEY_FILE = '~/.config/roost/gateway-key';
 const CONNECTION_KEY = 'perch.claude.connection';
 /** globalState: Bedrock's { profile, region }, as saved in Connect Claude. */
 const BEDROCK_KEY = 'perch.claude.bedrock';
-const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex'];
+const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock'];
 /** The ways Connect Claude offers with a company gateway: that gateway only; a tab's footer has the rest, Codex's
  * backends too. (Sean, 2026-11-24, 0.4.3; note 101.) */
 const COMPANY_WAYS = ['gateway'];
@@ -116,13 +116,12 @@ function isConnected({ connection, gatewayReady, canRun, apiKeySaved, bedrockSav
     case 'subscription': return !!canRun;
     case 'apiKey': return !!apiKeySaved;
     case 'bedrock': return !!bedrockSaved;
-    case 'codex': return true;
     default: return !!(gatewayReady || canRun);
   }
 }
 
 /**
- * The backend a new Claude tab takes from the recorded connection, or null (Codex only, or none recorded) for the
+ * The backend a new Claude tab takes from the recorded connection, or null (none recorded) for the
  * rule from before: the remembered gateway, else agents.claude.defaultBackend.
  * @returns {{ gateway: boolean, own: ''|'subscription'|'api'|'apiKey' } | null}
  */

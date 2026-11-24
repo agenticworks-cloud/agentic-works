@@ -12,7 +12,7 @@ const out = [];
 const dom = new JSDOM(html, { runScripts: 'dangerously', virtualConsole, beforeParse(w) { w.acquireVsCodeApi = () => ({ postMessage: (m) => out.push(JSON.parse(JSON.stringify(m))) }); } });
 const w = dom.window, d = w.document, $ = (id) => d.getElementById(id);
 const host = (m) => w.dispatchEvent(new w.MessageEvent('message', { data: m }));
-const state = (o) => Object.assign({ company: null, connection: null, connected: false, terminal: { on: false, offered: true }, apiKeySet: false, bedrockOpen: false, profiles: [], bedrock: null, loggedIn: false }, o);
+const state = (o) => Object.assign({ company: null, connection: null, connected: false, terminal: { on: false }, apiKeySet: false, bedrockOpen: false, profiles: [], bedrock: null, loggedIn: false }, o);
 const shown = (el) => { for (let e = el; e && e !== d.body; e = e.parentElement) if (e.hidden) return false; return true; };
 const ways = () => [...d.querySelectorAll('.way')].filter(shown).map((s) => s.dataset.way);
 const names = () => [...d.querySelectorAll('.way')].filter(shown).map((s) => s.querySelector('.name').textContent);
@@ -22,19 +22,23 @@ const awsShown = () => /AWS CLI|\.aws|aws sso|awscli/.test([...d.body.querySelec
 assert.deepStrictEqual(out, [{ type: 'ready' }], 'the page asks for its state');
 
 // a company with a gateway: that gateway only, and the footer line for the other ways, Codex's too (Sean, 2026-11-24)
-host({ type: 'state', state: state({ company: { gatewayName: 'Example Gateway' }, terminal: { on: true, offered: true } }) });
+host({ type: 'state', state: state({ company: { gatewayName: 'Example Gateway' }, terminal: { on: true } }) });
 assert.deepStrictEqual(ways(), ['gateway']);
 assert.deepStrictEqual(names(), ['Example Gateway']);
 assert(shown($('recommended')) && $('recommended').textContent === 'Recommended', 'the company\'s gateway is recommended');
 assert.deepStrictEqual([shown($('switchNote')), $('switchNote').textContent], [true, SWITCH], 'one line: a tab\'s footer switches backend');
+assert.strictEqual(shown($('codexNote')), false, 'the company line names Codex already');
 assert.strictEqual($('gatewayBtn').textContent, 'Set Up…', 'the gateway form: Get a key, Check and save');
 assert.strictEqual(awsShown(), false, 'nothing about AWS');
 assert.deepStrictEqual([shown($('terminalRow')), $('terminal').checked], [true, true], 'the terminal box, on as the company says');
 
-// no company: all five ways, an LLM gateway first and not recommended, no footer line, Bedrock's form closed
+// no company: four ways (no Codex only, Sean 2026-11-24), an LLM gateway first and not recommended, no footer line,
+// the line for Codex alone, Bedrock's form closed
 host({ type: 'state', state: state() });
-assert.deepStrictEqual(ways(), ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex']);
-assert.deepStrictEqual(names(), ['An LLM gateway', 'Claude subscription', 'Anthropic API key', 'AWS Bedrock', 'Codex only']);
+assert.deepStrictEqual(ways(), ['gateway', 'subscription', 'apiKey', 'bedrock']);
+assert.deepStrictEqual(names(), ['An LLM gateway', 'Claude subscription', 'Anthropic API key', 'AWS Bedrock']);
+assert.strictEqual($('codexBtn'), null, 'no Codex only button');
+assert.deepStrictEqual([shown($('codexNote')), $('codexNote').textContent], [true, 'Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).']);
 assert.strictEqual(shown($('recommended')), false);
 assert.strictEqual(shown($('switchNote')), false);
 assert.deepStrictEqual([shown($('bedrockPick')), shown($('bedrockForm')), awsShown()], [true, false, false], 'Bedrock not picked: no AWS text');
@@ -45,7 +49,6 @@ assert.deepStrictEqual(out.pop(), { type: 'terminal', on: true });
 // each way's button
 $('gatewayBtn').click(); assert.deepStrictEqual(out.pop(), { type: 'gateway' });
 $('subscriptionBtn').click(); assert.deepStrictEqual(out.pop(), { type: 'subscription' });
-$('codexBtn').click(); assert.deepStrictEqual(out.pop(), { type: 'codex' });
 $('apiKey').value = '  sk-ant-1\n'; $('apiKeyBtn').click();
 assert.deepStrictEqual(out.pop(), { type: 'apiKey', key: 'sk-ant-1' }, 'the key trimmed');
 assert.strictEqual($('apiKey').type, 'password');
@@ -88,10 +91,12 @@ host({ type: 'saved', way: 'bedrock', terminalNote: "~/.claude/settings.json isn
 assert.deepStrictEqual([shown($('saved')), $('terminalNote').textContent], [true, "~/.claude/settings.json isn't plain JSON, so it was left alone."]);
 $('newTab').click(); assert.deepStrictEqual(out.pop(), { type: 'newTab' });
 
-// Codex chosen: no terminal box; the way in use is marked
-host({ type: 'state', state: state({ connection: 'codex', connected: true, terminal: { on: false, offered: false } }) });
-assert.strictEqual(shown($('terminalRow')), false, 'Codex only: nothing for terminal claude');
-assert.deepStrictEqual([...d.querySelectorAll('.way.current')].map((s) => s.dataset.way), ['codex']);
+// the way in use is marked; a connection recorded as Codex only before 0.4.3 marks none
+host({ type: 'state', state: state({ connection: 'subscription', connected: true }) });
+assert.deepStrictEqual([...d.querySelectorAll('.way.current')].map((s) => s.dataset.way), ['subscription']);
+host({ type: 'state', state: state({ connection: 'codex', connected: false }) });
+assert.deepStrictEqual([...d.querySelectorAll('.way.current')].map((s) => s.dataset.way), []);
+assert(shown($('terminalRow')), 'the terminal box, always');
 // a key saved, a login there: said, never shown
 host({ type: 'state', state: state({ apiKeySet: true, loggedIn: true, connection: 'apiKey', connected: true }) });
 assert(shown($('apiKeySet')));

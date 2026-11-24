@@ -1,12 +1,13 @@
 'use strict';
 // The page of Agents: Connect Claude…: the ways Claude can run, one section each, in order: an LLM gateway, the Claude
-// subscription, an Anthropic API key, AWS Bedrock, Codex only. With a company gateway (state.company) the page offers
-// that gateway only, and a line on switching a tab's backend in its footer instead, Codex's too. (Sean, 2026-11-24.)
+// subscription, an Anthropic API key, AWS Bedrock; then a line for Codex alone (Not Now, then a Codex tab's footer).
+// No Codex-only way: it did nothing Not Now doesn't (Sean, 2026-11-24, 0.4.3). With a company gateway (state.company)
+// the page offers that gateway only, and a line on switching a tab's backend in its footer instead, Codex's too.
 // Bedrock's form, and anything about AWS, shows only once Bedrock is picked (state.bedrockOpen). The host does each
 // way's work (the gateway form, the login, the checks, the saves) and answers; the page never holds a saved key, only
-// whether there is one. The terminal box asks for terminal claude's settings too, for every way but Codex only.
+// whether there is one. The terminal box asks for terminal claude's settings too.
 // Messages, page to host: ready; gateway; subscription; apiKey {key}; bedrockPick; bedrock {profile, region, force};
-// codex; terminal {on}; replace {keys}; keep; newTab. Host to page: state {state}; verdict {way, text, ok, canForce};
+// terminal {on}; replace {keys}; keep; newTab. Host to page: state {state}; verdict {way, text, ok, canForce};
 // conflicts {way, list: [{key, from, to}]} (masked); saved {way, terminalNote}. No VS Code dependency. (Sean, 2026-11-24)
 
 function getConnectClaudeHtml({ nonce, cspSource }) {
@@ -84,13 +85,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
     <div class="verdict" id="verdict-bedrock"></div>
   </section>
 
-  <section class="way" data-way="codex">
-    <h2><span class="name">Codex only</span><span class="inuse" hidden>in use</span></h2>
-    <p class="muted">No Claude: use Codex tabs.</p>
-    <div class="row"><button type="button" id="codexBtn">Use Codex Only</button></div>
-    <div class="verdict" id="verdict-codex"></div>
-  </section>
-
+  <p class="muted" id="codexNote">Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).</p>
   <p class="muted" id="switchNote" hidden>Using your own Claude subscription, an API key or Bedrock, or Codex? Switch any tab's backend in its footer whenever you like; a Codex tab's footer offers ChatGPT login, an OpenAI API key or Bedrock.</p>
 
   <label id="terminalRow"><input type="checkbox" id="terminal"> <span>Use for <code>claude</code> in the terminal too (writes <code>~/.claude/settings.json</code>)</span></label>
@@ -109,7 +104,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
 (function () {
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
-  const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex'], COMPANY_WAYS = ['gateway'];
+  const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock'], COMPANY_WAYS = ['gateway'];
   let profiles = [], defaultRegion = 'us-east-1', conflictKeys = [];
   const post = (m) => vscode.postMessage(m);
   function clearVerdicts() { for (const w of WAYS) { $('verdict-' + w).textContent = ''; $('verdict-' + w).className = 'verdict'; } $('bedrockForce').hidden = true; }
@@ -121,6 +116,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
     // a company gateway: that gateway only; the other ways, Codex's too, are a tab footer's
     for (const sec of document.querySelectorAll('.way')) sec.hidden = !!company && !COMPANY_WAYS.includes(sec.dataset.way);
     $('switchNote').hidden = !company;
+    $('codexNote').hidden = !!company;   // the company's line names Codex's footer too
     $('bedrockForm').hidden = !st.bedrockOpen;
     $('bedrockPickRow').hidden = !!st.bedrockOpen;
     for (const sec of document.querySelectorAll('.way')) {
@@ -142,9 +138,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
     for (const p of profiles) opt(p.name, p.name);
     sel.value = profiles.some((p) => p.name === b.profile) ? b.profile : '';
     $('region').value = defaultRegion;
-    const t = st.terminal || {};
-    $('terminalRow').hidden = !t.offered;
-    $('terminal').checked = !!t.on;
+    $('terminal').checked = !!(st.terminal && st.terminal.on);
   }
   $('profile').addEventListener('change', () => {
     const p = profiles.find((x) => x.name === $('profile').value);
@@ -154,7 +148,6 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
   $('gatewayBtn').addEventListener('click', () => { clearVerdicts(); post({ type: 'gateway' }); });
   $('subscriptionBtn').addEventListener('click', () => { clearVerdicts(); post({ type: 'subscription' }); });
   $('bedrockPick').addEventListener('click', () => { clearVerdicts(); post({ type: 'bedrockPick' }); });
-  $('codexBtn').addEventListener('click', () => { clearVerdicts(); post({ type: 'codex' }); });
   $('apiKeyBtn').addEventListener('click', () => { clearVerdicts(); $('saved').hidden = true; post({ type: 'apiKey', key: $('apiKey').value.trim() }); });
   const bedrock = (force) => { clearVerdicts(); $('saved').hidden = true; post({ type: 'bedrock', profile: $('profile').value, region: $('region').value.trim(), force: !!force }); };
   $('bedrockBtn').addEventListener('click', () => bedrock(false));

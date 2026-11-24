@@ -118,7 +118,7 @@
         {
           "id": "connectClaude",
           "title": "Connect Claude",
-          "description": "Choose how Claude runs: your company's gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only. Any tab's footer switches backend later.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
+          "description": "Choose how Claude runs: your company's gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key or AWS Bedrock. Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
           "media": {
             "markdown": "media/walkthrough/connect-claude.md"
           },
