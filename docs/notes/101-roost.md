@@ -655,6 +655,22 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - **Plan:** `docs/superpowers/plans/2026-11-24-roost-0.4-company.md`, last at bb25a76.
     Built: branch `feat/roost-0.4`, merged directly, with no PR. The plan is deleted; this note is the record.
 
+- **GitHub first, tools installed from the walkthrough (design, for 0.4.3)** *(Sean, 2026-11-24: "gh auth login, why
+  can't we put this as the first step of the walkthrough?"; "even codex, we can open a new codex tab and use the sub
+  pill to configure")*. The terminal asks nothing but the Mac password; every sign-in is in VS Code.
+  - **Installer:** no GitHub sign-in question; `gh` is still installed. The walkthrough's GitHub step signs in.
+  - **Walkthrough with a company file:** **Sign in to GitHub** is the first step (a second copy of the step, `when`
+    `roost.company`; the existing one keeps its place, `when` `!roost.company`; both tick on `kestrel.signedIn`).
+    **Connect Claude** then offers the company's gateway only: **Codex only** goes too, since a Codex tab's footer
+    already offers ChatGPT login, an OpenAI API key or Bedrock; the footer line names both.
+  - **Tools installed from the panel:** a server's optional `install` in the company file:
+    `{ "github": { "repo": "owner/name", "tag": "latest" | "<tag>", "assets": { "darwin-arm64": "<asset>",
+    "darwin-x64": …, "linux-x64": …, "linux-arm64": … } }, "to": "~/.local/bin/<name>" }`. When `register.command`
+    (or `to`) is missing, **Connect** first runs `gh release download` (argv, no shell; the platform's asset; to a temp
+    file, then moved to `to`, mode 0755), then signs in. `gh` not signed in: the row says "Sign in to GitHub first",
+    with that step's button. A platform with no asset: the row says so.
+  - **A company installer** (c3works) then only installs Roost and writes the company file.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of
