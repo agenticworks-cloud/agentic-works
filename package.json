@@ -107,6 +107,10 @@
         "title": "Agents: Set Up a Gateway…"
       },
       {
+        "command": "perch.connectClaude",
+        "title": "Agents: Connect Claude…"
+      },
+      {
         "command": "perch.newCodex",
         "title": "Agents: New Codex Tab",
         "icon": "$(add)"
@@ -372,8 +376,8 @@
         "title": "Roost: Leave Codebase Search Off"
       },
       {
-        "command": "roost.gatewayNotNow",
-        "title": "Roost: Leave the Gateway for Now"
+        "command": "roost.connectClaudeNotNow",
+        "title": "Roost: Leave Connect Claude for Now"
       },
       {
         "command": "roost.goToClaude",
@@ -420,6 +424,10 @@
         },
         {
           "command": "perch.setUpGateway",
+          "when": "config.roost.agents.enabled && !roost.agents.failed"
+        },
+        {
+          "command": "perch.connectClaude",
           "when": "config.roost.agents.enabled && !roost.agents.failed"
         },
         {
@@ -639,7 +647,7 @@
           "when": "false"
         },
         {
-          "command": "roost.gatewayNotNow",
+          "command": "roost.connectClaudeNotNow",
           "when": "false"
         },
         {
@@ -856,6 +864,19 @@
         "description": "Claude and Codex tabs, Teams, Jira and Confluence, and your pull requests, in one place.",
         "steps": [
           {
+            "id": "connectClaude",
+            "title": "Connect Claude",
+            "description": "Choose how Claude runs: your company's gateway when it has one, a Claude subscription, an Anthropic API key, AWS Bedrock, or Codex only.\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
+            "media": {
+              "markdown": "media/walkthrough/connect-claude.md"
+            },
+            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "completionEvents": [
+              "onContext:perch.claudeConnected",
+              "onCommand:roost.connectClaudeNotNow"
+            ]
+          },
+          {
             "id": "agents",
             "title": "Talk to Claude or Codex",
             "description": "Open a tab and type a message. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[New Claude Tab](command:roost.newClaudeTab)\n[New Codex Tab](command:roost.newCodexTab)",
@@ -865,19 +886,6 @@
             "when": "config.roost.agents.enabled && !roost.agents.failed",
             "completionEvents": [
               "onContext:perch.messageSent"
-            ]
-          },
-          {
-            "id": "gateway",
-            "title": "Use an LLM gateway (optional)",
-            "description": "Run Claude tabs through an Anthropic-compatible endpoint, such as a company's LLM proxy. Claude Code's own settings stay as they are.\n[Set Up a Gateway](command:perch.setUpGateway)\n[Not Now](command:roost.gatewayNotNow)",
-            "media": {
-              "markdown": "media/walkthrough/gateway.md"
-            },
-            "when": "config.roost.agents.enabled && !roost.agents.failed",
-            "completionEvents": [
-              "onContext:perch.gatewayReady",
-              "onCommand:roost.gatewayNotNow"
             ]
           },
           {

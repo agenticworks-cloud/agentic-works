@@ -8,6 +8,7 @@ const { createMeter, summarize } = require('./meter');
 const CodexBedrock = require('./codexBedrock');
 const { readCodexUsage } = require('./codexMeter');
 const { sdkClaude, onPath, terminalRun } = require('./binaries');
+const { readSecretFile, anthropicKeyFile } = require('./claudeConnections');
 
 const CACHE_KEY = 'perch.meter.limits';
 const CODEX_BACKEND_KEY = 'perch.codex.backend';    // 'chatgpt' (the login), 'api' (a key) or 'bedrock' (AWS credentials); perch's own choice, since Codex has no setting for it
@@ -209,8 +210,12 @@ class MeterHost {
     return true;
   }
 
-  /** Whether a Claude session started now would have something to authenticate with, on the backend it would get: the window's, or the one given. */
+  /**
+   * Whether a Claude session started now would have something to authenticate with, on the backend it would get: the
+   * window's, or the one given. 'apiKey': the Anthropic API key Connect Claude keeps (~/.config/roost/anthropic-key).
+   */
   canRun(backend) {
+    if (backend === 'apiKey') return !!readSecretFile(anthropicKeyFile());
     if ((backend || this.backend()) === 'api') return this.meter.apiCredentialsPresent();
     return !!(process.env.ANTHROPIC_API_KEY || this.meter.readCredentials());
   }

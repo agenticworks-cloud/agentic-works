@@ -759,7 +759,7 @@ ${glyphCss}
     const table = el('table'), row = (k, v) => { const tr = el('tr'); tr.append(el('th', null, k), el('td', null, v)); table.append(tr); };
     // the backend and the plan as the vendor reports them: Anthropic's usage endpoint names no plan, so none is invented here
     const ownOff = !codex && !!(t && t.own && m && t.own !== m.backend);   // a backend of the tab's own, not the window's: the reading here is the window's
-    row('Backend', gw ? 'LLM gateway, this tab\\'s own' : ownOff ? (t.own === 'api' ? 'API / Bedrock' : 'subscription (login)') + ', this tab\\'s own choice' : !m ? '—' : codex ? (m.backend === 'api' ? 'OpenAI API key' : m.backend === 'bedrock' ? 'Amazon Bedrock' : 'ChatGPT (login)') : m.backendName || m.backendLabel || '—');
+    row('Backend', gw ? 'LLM gateway, this tab\\'s own' : ownOff ? (t.own === 'api' ? 'API / Bedrock' : t.own === 'apiKey' ? 'an Anthropic API key' : 'subscription (login)') + ', this tab\\'s own choice' : !m ? '—' : codex ? (m.backend === 'api' ? 'OpenAI API key' : m.backend === 'bedrock' ? 'Amazon Bedrock' : 'ChatGPT (login)') : m.backendName || m.backendLabel || '—');
     row('Plan', gw ? 'not reported through the gateway' : !m ? '—' : codex ? (m.backend === 'api' ? 'none: billed per token' : m.backend === 'bedrock' ? 'none: billed to the AWS account' : m.plan ? planCap(m.plan) : 'not reported') : m.mode === 'cost' ? 'none: billed per token' : 'not reported');
     if (codex && m && m.credits) row('Credits', m.credits.unlimited ? 'unlimited' : m.credits.has ? m.credits.balance || 'some' : 'none');
     box.append(table);
@@ -979,7 +979,7 @@ ${glyphCss}
     const hasEffort = (t.efforts || []).length > 1, effort = hasEffort ? cap(resolved(t.efforts, t.effort)) : '';
     $tModel.querySelector('.m').textContent = model;
     $tModel.querySelector('.e').textContent = effort;
-    $tModel.title = (t.off ? t.off.title + ' ' : t.actualModel ? 'Running ' + t.actualModel + '. ' : '') + (t.backend ? 'Backend: ' + (t.backend === 'api' ? 'API / Bedrock' : t.backend === 'gateway' ? 'LLM gateway' : 'subscription') + '. ' : '') + (t.via ? 'Last answered by ' + t.via + '. ' : '')
+    $tModel.title = (t.off ? t.off.title + ' ' : t.actualModel ? 'Running ' + t.actualModel + '. ' : '') + (t.backend ? 'Backend: ' + (t.backend === 'api' ? 'API / Bedrock' : t.backend === 'gateway' ? 'LLM gateway' : t.backend === 'apiKey' ? 'an Anthropic API key' : 'subscription') + '. ' : '') + (t.via ? 'Last answered by ' + t.via + '. ' : '')
       + 'Model and effort. Changes apply from the next message.';
 
     const mode = MODES[t.mode] || [t.mode, ''];
@@ -1611,8 +1611,8 @@ ${glyphCss}
     }
     // a backend of the tab's own, not the window's: the pill says the tab's, and the window's reading is not shown as its
     if (claude && t.own && t.own !== meter.backend) {
-      const mine = t.own === 'api' ? 'API / Bedrock' : 'subscription (login)';
-      $mb.textContent = t.own === 'api' ? 'API' : 'sub'; $mb.className = 'mb';
+      const mine = t.own === 'api' ? 'API / Bedrock' : t.own === 'apiKey' ? 'an Anthropic API key' : 'subscription (login)';
+      $mb.textContent = t.own === 'api' ? 'API' : t.own === 'apiKey' ? 'key' : 'sub'; $mb.className = 'mb';
       $mb.title = 'Claude backend for this tab: ' + mine + ', its own choice; the window is on ' + (meter.backendName || meter.backendLabel) + '. Click to change.';
       $mu.textContent = ''; $mu.className = 'mu none';
       $mu.append(el('span', 'seg none', '\u2014'));

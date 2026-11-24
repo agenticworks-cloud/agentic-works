@@ -631,7 +631,7 @@ test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh
   await extension.deactivate();
 });
 
-test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never off; Not Now does nothing; so does the gateway step\'s Not Now', async () => {
+test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never off; Not Now does nothing; so does Connect Claude\'s Not Now', async () => {
   const { ui, extension, base } = setup({});
   await (await activate(extension, base)).firstStarted;
   const toggled = [];
@@ -643,7 +643,8 @@ test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never 
   assert.strictEqual(toggled.length, 1, 'already on: not toggled off');
   await ui.vscode.commands.executeCommand('roost.codebaseSearchNotNow');
   assert.strictEqual(toggled.length, 1);
-  await ui.vscode.commands.executeCommand('roost.gatewayNotNow');   // the gateway step's Not Now: registered, and does nothing
+  await ui.vscode.commands.executeCommand('roost.connectClaudeNotNow');   // Connect Claude's Not Now: registered, and does nothing
+  await assert.rejects(() => ui.vscode.commands.executeCommand('roost.gatewayNotNow'), /not found|gatewayNotNow/, 'the gateway step\'s Not Now is gone');
   assert.strictEqual(toggled.length, 1);
   const opened = [];
   ui.commands['perch.open'] = () => opened.push(1);

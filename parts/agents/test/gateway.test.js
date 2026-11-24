@@ -155,6 +155,8 @@ try {
   // a backend of one tab's own, whatever the window's file says: only the switch and the model slots, nothing of a gateway touched
   assert.deepStrictEqual(G.ownBackendSettings(true, {}), { env: { CLAUDE_CODE_USE_BEDROCK: '1', ...noSlots } }, 'API/Bedrock for this tab: no base URL, helper or model cleared, since no gateway is pinned');
   assert.deepStrictEqual([G.ownBackendSettings(false, pod).env.CLAUDE_CODE_USE_BEDROCK, G.ownBackendSettings(false, pod).env.ANTHROPIC_MODEL, G.ownBackendSettings(true, pod).env.ANTHROPIC_MODEL], ['0', '', 'us.anthropic.claude-sonnet-4-6'], 'subscription for this tab: a Bedrock id the machine pins is not carried over; on Bedrock it is');
+  assert.deepStrictEqual(G.ownBackendSettings(true, {}, { region: 'eu-west-1', profile: 'dev' }).env, { CLAUDE_CODE_USE_BEDROCK: '1', ...noSlots, AWS_REGION: 'eu-west-1', AWS_PROFILE: 'dev' }, 'Bedrock with Connect Claude\'s region and profile');
+  assert.deepStrictEqual(G.ownBackendSettings(true, {}, { region: 'eu-west-1', profile: '' }).env, { CLAUDE_CODE_USE_BEDROCK: '1', ...noSlots, AWS_REGION: 'eu-west-1' }, 'default credentials: no profile');
 
   // ---- writing the file, from the set-up form: values quoted as a shell reads them back
   for (const v of ['https://gw.example.com/llm-api', 'sk-abc=def', 'router-auto[1m]', 'a b', 'it\'s', 'x#y', '#lead', '$HOME', 'a"b', '']) {

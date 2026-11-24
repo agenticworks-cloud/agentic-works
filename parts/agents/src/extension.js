@@ -5,6 +5,8 @@ const { ClaudeAgent } = require('./claudeAgent');
 const { CodexAgent } = require('./codexAgent');
 const { getHtml } = require('./webview');
 const { getGatewayFormHtml } = require('./gatewayForm');
+const { getConnectClaudeHtml } = require('./connectClaude');
+const Connections = require('./claudeConnections');
 const { loadClaudeModels, loadCodexModels, normalizeCommands, modelEntry, modelLabel, sameModel, fallbackNote } = require('./models');
 const { MeterHost } = require('./meterHost');
 const { VoiceHost } = require('./voiceHost');
@@ -43,6 +45,9 @@ const REFUSED_LOGIN_KEY = 'perch.codex.refusedLogin';   // the authStamp of the 
 const UNSANDBOXED_KEY = 'perch.codex.unsandboxed';   // { hostname: true } for machines where Codex's sandbox cannot start
 const PANEL_TYPE = 'perch.session';   // the webview panel type of an editor tab
 const GATEWAY_PANEL_TYPE = 'perch.gatewaySetup';   // Agents: Set Up a Gateway…'s form
+const CONNECT_PANEL_TYPE = 'perch.connectClaude';   // Agents: Connect Claude…'s panel
+const NOT_PLAIN_JSON = "~/.claude/settings.json isn't plain JSON, so it was left alone.";
+const OWN_BACKENDS = ['subscription', 'api', 'apiKey'];   // a Claude tab's backend of its own: the subscription, API / Bedrock, or the Anthropic API key Connect Claude saved
 // how long to wait for VS Code to bring back editor tabs before opening them ourselves (shortened by the tests)
 const RESTORE_GRACE_MS = Number(process.env.PERCH_RESTORE_GRACE_MS) > 0 ? Number(process.env.PERCH_RESTORE_GRACE_MS) : 4000;
 // how long after a Perch tab leaves a group its lock is looked at: a tab that takes the place of another opens a moment
@@ -317,7 +322,7 @@ class Session {
     this.search = '';                // the folders the agent's process searches (codeindex/), as it was given them; '' for none
     this.backend = '';               // claude only: the backend this tab's agent started on
     this.gateway = kind === 'claude' && !!gateway;   // claude only: this tab runs through the gateway (src/gateway.js), whatever the window's backend
-    this.own = kind === 'claude' && (own === 'subscription' || own === 'api') ? own : '';   // claude only: a backend of this tab's own, chosen in the footer, kept as its process's settings; '' follows the window's switch
+    this.own = kind === 'claude' && OWN_BACKENDS.includes(own) ? own : '';   // claude only: a backend of this tab's own, chosen in the footer or by Connect Claude, kept as its process's settings; '' follows the window's switch
     this.via = {};                   // gateway only: the models that answered this turn's requests, by name, with how many each
     this.lastVia = '';               // gateway only: the model that answered most recently, for the tooltip
     this.viaCost = null;             // gateway only: the gateway's own figure for this turn so far, summed over its requests; null until one is reported
@@ -462,7 +467,7 @@ class Session {
     this.effort = typeof effort === 'string' ? effort : back ? back.effort : defaultEffort(kind);
     this.mode = back && MODES[kind].includes(back.mode) ? back.mode : kind === 'codex' && this.view.codexUnsandboxedHere() ? 'danger-full-access' : defaultMode(kind);
     this.gateway = kind === 'claude' && !!(back && back.gateway);
-    this.own = kind === 'claude' && back && (back.own === 'subscription' || back.own === 'api') ? back.own : '';
+    this.own = kind === 'claude' && back && OWN_BACKENDS.includes(back.own) ? back.own : '';
     this.costSoFar = back && typeof back.costSoFar === 'number' ? back.costSoFar : null;
     this.context = null; this.respondedAt = 0; this.collab.clear(); this.queue = []; this.shown = []; this.via = {}; this.lastVia = ''; this.viaQueue = [];
     // no phase on Codex, nor on a new Claude thread; back on a Claude session, the phase it had, else the one its record has
@@ -559,7 +564,8 @@ class Session {
 
   // ---- what this tab may choose, given the agent's catalog and the selected model
   /** On the gateway the choices are the file's names (src/gateway.js), not Claude Code's catalog. */
-  catalog() { return this.gateway ? this.view.gatewayCatalog() :this.kind === 'claude' && this.own ? this.view.claudeCatalog(this.own) : this.view.catalog[this.kind] || null; }
+  // an Anthropic API key names Claude's models as the subscription does
+  catalog() { return this.gateway ? this.view.gatewayCatalog() : this.kind === 'claude' && this.own ? this.view.claudeCatalog(this.own === 'apiKey' ? 'subscription' : this.own) : this.view.catalog[this.kind] || null; }
   /**
    * The catalog's entry for a model the tab names: by its value, else by the model the id names, so a model given by its
    * id (`claude-fable-5-1[1m]`: Fable 5.1 with the 1M context window, chosen in Claude Code or saved by an older Perch) is
@@ -824,12 +830,15 @@ class Session {
         effort: (!this.effortInName() && this.effort) || undefined,   // on the gateway's list the effort is in the model's name
         executable: prog.path || undefined,
         costBefore: this.costSoFar === null ? undefined : this.costSoFar,
-        env: gw ? Gateway.gatewayEnv(gw.vars) : undefined,
+        // a tab on the Anthropic API key: the key in its process's environment, never in its arguments
+        env: gw ? Gateway.gatewayEnv(gw.vars) : this.own === 'apiKey' ? { ANTHROPIC_API_KEY: this.view.anthropicKey() } : undefined,
         // through the relay, which sees which model answers; to the first of the company's addresses that answers as the
         // process starts (claudeAgent.resolveGatewayTarget), when the file names one of them, else to the file's
         gateway: gw ? { target: gw.vars.ANTHROPIC_BASE_URL, candidates, key: Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '' } : undefined,
-        offGateway: pinned && this.backend ? { bedrock: this.backend !== 'subscription' } : undefined,   // take a sub/API tab off the pinned gateway
-        backend: !gw && !pinned && this.own ? { bedrock: this.own === 'api' } : undefined,   // a backend of the tab's own, as its process's settings, whatever the window's switch says
+        offGateway: pinned && this.backend ? { bedrock: this.backend === 'api' } : undefined,   // take a sub/API tab off the pinned gateway
+        // a backend of the tab's own, as its process's settings, whatever the window's switch says; on Bedrock, the
+        // profile and region Connect Claude saved
+        backend: !gw && !pinned && this.own ? (this.own === 'api' ? Object.assign({ bedrock: true }, this.view.claudeBedrock() ? { aws: this.view.claudeBedrock() } : {}) : { bedrock: false }) : undefined,
         askPermission: (req) => new Promise((resolve) => this.pending.set(req.id, resolve)),
       });
     } else {
@@ -884,6 +893,11 @@ class Session {
     // Claude Code refused the login its process holds: the next message gets a fresh process, which reads the login there now
     if (this.kind === 'claude' && this.relogin && this.agent && !this.busy) { this.relogin = false; this.restart(); }
     // Claude with nothing to authenticate with here, on the backend it would get: hold the message, offer the way in
+    if (this.kind === 'claude' && !this.agent && !this.gateway && this.own === 'apiKey' && this.view.meter && !this.view.meter.canRun('apiKey')) {
+      this.post({ kind: 'note', text: `This tab runs on an Anthropic API key, and ${Connections.ANTHROPIC_KEY_FILE} holds none. Save one with Agents: Connect Claude…, then send the message again.` });
+      this.view.deliver(this.id, text);
+      return;
+    }
     if (this.kind === 'claude' && !this.agent && !this.gateway && this.view.meter && !this.view.meter.canRun(this.own || undefined)) {
       const api = (this.own || this.view.meter.backend()) === 'api';
       this.post({ kind: 'note', text: api ? `Claude is set to API / Bedrock on ${require('os').hostname()}, and no credentials for it were found there. Set them up, or use your subscription, then send the message again.` : `Claude is not logged in on ${require('os').hostname()}. Log in, then send the message again.`,
@@ -1203,6 +1217,7 @@ class PerchView {
     this.context = context;
     this.out = typeof vscode.window.createOutputChannel === 'function' ? vscode.window.createOutputChannel('Perch') : null;   // View › Output › Perch
     this.spawnClaude = require('child_process').spawn;   // notePrMerged's headless run; a test puts a fake in its place
+    this.runArgv = Connections.runArgv;   // Connect Claude's Bedrock check runs the AWS CLI with it; a test puts a fake in its place
     this.sidebar = { view: null, ready: false };
     this.panels = new Map();         // session id -> { panel, ready }
     this.sessions = [];
@@ -1250,6 +1265,7 @@ class PerchView {
   // ---- Claude usage and backend
   onMeter(state, why, codex) {
     this.raw({ type: 'meter', meter: state, codex });
+    this.syncClaudeConnected();   // a login landed, or the backend moved: whether Claude can run may have changed
     if (why === 'codexBackend') {
       // Codex takes its key and its --config overrides per process, so every tab moves on its next turn; nothing is restarted
       const backend = this.meter.codexBackend(), key = backend === 'api' ? this.meter.codexApiKey() : null, bedrock = backend === 'bedrock' ? this.codexBedrock() : undefined;
@@ -1551,6 +1567,7 @@ class PerchView {
       this.gatewayReadyShown = gw.ok;
       Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.gatewayReady', gw.ok)).catch(() => { /* an older VS Code */ });
     }
+    this.syncClaudeConnected(gw);
   }
 
   /**
@@ -1651,6 +1668,8 @@ class PerchView {
     if (value !== 'gateway' && value !== 'subscription' && value !== 'api') return;
     // the gateway sticks: the next new Claude tab starts where this one was put
     this.context.globalState.update(GATEWAY_DEFAULT_KEY, value === 'gateway');
+    // and Connect Claude's choice is let go: the user's later choice wins
+    if (this.context.globalState.get(Connections.CONNECTION_KEY) !== undefined) { this.context.globalState.update(Connections.CONNECTION_KEY, undefined); this.syncClaudeConnected(); }
     s.setBackendChoice(value);
   }
 
@@ -1989,6 +2008,204 @@ class PerchView {
     if (!key || !Gateway.isOneOf(gw.vars.ANTHROPIC_BASE_URL, cg.baseUrls)) return false;
     const found = await probeBaseUrls(cg.baseUrls, { key });
     return found ? this.syncTerminalBaseUrl(found) : false;
+  }
+
+  // ---- Agents: Connect Claude…: the ways Claude can run, in one panel (src/connectClaude.js, src/claudeConnections.js).
+  // The way chosen is recorded (perch.claude.connection), and new Claude tabs run on it until a tab's footer picks a
+  // backend. Terminal claude's settings (~/.claude/settings.json) are written only when the panel's box is ticked, and a
+  // value of the user's there is replaced only on Replace. (Sean, 2026-11-24; note 101.)
+  /** The Anthropic API key Connect Claude saved, trimmed; '' when there is none. Never sent to a page, never logged. */
+  anthropicKey() { return Connections.readSecretFile(Connections.anthropicKeyFile()); }
+  /** Bedrock's profile and region as Connect Claude saved them, or undefined. */
+  claudeBedrock() {
+    const b = this.context.globalState.get(Connections.BEDROCK_KEY);
+    return b && typeof b === 'object' && typeof b.region === 'string' && b.region ? { profile: typeof b.profile === 'string' ? b.profile : '', region: b.region } : undefined;
+  }
+  /** The way recorded in Connect Claude, or ''. */
+  claudeConnection() { const c = this.context.globalState.get(Connections.CONNECTION_KEY); return Connections.WAYS.includes(c) ? c : ''; }
+  /** Whether Claude counts as connected (Connections.isConnected), for perch.claudeConnected. */
+  claudeConnected(gw) {
+    const connection = this.claudeConnection();
+    let canRun = false;
+    try { canRun = !!(this.meter && this.meter.canRun(connection === 'subscription' ? 'subscription' : undefined)); } catch (_) { /* no meter yet */ }
+    return Connections.isConnected({ connection, gatewayReady: !!(gw || this.gateway()).ok, canRun, apiKeySaved: !!this.anthropicKey(), bedrockSaved: !!this.claudeBedrock() });
+  }
+  /** perch.claudeConnected, sent when it changes: Roost's walkthrough ticks Connect Claude on it. */
+  syncClaudeConnected(gw) {
+    let on;
+    try { on = this.claudeConnected(gw); } catch (e) { this.trace(`connect claude: ${(e && e.message) || e}`); return; }
+    if (on === this.claudeConnectedShown) return;
+    this.claudeConnectedShown = on;
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.claudeConnected', on)).catch(() => { /* an older VS Code */ });
+  }
+
+  /** What the panel is shown: the ways on offer and what is set up, never a key. */
+  connectState() {
+    const cg = this.companyGateway(), connection = this.claudeConnection(), profiles = Connections.awsProfiles();
+    const dflt = profiles.find((p) => p.name === 'default');
+    let loggedIn = false;
+    try { loggedIn = !!(this.meter && this.meter.meter.readCredentials()); } catch (_) { /* none */ }
+    return {
+      company: cg ? { gatewayName: cg.name } : null,
+      connection: connection || null,
+      connected: this.claudeConnected(),
+      terminal: { on: !!(this.connect && this.connect.terminal), offered: connection !== 'codex' },
+      apiKeySet: !!this.anthropicKey(),
+      profiles,
+      bedrock: this.claudeBedrock() || { profile: '', region: process.env.AWS_REGION || (dflt && dflt.region) || 'us-east-1' },
+      loggedIn,
+    };
+  }
+
+  /** Agents: Connect Claude…: the panel, in an editor tab, one at a time. */
+  connectClaude() {
+    if (this.connectPanel) { this.connectPanel.reveal(); return this.connectPanel; }
+    const panel = vscode.window.createWebviewPanel(CONNECT_PANEL_TYPE, 'Connect Claude', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [] });
+    this.connectPanel = panel;
+    const post = (m) => { Promise.resolve(panel.webview.postMessage(m)).catch(() => { /* the page is gone */ }); };
+    const cg = this.companyGateway();
+    const ctx = this.connect = { panel, post, terminal: !!(cg && cg.terminal), pending: null };
+    panel.webview.html = getConnectClaudeHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
+    // the gateway way is the gateway form's: its save, while this panel is open, is the choice
+    const onSaved = (gw) => { this.connectSaved('gateway', { gw }).catch((e) => post({ type: 'verdict', way: 'gateway', text: (e && e.message) || String(e), ok: false, canForce: false })); };
+    this.onGatewaySaved.add(onSaved);
+    panel.webview.onDidReceiveMessage((msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      this.connectMessage(msg, ctx).catch((e) => post({ type: 'verdict', way: String(msg.type || ''), text: (e && e.message) || String(e), ok: false, canForce: false }));
+    });
+    panel.onDidDispose(() => { this.onGatewaySaved.delete(onSaved); if (this.connectPanel === panel) { this.connectPanel = null; this.connect = null; } });
+    return panel;
+  }
+
+  async connectMessage(msg, ctx) {
+    const post = ctx.post;
+    const verdict = (way, text, ok = false, canForce = false) => post({ type: 'verdict', way, text, ok, canForce });
+    switch (msg.type) {
+      case 'ready': post({ type: 'state', state: this.connectState() }); return;
+      case 'terminal': ctx.terminal = !!msg.on; return;
+      case 'gateway': this.setUpGateway(); return;
+      case 'codex': await this.connectSaved('codex'); return;
+      case 'subscription': {
+        if (this.meter.meter.readCredentials()) { await this.connectSaved('subscription'); return; }
+        verdict('subscription', 'Sign in in the terminal that opened; this panel notes it when you are done.', true);
+        const opened = await this.meter.login();
+        if (!opened && !this.meter.signIn) { verdict('subscription', 'No sign-in could be opened here.'); return; }
+        if (await this.meter.waitForLogin()) await this.connectSaved('subscription');
+        else verdict('subscription', "The sign-in didn't finish. Press Log In to try again.");
+        return;
+      }
+      case 'apiKey': {
+        const key = String(msg.key || '').trim();   // a key pasted with spaces or a newline: trimmed before the check and the save
+        if (!key) { verdict('apiKey', 'A key is needed.'); return; }
+        const check = await checkKey({ baseUrls: ['https://api.anthropic.com'], key, name: 'Anthropic', style: 'anthropic' });
+        if (check.verdict !== 'works') { verdict('apiKey', check.text); return; }
+        Gateway.writeSecretFile(Connections.anthropicKeyFile(), key);
+        await this.connectSaved('apiKey');
+        return;
+      }
+      case 'bedrock': {
+        const profile = typeof msg.profile === 'string' ? msg.profile.trim() : '', region = String(msg.region || '').trim();
+        if (!region) { verdict('bedrock', 'A region is needed.'); return; }
+        if (profile && !/^[\w.@+-]+$/.test(profile)) { verdict('bedrock', 'That is not a profile name.'); return; }
+        if (!/^[a-z0-9-]+$/.test(region)) { verdict('bedrock', 'That is not a region.'); return; }
+        const check = await Connections.checkBedrock({ profile, region, run: this.runArgv });
+        if (check.verdict !== 'works' && !(check.verdict === 'unchecked' && msg.force)) { verdict('bedrock', check.text, false, check.verdict === 'unchecked'); return; }
+        await this.context.globalState.update(Connections.BEDROCK_KEY, { profile, region });
+        await this.connectSaved('bedrock');
+        return;
+      }
+      case 'replace': case 'keep': {
+        const pending = ctx.pending;
+        ctx.pending = null;
+        if (!pending) return;
+        const keys = msg.type === 'replace' && Array.isArray(msg.keys) ? msg.keys.filter((k) => typeof k === 'string') : [];
+        this.finishTerminal(ctx, pending.way, pending.plan, keys);
+        return;
+      }
+      case 'newTab':
+        // Roost's, beside the walkthrough, when Roost is there; else Agents' own
+        Promise.resolve().then(() => vscode.commands.executeCommand('roost.newClaudeTab'))
+          .catch(() => vscode.commands.executeCommand('perch.newClaude'))
+          .catch((e) => this.trace(`connect claude: ${(e && e.message) || e}`));
+        return;
+      default:
+    }
+  }
+
+  /**
+   * A way saved: recorded, and, with the terminal box ticked, terminal claude's settings planned against what the file
+   * holds and what Roost wrote there before. The user's own values go to the page first (masked where their name says
+   * token, key or secret); Replace or Keep finishes the write (finishTerminal).
+   */
+  async connectSaved(way, o = {}) {
+    const ctx = this.connect, post = ctx ? ctx.post : () => {};
+    await this.context.globalState.update(Connections.CONNECTION_KEY, way);
+    this.syncClaudeConnected(o.gw);
+    post({ type: 'state', state: this.connectState() });
+    if (!ctx || !ctx.terminal || way === 'codex') { post({ type: 'saved', way, terminalNote: '' }); return; }
+    const file = this.meter.meter.settingsPath;
+    const r = TerminalClaude.readSettings(file);
+    if (!r.ok) { this.trace(`terminal claude: ${r.error}; left alone`); post({ type: 'saved', way, terminalNote: NOT_PLAIN_JSON }); return; }
+    const plan = TerminalClaude.planSettings(r.json, this.terminalDesired(way, o), this.terminalWritten());
+    if (plan.conflicts.length) {
+      ctx.pending = { way, plan };
+      post({ type: 'conflicts', way, list: plan.conflicts.map((c) => ({ key: c.key, from: TerminalClaude.maskValue(c.key, c.from), to: TerminalClaude.maskValue(c.key, c.to) })) });
+      return;
+    }
+    this.finishTerminal(ctx, way, plan, []);
+  }
+
+  /** What terminal claude's settings should hold for a way (TerminalClaude.desiredSettings). */
+  terminalDesired(way, o = {}) {
+    if (way === 'apiKey') return TerminalClaude.desiredSettings('apiKey', { keyFile: Connections.anthropicKeyFile() });
+    if (way === 'bedrock') return TerminalClaude.desiredSettings('bedrock', this.claudeBedrock() || {});
+    if (way === 'subscription') return TerminalClaude.desiredSettings('subscription');
+    // the gateway: its address, the company's env (or the file's model names), and a key helper reading the company's
+    // first key file, else a key file of Roost's, written here with the gateway file's key
+    const gw = o.gw || this.gateway(), cg = this.companyGateway();
+    const key = Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '';
+    let keyFile = cg && cg.keyFiles.length ? cg.keyFiles[0] : '';
+    if (!keyFile) {
+      if (!key) throw new Error('The gateway file holds no key for terminal claude.');
+      keyFile = Connections.gatewayKeyFile();
+      Gateway.writeSecretFile(keyFile, key);
+    }
+    const env = {};
+    if (cg) Object.assign(env, cg.env);
+    else for (const k of Gateway.MODEL_VARS) if (gw.vars[k]) env[k] = gw.vars[k];
+    return TerminalClaude.desiredSettings('gateway', { env, keyFile, baseUrl: gw.vars.ANTHROPIC_BASE_URL });
+  }
+
+  /** The record of what Roost wrote in terminal claude's settings (perch.terminal.written). */
+  terminalWritten() { const w = this.context.globalState.get(TerminalClaude.WRITTEN_KEY); return w && typeof w === 'object' ? w : {}; }
+
+  /** Write the plan, the conflicts named in `replace` with it, and keep the record current; then the page hears Saved. */
+  finishTerminal(ctx, way, plan, replace) {
+    const file = this.meter.meter.settingsPath;
+    let terminalNote = '';
+    try {
+      const r = TerminalClaude.writeSettings(file, plan, { replace });   // the whole plan: what it keeps stays in the record
+      this.context.globalState.update(TerminalClaude.WRITTEN_KEY, r.written);
+    } catch (e) {
+      this.trace(`terminal claude: ${file} not written: ${(e && e.message) || e}`);
+      terminalNote = TerminalClaude.readSettings(file).ok ? "~/.claude/settings.json couldn't be written, so terminal claude is as it was." : NOT_PLAIN_JSON;
+    }
+    this.sendTabs();   // a key helper there now pins the machine: the tabs' menus follow
+    ctx.post({ type: 'saved', way, terminalNote });
+  }
+
+  /**
+   * A gateway saved again: where Roost wrote terminal claude's gateway, its address follows the file's
+   * (syncTerminalBaseUrl), and Roost's own key file for it the file's key.
+   */
+  terminalFollowsGateway(gw) {
+    if (!gw || !gw.ok) return;
+    const written = this.terminalWritten();
+    const keyFile = Connections.gatewayKeyFile(), key = Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '';
+    if (key && written.apiKeyHelper && written.apiKeyHelper === TerminalClaude.desiredSettings('apiKey', { keyFile }).apiKeyHelper && Connections.readSecretFile(keyFile) !== key) {
+      try { Gateway.writeSecretFile(keyFile, key); } catch (e) { this.trace(`terminal claude: the gateway key file not written: ${(e && e.message) || e}`); }
+    }
+    if (written[TerminalClaude.BASE_URL_KEY]) this.syncTerminalBaseUrl(gw.vars.ANTHROPIC_BASE_URL);
   }
 
   /** Read both agents' model lists. Codex is a file read; Claude starts its CLI without sending a message. */
@@ -2506,6 +2723,10 @@ class PerchView {
    *  its transcript with a line of perch's own */
   addSession(kind, { fill, location, resume, title, gateway, dir, note } = {}) {
     if (kind !== 'claude' && kind !== 'codex') return null;
+    let own;
+    // Connect Claude's choice first: new Claude tabs run on it, until a tab's footer picks a backend
+    const chosen = gateway === undefined && kind === 'claude' && !resume ? Connections.newTabBackend(this.context.globalState.get(Connections.CONNECTION_KEY)) : null;
+    if (chosen) { gateway = chosen.gateway; own = chosen.own; }
     if (gateway === undefined && kind === 'claude' && !resume) {
       const remembered = this.context.globalState.get(GATEWAY_DEFAULT_KEY);   // where the last Claude tab was put; undefined until a backend is first chosen
       gateway = remembered === undefined ? cfg('claude.defaultBackend') === 'gateway' : remembered === true;
@@ -2515,7 +2736,7 @@ class PerchView {
     const mode = kind === 'codex' && this.codexUnsandboxedHere() ? 'danger-full-access' : undefined;
     const s = new Session(this, resume
       ? { kind, title: cleanTitle(title) || `${vendor} ${String(resume).slice(0, 8)}`, titled: true, resume, mode, location: location || this.where(), gateway, dir }
-      : { kind, title: `${vendor} ${++this.counters[kind]}`, mode, location: location || this.where(), gateway, dir });
+      : { kind, title: `${vendor} ${++this.counters[kind]}`, mode, location: location || this.where(), gateway, own, dir });
     this.sessions.push(s);
     this.raw(this.secretMessage());   // the pages hear the new tab's own secret check (its folder's setting)
     if (mode) s.history.push({ kind: 'note', text: `Codex runs without a sandbox on ${require('os').hostname()}: the kernel forbids the user namespaces its sandbox needs.` });
@@ -2868,6 +3089,7 @@ class PerchView {
     clearTimeout(this.graceTimer);
     clearTimeout(this.firstStartTimer);
     if (this.gatewayPanel) { try { this.gatewayPanel.dispose(); } catch (_) { /* gone */ } }
+    if (this.connectPanel) { try { this.connectPanel.dispose(); } catch (_) { /* gone */ } }
     clearTimeout(this.unlockTimer);
     clearInterval(this.ticketTimer);
     for (const s of this.sessions) s.dispose();
@@ -2886,6 +3108,8 @@ function activate(context) {
   perch.meter.start();
   // terminal claude's gateway address follows the company address that answers: at a tab's start, and once now
   perch.onGatewayResolved.add((baseUrl) => perch.syncTerminalBaseUrl(baseUrl));
+  // and a gateway saved again: terminal claude follows its address and key, where Roost wrote them
+  perch.onGatewaySaved.add((gw) => perch.terminalFollowsGateway(gw));
   perch.checkTerminalBaseUrl().catch((e) => perch.trace(`terminal claude: the address check failed: ${(e && e.message) || e}`));
   const tg = vscode.window.tabGroups;
   if (tg && tg.onDidChangeTabs) context.subscriptions.push(tg.onDidChangeTabs((e) => perch.tabsChanged(e)));
@@ -2898,6 +3122,7 @@ function activate(context) {
     vscode.commands.registerCommand('perch.newClaudeGateway', () => perch.addSession('claude', { gateway: true })),
     vscode.commands.registerCommand('perch.newCodex', () => perch.addSession('codex')),
     vscode.commands.registerCommand('perch.setUpGateway', () => { perch.setUpGateway(); }),
+    vscode.commands.registerCommand('perch.connectClaude', () => { perch.connectClaude(); }),
     vscode.commands.registerCommand('perch.stop', () => { const s = perch.active(); if (s) s.interrupt(); }),
     vscode.commands.registerCommand('perch.closeTab', () => { const s = perch.active(); if (s) perch.closeSession(s.id); }),
     vscode.commands.registerCommand('perch.handoff', () => perch.handoff()),

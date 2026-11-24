@@ -125,14 +125,19 @@ const TRAFFIC_VAR = 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC';
  * sets them, for the same reason: a Bedrock id the file pins for the window is no name the subscription knows.
  * @param {boolean} bedrock  true for API / Bedrock, false for the subscription
  * @param {Record<string,string|undefined>} [inherited]  the environment the tab's Claude Code inherits (this process's)
+ * @param {{ region?: string, profile?: string }} [aws]  Bedrock's region and profile, as Connect Claude saved them: set
+ *   as AWS_REGION and AWS_PROFILE when given
  * @returns {{ env: Record<string,string> }}
  */
-function ownBackendSettings(bedrock, inherited = process.env) {
+function ownBackendSettings(bedrock, inherited = process.env, aws = {}) {
   const env = { CLAUDE_CODE_USE_BEDROCK: bedrock ? '1' : '0' };
   for (const k of OFF_GATEWAY_VARS) {
     const v = typeof inherited[k] === 'string' ? inherited[k] : '';
     env[k] = (bedrock || !PROVIDER_MODEL.test(v)) ? v : '';
   }
+  const a = aws || {};
+  if (typeof a.region === 'string' && a.region) env.AWS_REGION = a.region;
+  if (typeof a.profile === 'string' && a.profile) env.AWS_PROFILE = a.profile;
   return { env };
 }
 

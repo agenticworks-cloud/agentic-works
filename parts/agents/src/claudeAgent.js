@@ -39,7 +39,8 @@ class AsyncQueue {
  * @param {{target: string, candidates?: string[], key?: string}} [opts.gateway]  run the process through a relay to this base URL, so each
  *   response's model is seen (events of kind `relay`); with candidates (a company's addresses), to the first of them that
  *   answers as the process starts, said in an event of kind `gatewayResolved`, else to `target` (resolveGatewayTarget)
- * @param {{bedrock: boolean}} [opts.backend]           a backend of this tab's own (API / Bedrock, or the subscription), as the process's settings, whatever the window's file says
+ * @param {{bedrock: boolean, aws?: {region?: string, profile?: string}}} [opts.backend]  a backend of this tab's own (API / Bedrock, or the
+ *   subscription or an Anthropic API key), as the process's settings, whatever the window's file says; on Bedrock, the region and profile
  * @param {{command: string, args: string[], env?: object}} [opts.search]  the codebase search MCP server (src/codeIndex.js)
  */
 class ClaudeAgent {
@@ -86,7 +87,7 @@ class ClaudeAgent {
       // so the tab is truly on the chosen backend, not the gateway the machine sets for every Claude Code.
       ...(this.opts.gateway ? { settings: gatewaySettings(this.opts.env, env.ANTHROPIC_BASE_URL) }
         : this.opts.offGateway ? { settings: offGatewaySettings(this.opts.offGateway.bedrock) }
-        : this.opts.backend ? { settings: ownBackendSettings(this.opts.backend.bedrock) } : {}),
+        : this.opts.backend ? { settings: ownBackendSettings(this.opts.backend.bedrock, process.env, this.opts.backend.aws) } : {}),
       stderr: (d) => this.emit({ kind: 'stderr', text: String(d) }),
       canUseTool: async (toolName, input, { suggestions }) => {
         const id = randomUUID();
