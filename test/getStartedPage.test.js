@@ -352,4 +352,59 @@ assert.strictEqual(d.querySelector('h1').textContent, '<img src=x onerror=alert(
 // nothing posted ever held a secret it was not sent to hold, and no reply put one in a field
 assert.ok(!d.querySelectorAll('input[type=password]').length || [...d.querySelectorAll('input[type=password]')].every((i) => i.value === ''));
 
+// ---- the details beside the steps, on a fresh page: the step last opened or clicked, else the one opened for being
+// the first not done, else the first; its name, then the host's text; a link in it goes to the host
+{
+  assert.match(raw, /\.layout \{[^}]*display: grid; grid-template-columns: 680px minmax\(0, 560px\)/, 'wide: the steps, then the details beside them');
+  assert.match(raw, /\.details \{[^}]*position: sticky; top: 16px;/, 'the details stay in view while the page scrolls');
+  assert.match(raw, /@media \(max-width: 1000px\) \{ \.layout \{ grid-template-columns: minmax\(0, 680px\); \} \.details \{ position: static;/, 'narrow: the details under the steps');
+  assert.match(raw, /--vscode-panel-border/);
+  const sent = [];
+  const page = new JSDOM(html, { runScripts: 'dangerously', virtualConsole, beforeParse(win) { win.acquireVsCodeApi = () => ({ postMessage: (m) => sent.push(JSON.parse(JSON.stringify(m))) }); } });
+  const pw = page.window, pd = pw.document;
+  const send = (m) => pw.dispatchEvent(new pw.MessageEvent('message', { data: m }));
+  const at = (id) => pd.querySelector(`.step[data-id="${id}"]`);
+  const aside = pd.getElementById('details');
+  const heading = () => aside.querySelector('.detailsTitle').textContent;
+  const D = (id, name, done = false, details = `<p>${id} text</p>`) => ({ id, name, done, waiting: '', details });
+  assert.deepStrictEqual([...pd.querySelector('.layout').children].map((e) => e.id), ['steps', 'details'], 'the details after the steps: under them when narrow');
+  assert.ok(!shown(aside), 'no state yet: no details');
+  const three = (o = {}) => st({ steps: [D('github', 'Sign in to GitHub', true, '<p>github text <a href="https://cli.github.com/">cli.github.com</a></p>'),
+    D('agents', o.agentsName || 'Talk to Claude or Codex', !!o.agentsDone), D('parts', 'Choose your parts')] });
+  send({ type: 'state', state: three() });
+  assert.ok(shown(aside));
+  assert.strictEqual(heading(), 'Talk to Claude or Codex', 'before any click: the step opened for being the first not done');
+  assert.strictEqual(aside.querySelector('.detailsText').innerHTML, '<p>agents text</p>', 'the host\'s text as it is');
+  assert.strictEqual(aside.querySelector('h2').textContent, heading(), 'a heading with the step\'s name');
+  // a click on a step's name, opening it or closing it
+  at('github').querySelector('.name').click();
+  assert.strictEqual(heading(), 'Sign in to GitHub');
+  assert.ok(aside.textContent.includes('github text'));
+  at('github').querySelector('.name').click();
+  assert.ok(!at('github').classList.contains('open'));
+  assert.strictEqual(heading(), 'Sign in to GitHub', 'closed by a click: still the one last clicked');
+  // a click anywhere in a step; Enter on a name
+  at('parts').click();
+  assert.strictEqual(heading(), 'Choose your parts');
+  at('agents').querySelector('.name').dispatchEvent(new pw.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.strictEqual(heading(), 'Talk to Claude or Codex');
+  // a later state keeps it, with that state's name; the step done and the next opened: still the one clicked
+  send({ type: 'state', state: three({ agentsName: 'Talk to Example Gateway', agentsDone: true }) });
+  assert.strictEqual(heading(), 'Talk to Example Gateway');
+  // the clicked step gone: the one opened for being the first not done, then (all done) the first
+  send({ type: 'state', state: st({ steps: [D('github', 'Sign in to GitHub', true), D('parts', 'Choose your parts')] }) });
+  assert.strictEqual(heading(), 'Choose your parts');
+  send({ type: 'state', state: st({ steps: [three().steps[0], D('agents', 'Talk to Claude or Codex', true)] }) });
+  assert.strictEqual(heading(), 'Sign in to GitHub');
+  // a link: sent to the host, never followed by the page
+  const link = aside.querySelector('a');
+  const click = new pw.MouseEvent('click', { bubbles: true, cancelable: true });
+  link.dispatchEvent(click);
+  assert.ok(click.defaultPrevented, 'the page does not follow it');
+  assert.deepStrictEqual(sent.pop(), { type: 'openLink', url: 'https://cli.github.com/' });
+  // a step without details: none shown
+  send({ type: 'state', state: st({ steps: [D('parts', 'Choose your parts', false, '')] }) });
+  assert.ok(!shown(aside));
+}
+
 console.log('getStartedPage.test.js passed');

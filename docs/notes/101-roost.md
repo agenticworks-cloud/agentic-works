@@ -866,6 +866,18 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
       `steps.gateway` and `steps.tools`; New Claude Tab there is unchanged.
     - *Not checked live:* a real company helper, a real sign-in window, a real gateway.
 
+- **Step details beside the steps — Built (0.5.2)** *(Sean, 2026-11-24, on the Get started page: "why don't i see the
+  detailed information to the right?")*. The walkthrough showed longer text beside the selected step; the page, one
+  column, had lost it. Now a details column shows the step last opened or clicked (before any click, the one opened
+  for being the first not done): its name, then its text. Wide, the steps keep 680px and the details take the rest,
+  up to 560px, sticky; at 1000px or narrower they go under the steps.
+  - *The texts:* new, 80–200 words, `media/getstarted/<step id>.md`; the gateway step has `claude-company-gateway.md`
+    and `claude-every-way.md`, picked as its controls are. `{{gateway}}` and `{{title}}` are the company file's words.
+  - *Rendered in the host by Roost's own small renderer* (`src/stepDetails.js`), not `markdown.api.render`, whose HTML
+    isn't sanitized and which needs the built-in Markdown extension *(my call)*. Everything is escaped; the company's
+    words are put back escaped after the markdown is made; only https links are kept, and the host opens a clicked
+    one with `openExternal` (any other scheme: nothing). Not checked live: the layout in a real VS Code window.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of

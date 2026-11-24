@@ -547,6 +547,36 @@ test('Roost: Sign In to GitHub still asks first when signed in', async () => {
   await env.extension.deactivate();
 });
 
+test('each step carries its details, in the company file\'s words; the gateway step\'s follow the company gateway', async () => {
+  let s = await pageSetup({ ...EXAMPLE, title: 'Example Works' });
+  let st = await s.stateOf();
+  assert.ok(st.steps.every((x) => typeof x.details === 'string' && x.details.startsWith('<')), 'every step has details');
+  const claude = st.steps.find((x) => x.id === 'claude').details;
+  assert.ok(claude.includes('Example Gateway') && claude.includes('Example Works') && !claude.includes('Claude subscription'));
+  await s.extension.deactivate();
+  s = await pageSetup(null);
+  st = await s.stateOf();
+  assert.ok(st.steps.every((x) => x.details.startsWith('<')));
+  assert.ok(st.steps.find((x) => x.id === 'claude').details.includes('Claude subscription'), 'no company gateway: every way');
+  await s.extension.deactivate();
+  // a company file's words are escaped in them
+  s = await pageSetup({ ...EXAMPLE, title: '<img src=x onerror=alert(1)>', gateway: { ...EXAMPLE.gateway, name: '**Gw** <b>x</b>' } });
+  const html = (await s.stateOf()).steps.find((x) => x.id === 'claude').details;
+  assert.ok(!/<img|<b>/.test(html) && html.includes('&lt;img src=x onerror=alert(1)&gt;') && html.includes('**Gw** &lt;b&gt;x&lt;/b&gt;'));
+  await s.extension.deactivate();
+});
+
+test('openLink opens an https link in the browser; any other is ignored', async () => {
+  const s = await pageSetup(null);
+  await s.page.receive({ type: 'openLink', url: 'https://cli.github.com' });
+  for (const url of ['http://example.com', 'javascript:alert(1)', 'file:///etc/passwd', 'command:workbench.action.reloadWindow', 'vscode://x', '/relative', '', 7, null]) {
+    await s.page.receive({ type: 'openLink', url });
+  }
+  await s.page.receive({ type: 'openLink' });
+  assert.deepStrictEqual(s.ui.opened, ['https://cli.github.com/']);
+  await s.extension.deactivate();
+});
+
 (async () => {
   let failed = 0;
   for (const { name, fn } of tests) {

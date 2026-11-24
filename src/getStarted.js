@@ -5,14 +5,18 @@
 // page's messages through the parts' own commands (perch.connectClaude.request, jay.signInWith, chirp.signIn, ...)
 // and Roost's (the walkthrough's commands, Connect Your Tools' host). A key or token the page sends goes to the
 // command only: nothing posted holds one, and only a message's type and an error's text are logged. A reply that
-// comes after the page closed is dropped. (Design: docs/notes/101-roost.md, "Settled while planning 0.5".)
+// comes after the page closed is dropped. Each step carries its details, rendered here (src/stepDetails.js); a link
+// clicked in them is opened in the browser when it is https, and ignored otherwise. (Design: docs/notes/101-roost.md,
+// "Settled while planning 0.5", and the 0.5.2 bullet.)
 const { randomBytes } = require('node:crypto');
 const { getStartedHtml } = require('./getStartedPage');
+const { stepDetails, httpsUrl } = require('./stepDetails');
 
 const VIEW_TYPE = 'roost.getStarted';
 const DONE_KEY = 'roost.getStarted.done';
 const ORDER_COMPANY = ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
 const ORDER_ROOST = ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts'];
+const STEP_IDS = [...new Set([...ORDER_COMPANY, ...ORDER_ROOST])];
 const NAMES = {
   github: 'Sign in to GitHub', agents: 'Talk to Claude or Codex', teams: 'Sign in to Teams', jira: 'Connect Jira and Confluence',
   codebase: 'Search your code (optional)', parts: 'Choose your parts',
@@ -162,8 +166,11 @@ class GetStarted {
     const gwName = (c && c.gateway && c.gateway.name) || '';
     const waiting = { github: this.waiting.github ? WAIT_TERMINAL : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
       claude: this.waiting.claude > 0 ? WAIT_CLAUDE : this.waiting.key > 0 && gwName ? waitKey(gwName) : '' };
+    // the details in the company file's words; the gateway step's are the company gateway's while one is named
+    const words = { gateway: gwName, title: str(c && c.title) };
     const steps = (c ? ORDER_COMPANY : ORDER_ROOST).filter((id) => this.shown(id))
-      .map((id) => ({ id, name: names[id], done: !!done[id], waiting: waiting[id] || '' }));
+      .map((id) => ({ id, name: names[id], done: !!done[id], waiting: waiting[id] || '',
+        details: stepDetails(id, { companyGateway: !!gwName, words }) }));
     const jira = this.vscode.workspace.getConfiguration('jira');
     const jiraFile = jira.get('signIn.tokenFile', '');
     return {
@@ -279,6 +286,12 @@ class GetStarted {
         case 'tool':
           if (m.message && typeof m.message === 'object') await this.roost.onToolsMessage(m.message, { reveal: () => this.reveal() });
           break;
+        case 'openLink': {
+          // a link in a step's details: https only, opened in the browser; any other is ignored
+          const url = httpsUrl(m.url);
+          if (url) await this.vscode.env.openExternal(this.vscode.Uri.parse(url));
+          break;
+        }
         default: break;
       }
     } catch (err) {
@@ -330,4 +343,4 @@ class GetStarted {
   }
 }
 
-module.exports = { GetStarted, VIEW_TYPE };
+module.exports = { GetStarted, VIEW_TYPE, STEP_IDS };

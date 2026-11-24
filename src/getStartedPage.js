@@ -1,19 +1,22 @@
 'use strict';
 // The page of Roost: Get started: one column of steps, each a section with its name and a tick once done; the first
 // step shown that isn't done is open, the others closed, and a click on a step's name opens or closes it. Every step's
-// controls are in place: no step opens another panel. The host (Task 7, src/extension.js) sends the state, answers the
-// messages and calls the parts' commands; the page holds no saved key or token, and empties a typed one as it sends it.
+// controls are in place: no step opens another panel. Beside the steps (under them in a narrow window), the details
+// of the current step: the one last opened or clicked, else the one opened for being the first not done, else the
+// first; its name, then its longer text. The host (Task 7, src/extension.js) sends the state, answers the messages
+// and calls the parts' commands; the page holds no saved key or token, and empties a typed one as it sends it.
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
-// Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting }], claude: { companyGateway, keyCommand },
-//   github: { logins }, teams: { rowId, note }, jira: { rowId, site, form }, parts: [{ id, title, on }] }; rows {rows} (the
-//   tools rows, src/toolsRows.js); agents {replies, of} (perch.connectClaude.request's replies; of: the request's type) or
-//   agents {error}; jira
-//   {error} (null once signed in).
+// Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting, details }], claude: { companyGateway,
+//   keyCommand }, github: { logins }, teams: { rowId, note }, jira: { rowId, site, form }, parts: [{ id, title, on }] }
+//   (details: HTML the host rendered from media/getstarted/, src/stepDetails.js, every word escaped there; the page
+//   shows it as it is); rows {rows} (the tools rows, src/toolsRows.js); agents {replies, of}
+//   (perch.connectClaude.request's replies; of: the request's type) or agents {error}; jira {error} (null once signed in).
 // Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message: getKey runs the company's
 //   key helper when there is one; keyPage opens its key page); github; newTab {kind};
 //   notNow {step}; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; part {id, on}; partsDone;
-//   openSettings; tool {message} (a tools row's message, {type, id, ...}). No VS Code dependency.
+//   openSettings; tool {message} (a tools row's message, {type, id, ...}); openLink {url} (a link clicked in the
+//   details: the host opens it if it is https). No VS Code dependency.
 
 const { TOOLS_ROWS_CSS, toolsRowsScript } = require('./toolsRows');
 
@@ -39,6 +42,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
   const views = new Map();     // step id → { root, body, update(state), ... }, kept across states
   const openIds = new Set();
   let auto = null;             // the step opened for being the first not done
+  let chosen = null;           // the step last opened or clicked: its details are shown
 
   // ---- the steps' controls
   const BUILD = {
@@ -365,8 +369,10 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     v.body = el('div', 'body');
     v.body.append(v.waiting);
     v.root.append(head, v.body);
-    const toggle = () => { if (openIds.has(id)) openIds.delete(id); else openIds.add(id); paintOpen(); };
+    const toggle = () => { if (openIds.has(id)) openIds.delete(id); else openIds.add(id); chosen = id; paintOpen(); paintDetails(); };
     v.name.addEventListener('click', toggle);
+    // a click anywhere in a step makes it the one whose details are shown
+    v.root.addEventListener('click', () => { if (chosen !== id) { chosen = id; paintDetails(); } });
     v.name.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
     if (BUILD[id]) BUILD[id](v);
     return v;
@@ -382,12 +388,35 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     }
   }
 
+  // ---- the details of the current step
+  const details = document.getElementById('details');
+  const detailsTitle = details.querySelector('.detailsTitle');
+  const detailsText = details.querySelector('.detailsText');
+  let detailsShown = null;     // the HTML in place, so a state that changes nothing keeps the column's scroll
+  function paintDetails() {
+    const steps = state && Array.isArray(state.steps) ? state.steps.filter((x) => x && views.has(x.id)) : [];
+    const pick = (id) => steps.find((x) => x.id === id);
+    const cur = pick(chosen) || pick(auto) || steps[0];
+    const html = cur && typeof cur.details === 'string' ? cur.details : '';
+    details.hidden = !html;
+    if (!html) return;
+    detailsTitle.textContent = cur.name || cur.id;
+    if (detailsShown !== html) { detailsText.innerHTML = html; detailsShown = html; details.scrollTop = 0; }   // the host's HTML, escaped there
+  }
+  // a link in the details: the host opens it (https only), never the page
+  details.addEventListener('click', (e) => {
+    const a = e.target && e.target.closest ? e.target.closest('a') : null;
+    if (!a) return;
+    e.preventDefault();
+    post({ type: 'openLink', url: a.getAttribute('href') || '' });
+  });
+
   function showState(s) {
     state = s;
     document.querySelector('h1').textContent = s.title || '';
     const steps = Array.isArray(s.steps) ? s.steps.filter((x) => x && typeof x.id === 'string') : [];
     const ids = new Set(steps.map((x) => x.id));
-    for (const [id, v] of views) if (!ids.has(id)) { v.root.remove(); views.delete(id); openIds.delete(id); }
+    for (const [id, v] of views) if (!ids.has(id)) { v.root.remove(); views.delete(id); openIds.delete(id); if (chosen === id) chosen = null; }
     const list = document.getElementById('steps');
     for (const x of steps) {
       let v = views.get(x.id);
@@ -410,6 +439,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       auto = firstId;
     }
     paintOpen();
+    paintDetails();
   }
 
   window.addEventListener('message', (e) => {
@@ -438,7 +468,7 @@ function getStartedHtml({ nonce, cspSource }) {
 <title>Get started</title>
 <style nonce="${nonce}">${TOOLS_ROWS_CSS}
   :root { color-scheme: light dark; }
-  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px 24px; max-width: 680px; }
+  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px 24px; }
   h1 { font-size: 1.4em; font-weight: 600; margin: 0 0 12px; }
   p { line-height: 1.5; margin: 6px 0; }
   .muted { color: var(--vscode-descriptionForeground); }
@@ -470,11 +500,25 @@ function getStartedHtml({ nonce, cspSource }) {
   .box { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
   .box ul { margin: 6px 0; padding-left: 20px; }
   a { color: var(--vscode-textLink-foreground); }
+  /* the steps, about 680px, and their details beside them, up to about 560px, kept in view while the page scrolls;
+     in a narrow window the details go under the steps */
+  .layout { display: grid; grid-template-columns: 680px minmax(0, 560px); gap: 24px; align-items: start; }
+  .details { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box; margin: 10px 0; padding: 14px 18px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; background: var(--vscode-textBlockQuote-background, transparent); line-height: 1.6; }
+  .details .detailsTitle { font-size: 1.15em; font-weight: 600; margin: 0 0 8px; }
+  .details p { line-height: 1.6; margin: 8px 0; }
+  .details h3, .details h4, .details h5 { font-size: 1em; font-weight: 600; margin: 14px 0 4px; }
+  .details ul, .details ol { margin: 8px 0; padding-left: 22px; }
+  .details li { margin: 4px 0; }
+  .details code { font-family: var(--vscode-editor-font-family); font-size: 0.95em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
+  @media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 680px); } .details { position: static; max-height: none; overflow: visible; } }
   [hidden] { display: none !important; }
 </style></head>
 <body>
   <h1>Get started</h1>
-  <div id="steps"></div>
+  <div class="layout">
+    <div id="steps"></div>
+    <aside id="details" class="details" aria-live="polite" hidden><h2 class="detailsTitle"></h2><div class="detailsText"></div></aside>
+  </div>
 <script nonce="${nonce}">
 ${toolsRowsScript()}
 ${GetStarted.toString()}
