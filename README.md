@@ -85,6 +85,9 @@ such as `mcpServers[1].connect.kind`); unknown keys are ignored, and `~` expands
 files. Required keys are marked **required**.
 
 - `name` (**required**): the company's name.
+- `title` (optional): a non-empty string; the Get started page reads "Get started with <title>" (default Roost).
+- `steps` (optional): `gateway` and `tools`, each an optional non-empty string naming that step of the Get started
+  page (defaults Connect Claude, Connect your tools).
 - `gateway` (optional): `name` (**required**), `baseUrls` (**required**, a non-empty list of http(s) URLs, tried in
   order, so a VPN address can come first), `keyPage` (**required**, an http(s) URL where a person makes a key), and
   optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved), `terminal` (true, so

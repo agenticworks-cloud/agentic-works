@@ -54,7 +54,7 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 
 // a minimal file, and defaults
 const min = read({ name: 'Min' });
-assert.deepStrictEqual(min.company, { name: 'Min', gateway: null, mcpServers: [] });
+assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '' }, gateway: null, mcpServers: [] });
 const g = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k' } }).company.gateway;
 assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false, routerPrefixes: [] });
 // router prefixes: optional, non-empty strings
@@ -117,6 +117,17 @@ invalid(withInstall((i) => { i.to = 'bin/example-mcp'; }), 'mcpServers[1].instal
 // unknown keys are ignored
 const extra = mut((d) => { d.future = 1; d.mcpServers[0].extra = { a: 1 }; });
 assert.strictEqual(read(extra).ok, true);
+
+// title and steps: optional wording for the Get started page
+{ const r = read(EXAMPLE); assert.strictEqual(r.company.title, ''); assert.deepStrictEqual(r.company.steps, { gateway: '', tools: '' }); }
+{ const r = read({ ...clone(EXAMPLE), title: 'Example Works', steps: { gateway: 'Connect Example Gateway', tools: 'Connect Example tools', other: 1 } });
+  assert.strictEqual(r.company.title, 'Example Works');
+  assert.deepStrictEqual(r.company.steps, { gateway: 'Connect Example Gateway', tools: 'Connect Example tools' }); }
+invalid({ ...clone(EXAMPLE), title: '' }, 'title');
+invalid({ ...clone(EXAMPLE), title: 3 }, 'title');
+invalid({ ...clone(EXAMPLE), steps: [] }, 'steps');
+invalid({ ...clone(EXAMPLE), steps: { gateway: '' } }, 'steps.gateway');
+invalid({ ...clone(EXAMPLE), steps: { tools: 5 } }, 'steps.tools');
 
 // the two copies are identical
 const root = path.join(__dirname, '..');

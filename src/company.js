@@ -200,7 +200,21 @@ function server(s, i, seen, home) {
 function validate(data, home) {
   if (!isObject(data)) throw new Invalid('', 'the file must hold a JSON object');
   if (!isString(data.name) || !data.name) throw new Invalid('name', 'must be a non-empty string');
-  const company = { name: data.name, gateway: null, mcpServers: [] };
+  const company = { name: data.name, title: '', steps: { gateway: '', tools: '' }, gateway: null, mcpServers: [] };
+  // optional wording for the Get started page: its title, and the names of its gateway and tools steps
+  if (data.title !== undefined) {
+    if (!isString(data.title) || !data.title) throw new Invalid('title', 'must be a non-empty string');
+    company.title = data.title;
+  }
+  if (data.steps !== undefined) {
+    if (!isObject(data.steps)) throw new Invalid('steps', 'must be an object');
+    for (const k of ['gateway', 'tools']) {
+      const v = data.steps[k];
+      if (v === undefined) continue;
+      if (!isString(v) || !v) throw new Invalid(`steps.${k}`, 'must be a non-empty string');
+      company.steps[k] = v;
+    }
+  }
   if (data.gateway !== undefined && data.gateway !== null) company.gateway = gateway(data.gateway, home);
   if (data.mcpServers !== undefined) {
     if (!Array.isArray(data.mcpServers)) throw new Invalid('mcpServers', 'must be an array');
