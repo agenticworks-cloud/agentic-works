@@ -488,6 +488,49 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - **Open:** whether `apiKeyHelper` with a key that doesn't exist yet fails gently in a terminal `claude` started
     before the walkthrough; whether a VPN-off machine should prefer the public address silently or say so.
 
+- **A company file, Connect Claude, and Connect your tools (design, for 0.4; supersedes the preset above)**
+  *(Sean, 2026-11-24, designing a company installer on Roost: "the walkthrough walks through everything except
+  what's already determined" for the company; subscription, API, Bedrock and Codex must work as well as the
+  company's gateway; the company's MCP servers get a walkthrough step; one sign-in serves an MCP server and the
+  matching part)*. Company details stay out of this repo; they come from one file the company's installer writes.
+  - **The company file**, `~/.config/roost/company.json`: `name`; `gateway` (the preset above: `name`, `baseUrls`,
+    `keyPage`, `requiredModel`, `env`, `keyFiles`, plus `terminal`: write terminal `claude`'s settings by default);
+    `mcpServers`: a list of `{ id, name, about, register, connect }`, where `register` is what Claude Code is
+    given (`http` with a URL and headers, `${token}` standing for the token; or `stdio` with a command and env) and
+    `connect` is how it gets signed in: `tokenPage` (a page to open, the token pasted, a check request), `command`
+    (a sign-in command run in a terminal, done when a file appears), `mcpTool` (the server's own sign-in tool: Roost
+    starts the server over stdio, calls the tool, shows what it returns, such as a device code, then calls it again
+    with the `complete` arguments; for servers whose sign-in is a tool, with no command of its own), or `none`; and
+    an optional `check` (a request, an MCP tool call that needs the sign-in, or a status command): a row is
+    connected only once its check passes, not because a file exists. Read at start; context key
+    `roost.company` when valid; a note in the Roost output channel when it doesn't parse.
+  - **Connect Claude** replaces *Use an LLM gateway (optional)* and comes first. One step, a small panel with the
+    ways Claude can run: the company's gateway when the file has one (recommended: the preset form above, **Get a
+    key**, **Check and save**; the address re-checked each time a Claude tab starts on the gateway, so a laptop
+    moving on and off a VPN keeps working), a generic LLM gateway otherwise (today's form), **Claude subscription** (Agents: Log
+    in to Claude), **Anthropic API key** (pasted, checked with `GET /v1/models`, kept in a file of the user's, mode
+    600), **AWS Bedrock** (a profile or SSO already on the machine, and a region; checked with a model list), or
+    **Codex only**. Ticked when one is set up, or **Not Now**. New Claude Tab then opens with that connection.
+    **Terminal `claude`**, when asked ("use for `claude` in the terminal too", on by default when the company file's
+    `gateway.terminal` is true, off otherwise): the choice is written to `~/.claude/settings.json` (gateway: base
+    URL picked by a small launcher, `~/.local/bin/claude` ahead of Claude Code's own on the PATH, which probes
+    `baseUrls` (remembered a few minutes) and runs the real `claude` with `ANTHROPIC_BASE_URL` set; model env and
+    `apiKeyHelper` reading the key file; API key: `apiKeyHelper`; Bedrock:
+    `CLAUDE_CODE_USE_BEDROCK=1`, region; subscription: nothing). A value the user already has there is shown and
+    replaced only when they agree.
+  - **Connect your tools** *(company file with `mcpServers` only)*, after *Talk to Claude or Codex*: a panel, one
+    row per server (name, what it gives the agent, connected or not, a button). `tokenPage`: open, paste, check,
+    save; `command`: run in a VS Code terminal, connected when its file appears; then the server is registered
+    with Claude Code at user scope, as `claude mcp add` would. Ticked when every row is connected, or **Not Now**.
+  - **One sign-in, two uses:** a company installer can point Teams' and Jira's token-file settings at the files
+    the matching MCP servers' sign-ins write. Those steps then tick by themselves after *Connect your tools*; with a
+    company file, their buttons run the matching tools row instead of the part's own sign-in.
+  - **A company installer layered on Roost's** must never pass `--yes` (it would answer "uninstall the standalone
+    four?" for the user), and should refuse a machine it wasn't meant for rather than migrate it.
+  - Also found: the installer adds Homebrew's `brew shellenv` to the login profile only when VS Code came from
+    Homebrew; it should whenever Homebrew was used (`gh` from Homebrew is otherwise not on new terminals' PATH, nor
+    VS Code's, on a Mac whose profile lacks it).
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of
