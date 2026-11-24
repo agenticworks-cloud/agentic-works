@@ -18,6 +18,7 @@ deps: manifest
 	cd parts/agents/audio && npm ci --silent
 
 ## Offline tests: Roost's own, then each part's, then the manifest is checked against the parts
+test: export ROOST_TEST = 1
 test:
 	@for t in $(filter-out test/package.test.js,$(wildcard test/*.test.js)); do node $$t || exit 1; done
 	$(MAKE) -C parts/agents test-offline

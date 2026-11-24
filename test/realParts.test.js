@@ -16,6 +16,7 @@ globalThis.fetch = async () => { throw new Error('no network in tests'); };
 const root = path.join(__dirname, '..');
 const { install, memento, secrets } = require(path.join(root, 'parts', 'jira', 'test', 'vscodeStub.js'));
 const { ui, vscode } = install();
+process.env.ROOST_TEST = '1';   // jay's stub: Roost refuses to start without a stubbed ghLogins
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const open = () => ui.panels.filter((p) => !p.disposed && p.viewType === 'jay.ticket').map((p) => p.title);
 
@@ -25,7 +26,7 @@ function boot() {
   const extension = require(path.join(root, 'src', 'extension.js'));
   const base = { subscriptions: [], extensionPath: root, extensionUri: vscode.Uri.file(root), asAbsolutePath: (r) => path.join(root, r),
     globalState, workspaceState, secrets: secretStore, globalStorageUri: vscode.Uri.file(path.join(home, 'g')), extensionMode: 3 };
-  const roost = extension.activate(base);
+  const roost = extension.activate(base, { ghLogins: async () => [] });   // never this machine's gh
   // VS Code calls deactivate, then disposes the context's subscriptions
   const stop = async () => { await extension.deactivate(); for (const d of base.subscriptions.splice(0)) d.dispose(); };
   return { roost, stop };

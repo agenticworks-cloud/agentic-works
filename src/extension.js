@@ -45,12 +45,14 @@ const isWeb = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
 
 class Roost {
   // `makeTools`: for tests, a stand-in for Connect Your Tools' Tools (src/tools.js); `ghLogins`: the accounts gh is
-  // signed in to (tests never run this machine's gh)
-  constructor(base, parts, output, { makeTools = (opts) => new Tools(opts), ghLogins = defaultGhLogins } = {}) {
+  // signed in to (tests never run this machine's gh: under ROOST_TEST, set by the test stubs and `make test`, a Roost
+  // made without one throws)
+  constructor(base, parts, output, { makeTools = (opts) => new Tools(opts), ghLogins } = {}) {
+    if (!ghLogins && process.env.ROOST_TEST) throw new Error("Roost: tests must stub ghLogins (activate(base, { ghLogins }))");
     this.base = base;
     this.output = output;
     this.makeTools = makeTools;
-    this.ghLogins = ghLogins;
+    this.ghLogins = ghLogins || defaultGhLogins;
     this.getStarted = null;            // the Get started page's host (src/getStarted.js), made once startAll has begun
     this.tools = null;                 // made the first time Connect Your Tools (or a sign-in that uses it) needs it
     this.toolsPanel = null;
