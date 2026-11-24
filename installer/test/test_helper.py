@@ -277,6 +277,23 @@ class LayoutTests(_Case):
         self.assertEqual(json.loads(value), self.h.layout_entry([], []))
         self.assertIsNotNone(marker)
 
+    def test_first_window_maximized_only_when_absent(self) -> None:
+        storage = self.user / "globalStorage" / "storage.json"
+        self.assertEqual(self._layout()[0], 0)
+        ui = json.loads(storage.read_text())["windowsState"]["lastActiveWindow"]["uiState"]
+        self.assertEqual(ui["mode"], 0, "maximized")
+        self.assertTrue(ui["width"] and ui["height"], "with a size: VS Code ignores a state without one")
+        # an existing windowsState, or a file that isn't JSON, is left as it is; other keys are kept
+        storage.write_text(json.dumps({"windowsState": {"x": 1}, "other": 2}))
+        self.h.maximize_first_window(storage)
+        self.assertEqual(json.loads(storage.read_text()), {"windowsState": {"x": 1}, "other": 2})
+        storage.write_text(json.dumps({"other": 2}))
+        self.h.maximize_first_window(storage)
+        self.assertEqual(json.loads(storage.read_text())["other"], 2)
+        storage.write_text("not json")
+        self.h.maximize_first_window(storage)
+        self.assertEqual(storage.read_text(), "not json")
+
     def test_db_without_pinned_entry_gets_layout(self) -> None:
         db = self._make_db({"other": "x"})
         self.assertTrue(self.h.layout_needed(db))

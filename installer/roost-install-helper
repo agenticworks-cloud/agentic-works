@@ -226,6 +226,27 @@ def layout_needed(db: Path) -> bool:
     return not _has_key(db, PINNED_KEY)
 
 
+# VS Code's first window, maximized: a fresh install opens one about 60% of the screen, too narrow for the Get
+# started walkthrough's detail column beside the side bar (Sean's first-time run, 2026-11-24). VS Code keeps the last
+# window's state in storage.json; mode 0 is maximized, and the size is what un-maximizing returns to (VS Code ignores
+# a state without one). Written with the layout, only on a VS Code that never started, and only when absent.
+FIRST_WINDOW = {"lastActiveWindow": {"uiState": {"mode": 0, "x": 80, "y": 60, "width": 1440, "height": 900}}, "openedWindows": []}
+
+
+def maximize_first_window(storage: Path) -> None:
+    """Add windowsState to storage.json when it has none; a file that isn't a JSON object is left alone."""
+    data = {}
+    if storage.exists():
+        try:
+            data = json.loads(storage.read_text(encoding="utf-8") or "{}")
+        except (ValueError, UnicodeDecodeError):
+            return
+        if not isinstance(data, dict) or "windowsState" in data:
+            return
+    data["windowsState"] = FIRST_WINDOW
+    _write_atomic(storage, json.dumps(data, indent=4) + "\n")
+
+
 def cmd_vscode_layout(_args: argparse.Namespace) -> int:
     """Write the activity-bar layout once, recorded in the same transaction; later runs, and a VS Code that
     already has a layout, are left alone."""
@@ -250,6 +271,7 @@ def cmd_vscode_layout(_args: argparse.Namespace) -> int:
         con.commit()
     finally:
         con.close()
+    maximize_first_window(db.parent / "storage.json")
     return EXIT_DONE
 
 

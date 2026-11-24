@@ -126,6 +126,10 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    VS Code keeps its own layout, and the checklist says how to hide icons by hand. VS Code running during the run:
    the icons step is skipped with "quit VS Code and rerun" (VS Code would overwrite the file on exit); the other
    steps go through the `code` CLI and are fine. *(my calls: never undo someone's own layout)*
+   In the same step, on that same never-started VS Code, the first window is made maximized: `windowsState` in
+   `User/globalStorage/storage.json` (mode 0 with a size to un-maximize to), only when absent. A fresh install
+   otherwise opens a window about 60% of the screen, too narrow for the walkthrough's detail column beside the side
+   bar *(Sean, 2026-11-24; tried on Ubuntu/X11: without it 60%, with it maximized)*.
 7. **Open VS Code** (not when run as root, not with `--dry-run`). Roost's first start opens the PRs tab and its
    Get started walkthrough (note 101, *First start*).
 
