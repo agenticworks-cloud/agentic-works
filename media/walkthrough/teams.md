@@ -2,8 +2,11 @@
 
 **Teams: Sign In** opens your browser on Microsoft's sign-in page. Sign in with your work account, the way you do for
 Outlook or Teams on the web. Your company decides how: a password and the Authenticator app, a passkey or a security
-key; **Other ways to sign in** lists the others. The first time, Microsoft may ask you to allow Visual Studio Code.
-Then come back to VS Code.
+key; **Other ways to sign in** lists the others. Then come back to VS Code.
+
+The first time, Microsoft asks to allow **chirp**, the app Teams signs in with. If it shows **Need admin approval**
+instead, your company lets only its admins approve apps: ask your IT team to approve chirp (or use **Request
+approval**, if the page offers it). Until then Teams stays signed out, and the rest of Roost works as usual.
 
 If you close the browser before you finish, click **Cancel** on VS Code's "Signing in to Microsoft…" notification and
 try again.

@@ -385,11 +385,29 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   installer stays a separate layer on top.
 
 - **Stronger links** through shared services in `src/` (see *Links between parts, for now*).
-- **chirp: a company's own Microsoft app.** chirp signs in with its own built-in app (an unverified publisher),
-  which many companies block users from approving. Add `teams.signIn.clientId` and `teams.signIn.tenant`
-  (default: chirp's app and `organizations`), so the editor sign-in and the sign-in code can use an app the
-  company's admins already approved. Today a locked-down company's only route is a token file from another tool.
-  *(Sean)*
+- **Teams: a company's own Microsoft app (design, for 0.3)** *(Sean, 2026-11-24)*. Both of chirp's sign-ins, the
+  editor's and the sign-in code, use chirp's own app (`5d0faf94…`, "chirp, unverified"; the editor sign-in passes it
+  in VS Code's `VSCODE_CLIENT_ID` scope, so it is not VS Code's app). A company that lets only admins approve apps,
+  as C3 does, stops a first-time user at Microsoft's "Need admin approval" (Sean's first-time run, 2026-11-24). C3
+  people got in through C3's own approved app, by way of `ms365-mcp`'s token file (c3securitytools note 801). Roost
+  cannot find a company's approved app itself (Microsoft has no lookup for it), so it makes the choice visible to
+  the user who hits the wall and easy to set for the person who sets machines up:
+  - **Settings** `teams.signIn.clientId` and `teams.signIn.tenant`, defaults chirp's app and `organizations`. With
+    a company app set, `auto` prefers the sign-in code, which needs only the app's "allow public client flows";
+    the editor sign-in also needs the app to accept VS Code's redirect, and is used when `editor` is chosen.
+  - **The wall, explained.** When a sign-in fails because the app is not approved (Microsoft's consent error,
+    `AADSTS65001` / `AADSTS90094`; to confirm on both paths which error reaches chirp), the Teams view says so
+    and offers: *copy the approval link for IT* (Microsoft's admin-consent URL for the app in use,
+    `https://login.microsoftonline.com/organizations/adminconsent?client_id=<id>`), *Use our company's app…*,
+    and a line on Microsoft's own "Request approval" button, shown where a company has turned that on.
+  - **Teams: Use a Company Microsoft App…** (palette, the message above, the walkthrough's Teams page): asks for
+    the Application (client) ID and the Directory (tenant) ID, checks they are GUIDs, writes both settings at the
+    user level, and signs in again.
+  - **Installer:** `--teams-app <clientId>:<tenantId>` writes the two settings (only when absent, like the rest),
+    so a company's own setup, such as C3's (note 802 in c3securitytools), passes its IDs in one flag. Company IDs
+    never go into Roost's public repo or installer.
+  - Until it is built, the walkthrough's Teams page says that the app to approve is chirp, and what "Need admin
+    approval" means.
 
 ## Left to the builder
 
@@ -433,6 +451,8 @@ What was found (2026-11-23):
 
 ## Parked
 
+- Perch's `host.test.js` fails now and then in a full `make test` (a background session reported as `duplicate`, not
+  `background`); it passes on its own and on a rerun (seen twice, 2026-11-24).
 - The loader ignores `needs` at runtime: the manifest build checks that it names parts, and no part uses it.
 - chirp and jay reopen their saved tabs after 4 seconds even where VS Code chose not to restore them (the cost
   of their tab lists, accepted).
