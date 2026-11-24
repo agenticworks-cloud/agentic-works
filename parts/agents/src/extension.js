@@ -12,7 +12,8 @@ const { CodeIndex } = require('./codeIndex');
 const { resolveProgram, sdkCodex, sdkClaude, terminalRun } = require('./binaries');
 const codexAuth = require('./codexAuth');
 const Gateway = require('./gateway');
-const { checkKey } = require('./gatewayCheck');
+const { checkKey, probeBaseUrls } = require('./gatewayCheck');
+const TerminalClaude = require('./terminalClaude');
 const { companyFile, readCompany } = require('./company');
 const { chooseFirstTab } = require('./firstTab');
 const Prices = require('./prices');
@@ -806,7 +807,7 @@ class Session {
       const companyGw = gw ? this.view.companyGateway() : null;
       const candidates = companyGw && Gateway.isOneOf(gw.vars.ANTHROPIC_BASE_URL, companyGw.baseUrls) ? companyGw.baseUrls.slice() : [];
       if (gw) this.view.prices.load();   // the list prices a streamed response is priced at, for the turn's figure
-      const pinned = !gw && !!this.view.pinnedGatewayUrl();   // the machine pins a gateway for all Claude Code; a non-gateway tab must escape it
+      const pinned = !gw && this.view.machinePinned();   // the machine pins a gateway for all Claude Code; a non-gateway tab must escape it
       const launchCat = this.catalog();
       // a model saved under another backend's name (Bedrock's `us.anthropic.…` on the subscription, say) is given the name
       // this backend has for it, its 1M context kept; the tab keeps the name it runs
@@ -1910,7 +1911,7 @@ class PerchView {
     if (this.meter && !this.meter.canRun()) return fail(`Claude has nothing to sign in with on ${require('os').hostname()} (${this.meter.backend() === 'api' ? 'no API / Bedrock credentials' : 'not logged in'})`);
     // a new plain tab's process: this window's environment, and, where the machine pins a gateway, the settings that take it
     // off; and no hooks at all, so the note sets nothing else going (command-line settings rank above the user's files)
-    const pinned = !!this.pinnedGatewayUrl();
+    const pinned = this.machinePinned();
     const settings = ['--settings', JSON.stringify(Object.assign({ disableAllHooks: true }, pinned ? Gateway.offGatewaySettings(this.meter ? this.meter.backend() !== 'subscription' : false) : {}))];
     const prompt = `For the record: PR ${pr.ref} (${pr.url}) was merged at ${hhmm} (via kestrel). Don't do anything about it now; reply only 'Noted.'`;
     const args = ['-p', '--resume', sessionId, '--model', 'haiku', '--max-turns', '1', '--tools', '', '--strict-mcp-config', ...settings, prompt];
@@ -1945,18 +1946,49 @@ class PerchView {
   }
 
   /**
-   * The gateway ~/.claude/settings.json pins for every Claude Code (an env.ANTHROPIC_BASE_URL with an apiKeyHelper, as
-   * a managed machine may set), or '' if none. A non-gateway tab inherits this pin unless it is overridden, so Perch uses it to
-   * decide when a subscription / API tab needs offGatewaySettings and when the Claude catalog must load off the gateway.
+   * Whether ~/.claude/settings.json pins every Claude Code to something of its own: an apiKeyHelper (with or without an
+   * env.ANTHROPIC_BASE_URL), as a managed machine, or Connect Claude's terminal choice, may set. A non-gateway tab
+   * inherits this pin unless it is overridden, so Perch uses it to decide when a subscription / API tab needs
+   * offGatewaySettings and when the Claude catalog must load off the gateway.
    */
-  pinnedGatewayUrl() {
-    try {
-      const p = this.meter && this.meter.meter && this.meter.meter.settingsPath;
-      if (!p) return '';
-      const d = JSON.parse(require('fs').readFileSync(p, 'utf8')) || {};
-      const url = d.env && d.env.ANTHROPIC_BASE_URL;
-      return (typeof url === 'string' && url && d.apiKeyHelper) ? url : '';
-    } catch (_) { return ''; }
+  machinePinned() {
+    const p = this.meter && this.meter.meter && this.meter.meter.settingsPath;
+    if (!p) return false;
+    const r = TerminalClaude.readSettings(p);
+    return r.ok && typeof r.json.apiKeyHelper === 'string' && !!r.json.apiKeyHelper;
+  }
+
+  /**
+   * Terminal `claude`'s gateway address, in ~/.claude/settings.json, moved to `baseUrl`, the company address that just
+   * answered: only while the file holds the address Roost wrote there (TerminalClaude.syncTerminalBaseUrl). The record
+   * of what Roost wrote is kept in globalState (perch.terminal.written).
+   */
+  syncTerminalBaseUrl(baseUrl) {
+    const p = this.meter && this.meter.meter && this.meter.meter.settingsPath;
+    const written = this.context.globalState.get(TerminalClaude.WRITTEN_KEY);
+    if (!p || !written || typeof written !== 'object') return false;
+    let r;
+    try { r = TerminalClaude.syncTerminalBaseUrl(p, baseUrl, written); } catch (e) { this.trace(`terminal claude: ${p} not updated: ${(e && e.message) || e}`); return false; }
+    if (JSON.stringify(r.written) !== JSON.stringify(written)) this.context.globalState.update(TerminalClaude.WRITTEN_KEY, r.written);
+    if (r.changed) this.trace(`terminal claude: ${p} now points at ${baseUrl}`);
+    return r.changed;
+  }
+
+  /**
+   * At activation: when Roost wrote terminal `claude`'s gateway address and there is a company gateway, its addresses are
+   * probed once, with the gateway file's key, and the file moved to the one that answers. Only when the gateway file
+   * names one of the company's addresses: another gateway's key is never sent to the company's hosts.
+   */
+  async checkTerminalBaseUrl() {
+    const written = this.context.globalState.get(TerminalClaude.WRITTEN_KEY);
+    if (!written || typeof written !== 'object' || !written[TerminalClaude.BASE_URL_KEY]) return false;
+    const cg = this.companyGateway();
+    if (!cg) return false;
+    const gw = this.gateway();
+    const key = gw.ok ? Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '' : '';
+    if (!key || !Gateway.isOneOf(gw.vars.ANTHROPIC_BASE_URL, cg.baseUrls)) return false;
+    const found = await probeBaseUrls(cg.baseUrls, { key });
+    return found ? this.syncTerminalBaseUrl(found) : false;
   }
 
   /** Read both agents' model lists. Codex is a file read; Claude starts its CLI without sending a message. */
@@ -1988,7 +2020,7 @@ class PerchView {
   loadClaudeCatalog(backend) {
     const api = backend === 'api';
     return Promise.resolve()
-      .then(() => loadClaudeModels({ cwd: cwd(), executable: program('claude').path || undefined, settings: this.pinnedGatewayUrl() ? Gateway.offGatewaySettings(api) : { env: { CLAUDE_CODE_USE_BEDROCK: api ? '1' : '0' } } }))
+      .then(() => loadClaudeModels({ cwd: cwd(), executable: program('claude').path || undefined, settings: this.machinePinned() ? Gateway.offGatewaySettings(api) : { env: { CLAUDE_CODE_USE_BEDROCK: api ? '1' : '0' } } }))
       .then((cat) => { if (cat) (this.ownCatalogs = this.ownCatalogs || {})[backend] = cat; return cat; });
   }
   /**
@@ -2852,6 +2884,9 @@ function activate(context) {
   carryOverSettings(vscode, context.globalState, { from: 'perch', to: 'agents', keys: settingKeys(require('../package.json'), 'agents'), log: (l) => perch.trace(l) })
     .catch((e) => perch.trace(`settings: carry-over failed: ${(e && e.message) || e}`));
   perch.meter.start();
+  // terminal claude's gateway address follows the company address that answers: at a tab's start, and once now
+  perch.onGatewayResolved.add((baseUrl) => perch.syncTerminalBaseUrl(baseUrl));
+  perch.checkTerminalBaseUrl().catch((e) => perch.trace(`terminal claude: the address check failed: ${(e && e.message) || e}`));
   const tg = vscode.window.tabGroups;
   if (tg && tg.onDidChangeTabs) context.subscriptions.push(tg.onDidChangeTabs((e) => perch.tabsChanged(e)));
   context.subscriptions.push(

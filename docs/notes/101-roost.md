@@ -512,12 +512,15 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     600), **AWS Bedrock** (a profile or SSO already on the machine, and a region; checked with a model list), or
     **Codex only**. Ticked when one is set up, or **Not Now**. New Claude Tab then opens with that connection.
     **Terminal `claude`**, when asked ("use for `claude` in the terminal too", on by default when the company file's
-    `gateway.terminal` is true, off otherwise): the choice is written to `~/.claude/settings.json` (gateway: base
-    URL picked by a small launcher, `~/.local/bin/claude` ahead of Claude Code's own on the PATH, which probes
-    `baseUrls` (remembered a few minutes) and runs the real `claude` with `ANTHROPIC_BASE_URL` set; model env and
-    `apiKeyHelper` reading the key file; API key: `apiKeyHelper`; Bedrock:
-    `CLAUDE_CODE_USE_BEDROCK=1`, region; subscription: nothing). A value the user already has there is shown and
-    replaced only when they agree.
+    `gateway.terminal` is true, off otherwise): the choice is written to `~/.claude/settings.json` (gateway:
+    `env.ANTHROPIC_BASE_URL` the address that answered, model env and `apiKeyHelper` reading the key file; API key:
+    `apiKeyHelper`; Bedrock: `CLAUDE_CODE_USE_BEDROCK=1`, region; subscription: nothing). A value the user already
+    has there is shown and replaced only when they agree. The gateway's address then follows the company address that
+    answers: each time a Claude tab's start finds one, and once at activation (the company's `baseUrls` probed in the
+    background with the gateway file's key, only when that file names one of them), `env.ANTHROPIC_BASE_URL` is
+    rewritten to it, only while it still holds the address Roost wrote there; a value the user changed is theirs, and
+    the key is never added. *(Sean, 2026-11-24: no launcher; Roost's installer installs the claude CLI, at
+    `~/.local/bin/claude`, which Claude Code's updater rewrites.)*
   - **Connect your tools** *(company file with `mcpServers` only)*, after *Talk to Claude or Codex*: a panel, one
     row per server (name, what it gives the agent, connected or not, a button). `tokenPage`: open, paste, check,
     save; `command`: run in a VS Code terminal, connected when its file appears; then the server is registered
@@ -542,12 +545,10 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
       form checks too, and only on an *unexpected answer* (a gateway with no `/v1/models`) offers **Save anyway**.
       At a tab start with no address answering, the tab uses the gateway file's address, with no note.
     - *Terminal `claude`* is written only when a connection is saved, so `apiKeyHelper` never points at a key that
-      doesn't exist yet (the first *Open* above). The launcher is written at `~/.local/bin/claude` only when that path
-      is free or already Roost's (Claude Code's own installer uses the same path); otherwise `settings.json` gets the
-      address that answered, and the panel says so. The launcher caches its pick for 5 minutes, probes with `curl -m 3`,
-      and finds the real `claude` on the PATH, else in the newest Claude Code extension. `settings.json` must not then
-      carry `ANTHROPIC_BASE_URL` (Claude Code applies it over the launcher's environment), so the gateway way removes
-      it, asking first if it is the user's. The key file for `apiKeyHelper` is `keyFiles[0]`, else
+      doesn't exist yet (the first *Open* above). There is no launcher (Sean, 2026-11-24: Roost's installer installs
+      the claude CLI at `~/.local/bin/claude`, and its updater rewrites that path): `settings.json` gets the address
+      that answered, kept current as above (`syncTerminalBaseUrl`; the record of what Roost wrote is globalState's
+      `perch.terminal.written`). The key file for `apiKeyHelper` is `keyFiles[0]`, else
       `~/.config/roost/gateway-key`. Roost records what it wrote: a later choice removes Roost's own values and treats
       any other value as the user's (shown, masked when its name says token, key or secret, and replaced only on
       **Replace**). A settings file that isn't a plain JSON object is never rewritten. Agents treats any `apiKeyHelper`

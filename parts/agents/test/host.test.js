@@ -1969,6 +1969,74 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
+  // ---- terminal claude: the gateway's address in ~/.claude/settings.json kept to the one that answers, when Roost wrote it
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-term-'));
+    const realFetch = globalThis.fetch;
+    try {
+      const file = path.join(dir, 'gateway-env'), company = path.join(dir, 'company.json'), claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      const PRIVATE = 'https://private.example.com/llm-api', PUBLIC = 'https://public.example.com/llm-api';
+      fs.mkdirSync(claudeDir);
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PRIVATE, PUBLIC], keyPage: 'https://ai.example.com/keys' } }));
+      fs.writeFileSync(file, `export ANTHROPIC_BASE_URL=${PRIVATE}\nexport ANTHROPIC_AUTH_TOKEN=sk-term\n`);
+      const settingsWith = (url) => fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: url, OTHER: 'x' }, apiKeyHelper: "cat '/k'" }));
+      const baseNow = () => JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_BASE_URL;
+      const written = { 'env.ANTHROPIC_BASE_URL': PRIVATE, apiKeyHelper: "cat '/k'" };
+      // at activation: the company's addresses probed once, with the gateway file's key, in the background
+      const asked = []; let release; const gate = new Promise((r) => { release = r; });
+      globalThis.fetch = async (url, init) => { asked.push([url, init.headers['x-api-key']]); await gate; if (url.startsWith(PRIVATE)) throw new TypeError('fetch failed'); return { ok: true, status: 200, text: async () => '{"data":[]}' }; };
+      settingsWith(PRIVATE);
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': written } });
+      assert.strictEqual(baseNow(), PRIVATE, 'activation does not wait for the probe');
+      release(); await until(() => baseNow() === PUBLIC);
+      assert.deepStrictEqual([baseNow(), asked, m.globalState._dump()['perch.terminal.written']], [PUBLIC, [[PRIVATE + '/v1/models', 'sk-term'], [PUBLIC + '/v1/models', 'sk-term']], Object.assign({}, written, { 'env.ANTHROPIC_BASE_URL': PUBLIC })],
+        'the address that answered, in settings.json and in the record');
+      assert(!m.ui.traces.some((l) => /sk-term/.test(l)), 'the key is not traced');
+      // a tab start's probe resolved another: settings.json follows
+      m.perch.onGatewayResolved.forEach((f) => f(PRIVATE));
+      assert.deepStrictEqual([baseNow(), m.globalState._dump()['perch.terminal.written']['env.ANTHROPIC_BASE_URL']], [PRIVATE, PRIVATE], 'a resolved address updates settings.json when Roost wrote it');
+      // the user's own address since: left
+      settingsWith('https://mine.example.com');
+      m.perch.onGatewayResolved.forEach((f) => f(PUBLIC));
+      assert.strictEqual(baseNow(), 'https://mine.example.com');
+      m.perch.dispose();
+      // Roost never wrote the address: no probe at activation
+      asked.length = 0; settingsWith(PRIVATE);
+      const n = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': { apiKeyHelper: "cat '/k'" } } }); await flush(); await wait(20);
+      assert.deepStrictEqual([asked, baseNow()], [[], PRIVATE], 'nothing asked, nothing written');
+      n.perch.onGatewayResolved.forEach((f) => f(PUBLIC));
+      assert.strictEqual(baseNow(), PRIVATE, 'nor on a tab start');
+      n.perch.dispose();
+      // the gateway file names another gateway: its key is not sent to the company's hosts
+      fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://other.example.com\nexport ANTHROPIC_AUTH_TOKEN=sk-other\n');
+      const o = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': written } }); await flush(); await wait(20);
+      assert.deepStrictEqual(asked, [], 'no probe with another gateway\'s key');
+      o.perch.dispose();
+    } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- a machine whose settings.json has an apiKeyHelper, with no base URL: pinned, so a subscription tab is taken off it
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-pin-'));
+    try {
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      fs.mkdirSync(claudeDir); fs.writeFileSync(settingsPath, JSON.stringify({ apiKeyHelper: 'cat x' }));
+      const m = install(undefined, { meter: { claudeDir, settingsPath } }); await flush();
+      assert.strictEqual(m.perch.machinePinned(), true);
+      const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      v.fire({ type: 'new', kind: 'claude' }); const sid = v.lastTabs().active;
+      const n0 = created.length; v.fire({ type: 'send', sid, text: 'hello' });
+      assert.deepStrictEqual(created[n0].o.offGateway, { bedrock: false }, 'a subscription tab off the pinned machine');
+      m.perch.dispose();
+      fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'https://gw.example' } }));
+      const q = install(undefined, { meter: { claudeDir, settingsPath } }); await flush();
+      assert.strictEqual(q.perch.machinePinned(), false, 'a base URL alone does not pin');
+      q.perch.dispose();
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
   // ---- the model pill on the gateway: the gateway's names, from the file; a model of Claude's catalog is let go when a tab moves there
   {
     const fs = require('fs'), os = require('os'), path = require('path');
