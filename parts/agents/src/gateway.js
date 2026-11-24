@@ -135,10 +135,15 @@ function ownBackendSettings(bedrock, inherited = process.env, aws = {}) {
     const v = typeof inherited[k] === 'string' ? inherited[k] : '';
     env[k] = (bedrock || !PROVIDER_MODEL.test(v)) ? v : '';
   }
-  const a = aws || {};
-  if (typeof a.region === 'string' && a.region) env.AWS_REGION = a.region;
-  if (typeof a.profile === 'string' && a.profile) env.AWS_PROFILE = a.profile;
-  return { env };
+  return { env: Object.assign(env, awsEnv(aws)) };
+}
+
+/** AWS_REGION and AWS_PROFILE from Connect Claude's Bedrock choice, each only when set. */
+function awsEnv(aws) {
+  const a = aws || {}, out = {};
+  if (typeof a.region === 'string' && a.region) out.AWS_REGION = a.region;
+  if (typeof a.profile === 'string' && a.profile) out.AWS_PROFILE = a.profile;
+  return out;
 }
 
 /**
@@ -151,15 +156,18 @@ function ownBackendSettings(bedrock, inherited = process.env, aws = {}) {
  * subscription the gateway's traffic switch (TRAFFIC_VAR) goes back the same way: to the machine's own export, else to ''.
  * @param {boolean} bedrock  true for API / Bedrock, false for the subscription
  * @param {Record<string,string|undefined>} [inherited]  the environment the tab's Claude Code inherits (this process's)
+ * @param {{ region?: string, profile?: string }} [aws]  Bedrock's region and profile, as Connect Claude saved them: set
+ *   as AWS_REGION and AWS_PROFILE when given, as ownBackendSettings does
  * @returns {{ env: Record<string,string>, apiKeyHelper: string, model: string }}
  */
-function offGatewaySettings(bedrock, inherited = process.env) {
+function offGatewaySettings(bedrock, inherited = process.env, aws = {}) {
   const env = { CLAUDE_CODE_USE_BEDROCK: bedrock ? '1' : '0', ANTHROPIC_BASE_URL: '' };
   for (const k of OFF_GATEWAY_VARS) {
     const v = typeof inherited[k] === 'string' ? inherited[k] : '';
     env[k] = (bedrock || !PROVIDER_MODEL.test(v)) ? v : '';
   }
   if (!bedrock) env[TRAFFIC_VAR] = typeof inherited[TRAFFIC_VAR] === 'string' ? inherited[TRAFFIC_VAR] : '';
+  Object.assign(env, awsEnv(aws));
   return { env, apiKeyHelper: '', model: '' };
 }
 

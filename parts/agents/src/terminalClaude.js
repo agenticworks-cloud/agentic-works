@@ -53,7 +53,8 @@ function readSettings(file) {
     return { ok: false, missing: false, error: `${file} could not be read: ${e.message}` };
   }
   let json;
-  try { json = JSON.parse(text); } catch (e) { return { ok: false, missing: false, error: `${file} is not plain JSON (${e.message})` }; }
+  // the parser's message is left out: it quotes the file around the fault, and the file may hold a key
+  try { json = JSON.parse(text); } catch (_) { return { ok: false, missing: false, error: `${file} is not plain JSON` }; }
   if (!isObject(json)) return { ok: false, missing: false, error: `${file} does not hold a JSON object` };
   return { ok: true, json };
 }

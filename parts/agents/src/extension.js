@@ -46,6 +46,11 @@ const UNSANDBOXED_KEY = 'perch.codex.unsandboxed';   // { hostname: true } for m
 const PANEL_TYPE = 'perch.session';   // the webview panel type of an editor tab
 const GATEWAY_PANEL_TYPE = 'perch.gatewaySetup';   // Agents: Set Up a Gateway…'s form
 const CONNECT_PANEL_TYPE = 'perch.connectClaude';   // Agents: Connect Claude…'s panel
+/**
+ * What Connect Claude says of an error: its message when it is Node's own (a system call's, which names a code and a
+ * path) or a sentence of Perch's (marked `said`); anything else in fixed words, since its text could quote a key.
+ */
+const connectErrorText = (e) => (e && typeof e.message === 'string' && (e.said || (typeof e.code === 'string' && e.syscall)) ? e.message : 'Something went wrong there. Try again.');
 const NOT_PLAIN_JSON = "~/.claude/settings.json isn't plain JSON, so it was left alone.";
 const OWN_BACKENDS = ['subscription', 'api', 'apiKey'];   // a Claude tab's backend of its own: the subscription, API / Bedrock, or the Anthropic API key Connect Claude saved
 // how long to wait for VS Code to bring back editor tabs before opening them ourselves (shortened by the tests)
@@ -814,6 +819,7 @@ class Session {
       const candidates = companyGw && Gateway.isOneOf(gw.vars.ANTHROPIC_BASE_URL, companyGw.baseUrls) ? companyGw.baseUrls.slice() : [];
       if (gw) this.view.prices.load();   // the list prices a streamed response is priced at, for the turn's figure
       const pinned = !gw && this.view.machinePinned();   // the machine pins a gateway for all Claude Code; a non-gateway tab must escape it
+      const ownAws = !gw && this.own === 'api' ? this.view.claudeBedrock() : undefined;   // Bedrock's profile and region, from Connect Claude
       const launchCat = this.catalog();
       // a model saved under another backend's name (Bedrock's `us.anthropic.…` on the subscription, say) is given the name
       // this backend has for it, its 1M context kept; the tab keeps the name it runs
@@ -835,10 +841,11 @@ class Session {
         // through the relay, which sees which model answers; to the first of the company's addresses that answers as the
         // process starts (claudeAgent.resolveGatewayTarget), when the file names one of them, else to the file's
         gateway: gw ? { target: gw.vars.ANTHROPIC_BASE_URL, candidates, key: Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '' } : undefined,
-        offGateway: pinned && this.backend ? { bedrock: this.backend === 'api' } : undefined,   // take a sub/API tab off the pinned gateway
+        // take a sub/API tab off the pinned gateway; a Bedrock tab of its own keeps the profile and region Connect Claude saved
+        offGateway: pinned && this.backend ? Object.assign({ bedrock: this.backend === 'api' }, ownAws ? { aws: ownAws } : {}) : undefined,
         // a backend of the tab's own, as its process's settings, whatever the window's switch says; on Bedrock, the
         // profile and region Connect Claude saved
-        backend: !gw && !pinned && this.own ? (this.own === 'api' ? Object.assign({ bedrock: true }, this.view.claudeBedrock() ? { aws: this.view.claudeBedrock() } : {}) : { bedrock: false }) : undefined,
+        backend: !gw && !pinned && this.own ? (this.own === 'api' ? Object.assign({ bedrock: true }, ownAws ? { aws: ownAws } : {}) : { bedrock: false }) : undefined,
         askPermission: (req) => new Promise((resolve) => this.pending.set(req.id, resolve)),
       });
     } else {
@@ -2033,7 +2040,7 @@ class PerchView {
   /** perch.claudeConnected, sent when it changes: Roost's walkthrough ticks Connect Claude on it. */
   syncClaudeConnected(gw) {
     let on;
-    try { on = this.claudeConnected(gw); } catch (e) { this.trace(`connect claude: ${(e && e.message) || e}`); return; }
+    try { on = this.claudeConnected(gw); } catch (e) { this.trace(`connect claude: ${connectErrorText(e)}`); return; }
     if (on === this.claudeConnectedShown) return;
     this.claudeConnectedShown = on;
     Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.claudeConnected', on)).catch(() => { /* an older VS Code */ });
@@ -2067,11 +2074,11 @@ class PerchView {
     const ctx = this.connect = { panel, post, terminal: !!(cg && cg.terminal), pending: null };
     panel.webview.html = getConnectClaudeHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
     // the gateway way is the gateway form's: its save, while this panel is open, is the choice
-    const onSaved = (gw) => { this.connectSaved('gateway', { gw }).catch((e) => post({ type: 'verdict', way: 'gateway', text: (e && e.message) || String(e), ok: false, canForce: false })); };
+    const onSaved = (gw) => { this.connectSaved('gateway', { gw }).catch((e) => post({ type: 'verdict', way: 'gateway', text: connectErrorText(e), ok: false, canForce: false })); };
     this.onGatewaySaved.add(onSaved);
     panel.webview.onDidReceiveMessage((msg) => {
       if (!msg || typeof msg !== 'object') return;
-      this.connectMessage(msg, ctx).catch((e) => post({ type: 'verdict', way: String(msg.type || ''), text: (e && e.message) || String(e), ok: false, canForce: false }));
+      this.connectMessage(msg, ctx).catch((e) => post({ type: 'verdict', way: String(msg.type || ''), text: connectErrorText(e), ok: false, canForce: false }));
     });
     panel.onDidDispose(() => { this.onGatewaySaved.delete(onSaved); if (this.connectPanel === panel) { this.connectPanel = null; this.connect = null; } });
     return panel;
@@ -2126,7 +2133,7 @@ class PerchView {
         // Roost's, beside the walkthrough, when Roost is there; else Agents' own
         Promise.resolve().then(() => vscode.commands.executeCommand('roost.newClaudeTab'))
           .catch(() => vscode.commands.executeCommand('perch.newClaude'))
-          .catch((e) => this.trace(`connect claude: ${(e && e.message) || e}`));
+          .catch((e) => this.trace(`connect claude: ${connectErrorText(e)}`));
         return;
       default:
     }
@@ -2166,7 +2173,7 @@ class PerchView {
     const key = Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '';
     let keyFile = cg && cg.keyFiles.length ? cg.keyFiles[0] : '';
     if (!keyFile) {
-      if (!key) throw new Error('The gateway file holds no key for terminal claude.');
+      if (!key) throw Object.assign(new Error('The gateway file holds no key for terminal claude.'), { said: true });
       keyFile = Connections.gatewayKeyFile();
       Gateway.writeSecretFile(keyFile, key);
     }
@@ -2187,7 +2194,7 @@ class PerchView {
       const r = TerminalClaude.writeSettings(file, plan, { replace });   // the whole plan: what it keeps stays in the record
       this.context.globalState.update(TerminalClaude.WRITTEN_KEY, r.written);
     } catch (e) {
-      this.trace(`terminal claude: ${file} not written: ${(e && e.message) || e}`);
+      this.trace(`terminal claude: ${file} not written: ${connectErrorText(e)}`);
       terminalNote = TerminalClaude.readSettings(file).ok ? "~/.claude/settings.json couldn't be written, so terminal claude is as it was." : NOT_PLAIN_JSON;
     }
     this.sendTabs();   // a key helper there now pins the machine: the tabs' menus follow
@@ -2203,7 +2210,7 @@ class PerchView {
     const written = this.terminalWritten();
     const keyFile = Connections.gatewayKeyFile(), key = Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '';
     if (key && written.apiKeyHelper && written.apiKeyHelper === TerminalClaude.desiredSettings('apiKey', { keyFile }).apiKeyHelper && Connections.readSecretFile(keyFile) !== key) {
-      try { Gateway.writeSecretFile(keyFile, key); } catch (e) { this.trace(`terminal claude: the gateway key file not written: ${(e && e.message) || e}`); }
+      try { Gateway.writeSecretFile(keyFile, key); } catch (e) { this.trace(`terminal claude: the gateway key file not written: ${connectErrorText(e)}`); }
     }
     if (written[TerminalClaude.BASE_URL_KEY]) this.syncTerminalBaseUrl(gw.vars.ANTHROPIC_BASE_URL);
   }

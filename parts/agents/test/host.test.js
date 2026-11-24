@@ -2029,6 +2029,15 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       v.fire({ type: 'new', kind: 'claude' }); const sid = v.lastTabs().active;
       const n0 = created.length; v.fire({ type: 'send', sid, text: 'hello' });
       assert.deepStrictEqual(created[n0].o.offGateway, { bedrock: false }, 'a subscription tab off the pinned machine');
+      // Bedrock chosen in Connect Claude, on the pinned machine: the tab's settings carry the profile and region saved there
+      m.globalState.update('perch.claude.connection', 'bedrock');
+      m.globalState.update('perch.claude.bedrock', { profile: 'dev', region: 'eu-west-1' });
+      const bt = m.commands['perch.newClaude']();
+      assert.strictEqual(bt.own, 'api');
+      const n1 = created.length; v.fire({ type: 'send', sid: bt.id, text: 'hello' });
+      assert.deepStrictEqual(created[n1].o.offGateway, { bedrock: true, aws: { profile: 'dev', region: 'eu-west-1' } });
+      const pinnedEnv = require('../src/gateway').offGatewaySettings(created[n1].o.offGateway.bedrock, {}, created[n1].o.offGateway.aws).env;   // as claudeAgent applies it
+      assert.deepStrictEqual([pinnedEnv.AWS_REGION, pinnedEnv.AWS_PROFILE, pinnedEnv.CLAUDE_CODE_USE_BEDROCK], ['eu-west-1', 'dev', '1']);
       m.perch.dispose();
       fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: 'https://gw.example' } }));
       const q = install(undefined, { meter: { claudeDir, settingsPath } }); await flush();

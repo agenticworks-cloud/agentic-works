@@ -86,7 +86,7 @@ class ClaudeAgent {
       // Gateway: this process's own gateway variables. Otherwise (subscription / API / Bedrock): clear a pinned gateway
       // so the tab is truly on the chosen backend, not the gateway the machine sets for every Claude Code.
       ...(this.opts.gateway ? { settings: gatewaySettings(this.opts.env, env.ANTHROPIC_BASE_URL) }
-        : this.opts.offGateway ? { settings: offGatewaySettings(this.opts.offGateway.bedrock) }
+        : this.opts.offGateway ? { settings: offGatewaySettings(this.opts.offGateway.bedrock, process.env, this.opts.offGateway.aws) }
         : this.opts.backend ? { settings: ownBackendSettings(this.opts.backend.bedrock, process.env, this.opts.backend.aws) } : {}),
       stderr: (d) => this.emit({ kind: 'stderr', text: String(d) }),
       canUseTool: async (toolName, input, { suggestions }) => {

@@ -32,7 +32,11 @@ assert.throws(() => T.desiredSettings('nope', {}), /nope/);
   for (const bad of ['// x\n{}', '[1]', '"s"', 'null', '{ "a": ']) {
     put(f, bad); const r = T.readSettings(f);
     assert.deepStrictEqual([r.ok, r.missing, typeof r.error], [false, false, 'string'], bad);
-  }
+  }  // the parser's message quotes the file around the fault: the error, which reaches the output channel, never does
+  put(f, '{ "env": { "ANTHROPIC_AUTH_TOKEN": "sk-secret-1234" }, }');
+  const leak = T.readSettings(f);
+  assert.deepStrictEqual([leak.ok, leak.error], [false, `${f} is not plain JSON`], 'fixed text, nothing of the file');
+  assert.throws(() => T.writeSettings(f, { changes: [], conflicts: [], kept: {} }), (e) => !e.message.includes('sk-secret'), 'nor the write\'s refusal');
 }
 
 // ---- planSettings
