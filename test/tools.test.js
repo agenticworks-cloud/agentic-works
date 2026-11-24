@@ -217,6 +217,7 @@ test('connectCommand, signing in again: an existing file is done only once it is
   const q = s.tools.connectCommand('tickets', { runInTerminal: () => ({ closed: new Promise((res) => { close = res; }) }) });
   await new Promise((res) => setTimeout(res, 60));
   assert.strictEqual(row(s.tools, 'tickets').state, 'connecting');
+  assert.strictEqual(row(s.tools, 'tickets').reason, 'If the sign-in failed, close its terminal to try again.', 'the waiting row says how to get out');
   close();
   const r2 = await q;
   assert.strictEqual(s.runs.length, 2, 'checked once the terminal closed');

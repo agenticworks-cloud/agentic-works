@@ -24,6 +24,8 @@ const CHECK_MS = 30000;
 const SIGN_IN_MS = 60000;
 const COMPLETE_MS = 15 * 60000;
 const POLL_MS = 2000;
+/** A command sign-in's row, while its terminal is open. */
+const COMMAND_WAIT_HINT = 'If the sign-in failed, close its terminal to try again.';
 
 const expand = (p, home) => (p === '~' ? home : p.startsWith('~/') ? path.join(home, p.slice(2)) : p);
 
@@ -131,6 +133,8 @@ class Tools {
     } catch (e) {
       return this._set(id, { state: 'notConnected', reason: `The sign-in didn't start: ${e.message}` });
     }
+    // a sign-in that fails leaves its terminal open (to be read), and the row waits for it to close: the row says so
+    this._set(id, { reason: COMMAND_WAIT_HINT });
     let isClosed = false;
     const closed = Promise.resolve(terminal && terminal.closed).then(() => { isClosed = true; }, () => { isClosed = true; });
     while (!this.disposed && !isClosed && !fresh()) await Promise.race([sleep(this.pollMs), closed]);
@@ -341,4 +345,4 @@ class Tools {
   }
 }
 
-module.exports = { Tools, promptOf, TOKEN_DIR };
+module.exports = { Tools, promptOf, TOKEN_DIR, COMMAND_WAIT_HINT };

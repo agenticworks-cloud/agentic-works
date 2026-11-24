@@ -52,7 +52,7 @@ function getToolsHtml({ nonce, cspSource }) {
   function stateText(r) {
     if (r.state === 'connected') return 'Connected';
     if (r.state === 'checking') return 'Checking…';
-    if (r.state === 'connecting') return 'Connecting…';
+    if (r.state === 'connecting') return r.reason ? 'Connecting… ' + r.reason : 'Connecting…';
     if (r.state === 'unknown') return 'Not checked yet';
     if (r.signedIn) {
       // signed in, but Claude Code wasn't given the server: Tools' reasons for that already start "Signed in, but"

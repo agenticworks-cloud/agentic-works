@@ -83,6 +83,9 @@ for (const id of ['mail', 'tickets', 'wiki']) {
 }
 host({ type: 'rows', rows: [{ ...tickets, state: 'connecting' }] });
 assert.strictEqual(button('tickets', 'Connect').disabled, true, 'busy: the button waits');
+assert.strictEqual(stateOf('tickets'), 'Connecting…');
+host({ type: 'rows', rows: [{ ...tickets, state: 'connecting', reason: 'If the sign-in failed, close its terminal to try again.' }] });
+assert.strictEqual(stateOf('tickets'), 'Connecting… If the sign-in failed, close its terminal to try again.', 'a command sign-in waiting: the hint on the row');
 
 // signed in, but not registered: said so, distinctly
 host({ type: 'rows', rows: [{ ...tickets, state: 'notConnected', signedIn: true, reason: "Claude Code's settings weren't changed: EACCES" }] });
