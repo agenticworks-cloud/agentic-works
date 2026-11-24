@@ -37,7 +37,7 @@ the newest installer is also how Roost is updated.
 | Flag | |
 |---|---|
 | `--dry-run` | print each command instead of running it |
-| `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions github settings icons open` |
+| `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions claude git github homebrew settings icons open` |
 | `--yes` | answer yes to uninstalling the standalone four (needed with no terminal); never answers the GitHub sign-in |
 | `--no-open` | don't open VS Code at the end |
 | `--codebase-search` | turn codebase search on in Claude and Codex tabs (off otherwise; the Get started walkthrough offers it) |

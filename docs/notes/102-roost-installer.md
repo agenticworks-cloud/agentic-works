@@ -90,13 +90,35 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    installs the `.vsix`): `✗ Roost: VS Code couldn't install it; it also fetches Claude Code, ChatGPT and Perch's
    audio from the Marketplace, which may be unreachable from here — see <log>`, and the companions' line then
    leaves out "Roost still works".
+4.5. **Claude Code's command-line tool** *(Sean, 2026-11-24; for 0.4)*. The Claude Code extension is not the
+   `claude` command, so a terminal (and a Roost terminal tab) has none. The step is `✓ Claude Code CLI (already)`
+   when `claude` resolves on the PATH or `~/.local/bin/claude` exists. Otherwise it downloads Anthropic's own installer,
+   `https://claude.ai/install.sh`, to a temp file with `curl` and then runs it with `bash` (downloaded first, never
+   piped, as Homebrew's is; on Ubuntu/Debian curl is installed first when a minimal system has none), confirms
+   `~/.local/bin/claude` exists, and says `✓ Claude Code CLI (installed)`; else `✗ Claude Code CLI: couldn't be
+   installed; see <log>`. It needs no sudo. For new terminals, `~/.local/bin` goes into Roost's marked PATH block
+   in the login profile (inside the block that is there, the one the PATH and Homebrew steps write; a block of its own
+   only when there is none) unless `ORIG_PATH` already holds it. A dry run prints the two commands. `--skip claude`
+   leaves it out; `ROOST_INSTALL_CLAUDE_INSTALLER` (a test seam) replaces the URL. Skipped, with no line, when the
+   standalone-four question was answered Stop, like the steps after Roost.
 4a. **git, for real** *(Sean, 2026-11-24; for 0.4)*. Claude Code, Codex and the PRs part expect a working `git`, and
    today it only arrives as a side effect (Apple's Command Line Tools through Homebrew's installer; a dependency of
    the `gh` package on RHEL/Fedora, and probably on Debian/Ubuntu). The installer checks that `git --version`
    actually runs (on macOS `/usr/bin/git` is a stub that opens Apple's install dialog until the Command Line Tools
    are installed) and installs it when not: the Command Line Tools (`xcode-select --install`, or Homebrew's
-   `brew install git` when Homebrew is already there) on macOS, the distro's `git` package on Linux. A checklist
-   line of its own, before GitHub.
+   `brew install git` when Homebrew is already there) on macOS, the distro's `git` package on Linux (`apt-get install
+   -y git`, `dnf install -y git`, listed in the up-front sudo list). Git counts as working when `git --version` exits
+   0; on macOS, `/usr/bin/git` is not run at all while `xcode-select -p` fails (it would open Apple's dialog) and
+   counts as missing. Without Homebrew on a Mac the step runs `xcode-select --install` and waits for `xcode-select -p`
+   (600 s, `ROOST_INSTALL_CLT_WAIT`; polled every 5 s): `✗ git: finish the Command Line Tools install Apple opened,
+   then run git --version` when it doesn't come. Lines: `✓ git (already)`, `✓ git (installed)`, `✗ git: couldn't be
+   installed; see <log>`. A checklist line of its own, before GitHub; `ROOST_INSTALL_GIT` (a test seam) is the git
+   path taken as found. Skipped, with no line, when the standalone-four question was answered Stop.
+   **Homebrew on the PATH** (macOS only, step name `homebrew`, after GitHub): when this run installed Homebrew or
+   anything through it, or Homebrew is there and `code`, `gh` or `git` resolves inside its bin directory, the login
+   profile gets `# added by roost-install: Homebrew`, `[ -x <brew> ] && eval "$(<brew> shellenv)"`, `# end
+   roost-install`, unless the profile already has a `brew shellenv` line or `ORIG_PATH` already holds the directory
+   (`✓ Homebrew on the PATH (already)`). No line at all when Homebrew wasn't involved.
 4b. **GitHub, for the PRs panel.** kestrel reads pull requests through the GitHub CLI and cannot sign in by itself, so:
    install `gh` if missing (Homebrew; GitHub's apt repository on Ubuntu/Debian; on RHEL/Rocky GitHub's rpm
    repository, added and then `dnf install gh` without `--repo gh-cli`, which GitHub's page gives but which hides
@@ -143,7 +165,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
 7. **Open VS Code** (not when run as root, not with `--dry-run`). Roost's first start opens the PRs tab and its
    Get started walkthrough (note 101, *First start*).
 
-Flags: `--dry-run` (print what would be done), `--skip <step>`, `--yes` (answer the standalone-four question with
+Flags: `--dry-run` (print what would be done), `--skip <step>` (`vscode path standalone roost companions claude git github homebrew settings icons open`), `--yes` (answer the standalone-four question with
 Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--codebase-search` (codebase search on; off otherwise), `--teams-app <clientId>:<tenant>` (the Teams sign-in's company app, step 5; a malformed value is a usage error, exit 2), `--help`. Exit status 0 when no
 step failed, else 1. *(my call)*
 
@@ -156,7 +178,7 @@ existing VS Code alike; a failure is `✗` and names `dnf install openssl3-libs`
 **Administrator rights.** When a step that is going to run installs something system-wide, the run asks for the
 sudo password once, after the Platform line, and first lists exactly what this run adds system-wide, only the items
 that will happen: Homebrew (macOS); curl and ca-certificates, gnupg (a minimal Ubuntu/Debian); Microsoft's VS Code
-package repository and its signing key, and VS Code; OpenSSL 3 (Fedora, for VS Code's extension signature checks);
+package repository and its signing key, and VS Code; OpenSSL 3 (Fedora, for VS Code's extension signature checks); git (Linux, when it will be installed);
 GitHub's gh package repository and its signing key, and gh. The lines say it too: `✓ VS Code (installed, with
 OpenSSL 3 for VS Code's extension signature checks)` on a fresh Fedora 45, `✓ GitHub (added GitHub's package
 repository, installed gh; …)`. Homebrew's installer runs `sudo` itself and can take longer than sudo's timestamp,
@@ -239,7 +261,7 @@ checksum — run the installer again`; the other steps still run, and the exit s
 - Files: `installer/roost-install.sh` (bash 3.2-safe) and `installer/roost-install-helper` (Python, stdlib only: the
   settings merge and `state.vscdb`), carved from the C3 installer's generic half; tests in `installer/test/` with
   Python's `unittest` (no extra dependency) and the C3 installer's stub-on-PATH harness.
-- Step names for `--skip`: `vscode path standalone roost companions github settings icons open`.
+- Step names for `--skip`: `vscode path standalone roost companions claude git github homebrew settings icons open`.
 - Release URL `https://github.com/seanahn/roost/releases/download/v<version>/roost-<version>.vsix`; the script
   carries `@ROOST_VERSION@` / `@ROOST_SHA256@`, stamped by `make release`; an unstamped script refuses the Roost step.
 - `make release` writes `dist/roost-<version>.vsix` and `dist/roost-install.sh` (the helper inlined as a
