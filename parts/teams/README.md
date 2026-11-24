@@ -36,6 +36,39 @@ sign in. The setting `teams.signIn.method` picks one; the default,
 With `auto`, chirp uses the token file if `teams.signIn.tokenFile` is set;
 otherwise the editor's sign-in; otherwise a sign-in code.
 
+### A company's own Microsoft app
+
+By default chirp signs in with its own app, which Microsoft shows as
+**chirp, unverified**. A company that lets only its admins approve apps
+stops that sign-in at Microsoft's **Need admin approval** page. Either IT
+approves chirp (**Copy admin link** gives them Microsoft's approval page
+for the app in use), or your company uses an app of its own that it has
+already approved. Two settings name it; your IT team provides both:
+
+| Setting | What | Empty |
+| --- | --- | --- |
+| `teams.signIn.clientId` | the app's Application (client) ID, a GUID | chirp's own app |
+| `teams.signIn.tenant` | your Directory (tenant) ID, or a domain such as `contoso.onmicrosoft.com` | `organizations`, any work or school account |
+
+**Teams: Use a Company Microsoft App…** asks for both, checks them, writes
+them to your user settings and signs in again; so does changing either in
+Settings. A value that is neither an ID nor a domain is ignored, with a
+note above the lists. The settings are not used with a token file.
+
+With a company app, `auto` uses a sign-in code first, which only needs the
+app to **allow public client flows**; if it doesn't, chirp tries the
+editor's sign-in, which needs the app to accept VS Code's redirect. An
+explicit `editor` or `deviceCode` is used as set. Sign-in-code tokens are
+kept with the app that got them and never used with another.
+
+Microsoft's "Need admin approval" page appears in the browser, and chirp
+can't see it: on the editor's sign-in VS Code keeps waiting until you
+click **Cancel**; with a sign-in code, the code runs out or is declined.
+So after a sign-in that ends that way, the Teams view says *If Microsoft
+said Need admin approval, your company has to approve the app first*,
+with **Copy admin link** and **Use a company app…**. It isn't shown before
+you have tried to sign in.
+
 - **Commands:** **Teams: Sign In** and **Teams: Sign Out**, also in the
   sidebar's title bar.
 - **Signing out** deletes the cached lists and the conversation files

@@ -385,7 +385,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   installer stays a separate layer on top.
 
 - **Stronger links** through shared services in `src/` (see *Links between parts, for now*).
-- **Teams: a company's own Microsoft app (design, for 0.3)** *(Sean, 2026-11-24)*. Both of chirp's sign-ins, the
+- **Teams: a company's own Microsoft app — Built (0.3.0)** *(Sean, 2026-11-24; design below, then what was built)*. Both of chirp's sign-ins, the
   editor's and the sign-in code, use chirp's own app (`5d0faf94…`, "chirp, unverified"; the editor sign-in passes it
   in VS Code's `VSCODE_CLIENT_ID` scope, so it is not VS Code's app). A company that lets only admins approve apps,
   as C3 does, stops a first-time user at Microsoft's "Need admin approval" (Sean's first-time run, 2026-11-24). C3
@@ -408,6 +408,32 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     never go into Roost's public repo or installer.
   - Until it is built, the walkthrough's Teams page says that the app to approve is chirp, and what "Need admin
     approval" means.
+  - **Built (0.3.0).** The two settings (GUID checks; the tenant may also be a domain such as
+    `contoso.onmicrosoft.com`, or `organizations`; an invalid value is ignored with a note above the Teams lists),
+    threaded into the editor sign-in (`VSCODE_CLIENT_ID:` / `VSCODE_TENANT:`), the sign-in code (the authority URL
+    and `client_id`, refresh included) and **Copy admin link** (`https://login.microsoftonline.com/<tenant>/adminconsent?client_id=<app in use>`).
+    A change to either restarts sign-in, like `teams.signIn.method`. Sign-in-code tokens now record their
+    `client_id` (older ones are read from the token's `appid`) and are ignored, not deleted, under another app.
+    **Teams: Use a Company Microsoft App…** asks for both IDs (checked as typed), writes both at the user level and
+    signs in once. The installer's `--teams-app <clientId>:<tenant>` (note 102). The walkthrough's Teams page names
+    the command. Differs from the design:
+    - **The wall is not detected; it is explained after the fact.** Neither path reliably hands chirp Microsoft's
+      consent error, so after any sign-in that ends cancelled, declined, expired, or with `AADSTS65001` /
+      `AADSTS90094` (a new failure kind, `consent`, if they ever surface), the signed-out Teams view says *If
+      Microsoft said Need admin approval, your company has to approve the app first:* with **Copy admin link** and
+      **Use a company app…**. Not shown before a first attempt; gone once a sign-in starts. No line on Microsoft's
+      own **Request approval** button there (the walkthrough page keeps it), to keep the view short.
+    - With a company app, `auto` tries the sign-in code first and, if the app does not allow public client flows
+      (`AADSTS7000218`), moves on to the editor sign-in with a note; the design had the code only.
+    - `--teams-app` writes the pair only when **neither** key is set, so an app never meets another's tenant.
+    - The walkthrough page names the command in its text, without a command link.
+  - **What reaches chirp, verified and not.** Only by the offline tests: nothing here was run against a tenant
+    that requires admin approval, or with a real company app. Not verified: (1) the editor path: whether VS Code's
+    Microsoft provider ever rejects `getSession` with the consent error, rather than leaving the browser on "Need
+    admin approval" until the user clicks Cancel (then chirp sees "Cancelled", mapped to cancelled); (2) the
+    sign-in-code path: whether the token poll, after the user meets "Need admin approval" at devicelogin, answers
+    `AADSTS65001`, `authorization_declined` / `access_denied`, or nothing until `expired_token` (all three end in
+    the hint); (3) whether `VSCODE_TENANT:` takes a domain as well as a tenant ID (Microsoft's authority does).
 
 ## Left to the builder
 
