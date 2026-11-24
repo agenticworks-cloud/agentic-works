@@ -78,6 +78,9 @@ STEP_LABEL=""
 STEP_RESULT=""
 LINE_OPEN=0  # 1 while the cursor sits at the end of a terminal's "… <label>" line
 SPIN_PID=""  # the spinner drawing the open line, on a terminal; stopped before anything else is printed
+SPIN_PREFIX="  "  # the open line's indent: "  " for a step's own line, "      " for a waiting line under it
+SPIN_TEXT=""  # the open line's text after its "…"
+WAIT_OPEN=0  # 1 while the open line is a waiting line (step_wait), which step_end keeps rather than overwrites
 N_OK=0
 N_SKIP=0
 N_FAIL=0
@@ -89,6 +92,7 @@ LOG=/dev/null  # every command's output; made in main, kept when a step fails
 
 step_begin() {  # $1 = label: "  … <label>", overwritten by step_end on a terminal, where a spinner turns meanwhile
   STEP_LABEL=$1
+  SPIN_PREFIX="  " SPIN_TEXT=$1 WAIT_OPEN=0
   if [ -t 1 ]; then
     printf '  … %s' "$STEP_LABEL"
     LINE_OPEN=1
@@ -103,7 +107,7 @@ spinner_start() {  # the "…" of the open line turns until spinner_stop; it end
   (
     while kill -0 "$parent" 2> /dev/null; do
       for f in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏; do
-        printf '\r  %s %s' "$f" "$STEP_LABEL"
+        printf '\r%s%s %s' "$SPIN_PREFIX" "$f" "$SPIN_TEXT"
         sleep 0.1
       done
     done
@@ -115,15 +119,32 @@ spinner_stop() {  # before anything else is printed: the spinner gone, the open 
   [ -n "$SPIN_PID" ] || return 0
   { kill "$SPIN_PID" && wait "$SPIN_PID"; } 2> /dev/null
   SPIN_PID=""
-  [ "$LINE_OPEN" = 1 ] && printf '\r  … %s' "$STEP_LABEL"
+  [ "$LINE_OPEN" = 1 ] && printf '\r%s… %s' "$SPIN_PREFIX" "$SPIN_TEXT"
   return 0
+}
+
+step_wait() {  # $1 = text: a line under the step for a long wait (an install, a download), its "…" turning until
+               # the next output; without a terminal, a plain line as step_say prints
+  spinner_stop
+  if [ "$LINE_OPEN" = 1 ]; then
+    printf '\n'
+    LINE_OPEN=0
+  fi
+  if [ -t 1 ]; then
+    SPIN_PREFIX="      " SPIN_TEXT=$1 WAIT_OPEN=1
+    printf '      … %s' "$1"
+    LINE_OPEN=1
+    spinner_start
+  else
+    printf '      %s\n' "$1"
+  fi
 }
 
 step_say() {  # $1 = text: a line under the step in progress (prompts, URLs, dry-run commands)
   spinner_stop
   if [ "$LINE_OPEN" = 1 ]; then
     printf '\n'
-    LINE_OPEN=0
+    LINE_OPEN=0 WAIT_OPEN=0
   fi
   printf '      %s\n' "$1"
 }
@@ -145,8 +166,8 @@ step_end() {  # $1 = done|already|skipped|failed, $2 = detail
   esac
   spinner_stop
   if [ "$LINE_OPEN" = 1 ]; then
-    printf '\r\033[K'
-    LINE_OPEN=0
+    if [ "$WAIT_OPEN" = 1 ]; then printf '\n'; else printf '\r\033[K'; fi  # a waiting line stays
+    LINE_OPEN=0 WAIT_OPEN=0
   fi
   printf '  %s%s%s %s\n' "$colour" "$mark" "$C_END" "$text"
   STEP_RESULT=$result
@@ -318,7 +339,7 @@ ensure_homebrew() {  # macOS: Homebrew, from its own installer (which needs an a
   local tmp rc
   find_brew && return 0
   case $HOMEBREW_STATE in planned) return 0 ;; failed) return 1 ;; esac
-  step_say "Homebrew is missing; installing it first"
+  step_wait "Homebrew is missing; installing it first (a few minutes)"
   tmp=$(mktemp "${TMPDIR:-/tmp}/roost-install-homebrew.XXXXXX") || return 1
   sudo_keepalive_start
   # Downloaded first, then run: a failed download stops here rather than running an empty script.
@@ -908,6 +929,7 @@ ensure_git() {
       else
         step_say "git needs Apple's Command Line Tools; Apple's installer window opens next"
         run xcode-select --install || rc=1
+        [ "$rc" = 0 ] && [ "$DRY_RUN" != 1 ] && step_wait "waiting for Apple's install to finish"
         if [ "$rc" = 0 ] && [ "$DRY_RUN" != 1 ] && ! wait_for_clt; then
           step_end failed "finish the Command Line Tools install Apple opened, then run git --version"
           return 0
