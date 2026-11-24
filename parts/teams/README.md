@@ -36,6 +36,10 @@ sign in. The setting `teams.signIn.method` picks one; the default,
 With `auto`, chirp uses the token file if `teams.signIn.tokenFile` is set;
 otherwise the editor's sign-in; otherwise a sign-in code.
 
+During either browser sign-in Microsoft may show **Let's keep your account
+secure**, asking you to set up another way to verify. That is Microsoft's own
+prompt, not something chirp needs: **Not now** carries on with the sign-in.
+
 ### A company's own Microsoft app
 
 By default chirp signs in with its own app, which Microsoft shows as

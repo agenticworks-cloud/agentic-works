@@ -10,7 +10,11 @@ approval**, if the page offers it). Until then Teams stays signed out, and the r
 
 If your company has its own approved app for Teams: in the **Teams** view, click **Use your company's app** (or run
 **Teams: Use a Company Microsoft App…**), enter the two IDs from your IT team, then click **Save and sign in**. Teams
-then signs in with that app.
+then signs in with that app. With a company app, Teams shows a sign-in code: click **Copy Code and Open Sign-in Page**,
+paste the code on Microsoft's page and sign in.
+
+Along the way Microsoft may show **Let's keep your account secure**, asking you to set up another way to verify. That
+is Microsoft's own prompt, not something Teams needs: click **Not now** to carry on.
 
 If you close the browser before you finish, click **Cancel** on VS Code's "Signing in to Microsoft…" notification and
 try again.
