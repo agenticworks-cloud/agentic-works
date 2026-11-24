@@ -682,7 +682,9 @@ Defaults for new tabs: `agents.claude.model`, `agents.claude.effort`,
 `agents.codex.reasoningEffort`, `agents.codex.sandboxMode`.
 `agents.claude.defaultBackend` (`gateway` starts new Claude tabs on the
 gateway until a backend has been chosen) and `agents.firstStart.openClaudeTab`
-(opens one Claude tab on the right at the next start, once) are for an
+(opens one tab on the right at the next start, once: Claude on the gateway
+when its file is usable, else Claude when it is signed in, else Codex when it
+is, else Claude, which offers the sign-in) are for an
 installer that sets a machine up. A pill in a Claude tab's footer names the
 phase of a skill-driven workflow (Design, Plan, Build, Finish); see
 [the design](docs/notes/203-workflow-phase-and-first-start.md).
