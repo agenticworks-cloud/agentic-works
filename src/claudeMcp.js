@@ -15,11 +15,16 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const fill = (s, token) => s.split(TOKEN).join(token);
 const fillMap = (m, token) => Object.fromEntries(Object.entries(m || {}).map(([k, v]) => [k, fill(v, token)]));
 
-/** What Claude Code is given for a server: its `register`, with `${token}` replaced. */
+/**
+ * What Claude Code is given for a server: its `register`, with `${token}` replaced in headers and env. Throws when
+ * `${token}` is in the url, command or args: a token never goes on a command line.
+ */
 function registration(server, { token = '' } = {}) {
   const r = server.register;
-  if (r.type === 'http') return { type: 'http', url: fill(r.url, token), headers: fillMap(r.headers, token) };
-  return { type: 'stdio', command: fill(r.command, token), args: (r.args || []).map((a) => fill(a, token)), env: fillMap(r.env, token) };
+  const plain = r.type === 'http' ? [r.url] : [r.command, ...(r.args || [])];
+  if (plain.some((v) => String(v).includes(TOKEN))) throw new Error(`${server.id}: ${TOKEN} may appear only in headers or env`);
+  if (r.type === 'http') return { type: 'http', url: r.url, headers: fillMap(r.headers, token) };
+  return { type: 'stdio', command: r.command, args: (r.args || []).slice(), env: fillMap(r.env, token) };
 }
 
 function readObject(file) {
@@ -39,11 +44,11 @@ function readObject(file) {
 
 function writeAtomic(file, json) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  let mode = 0o600;
-  try { mode = fs.statSync(file).mode & 0o777; } catch (_) { /* a new file */ }
+  // Always 0600, the temp file too: the file can hold a token (a header), whatever its mode was before
   const tmp = `${file}.roost-${process.pid}-${Date.now()}.tmp`;
   try {
-    fs.writeFileSync(tmp, JSON.stringify(json, null, 2) + '\n', { mode });
+    fs.writeFileSync(tmp, JSON.stringify(json, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    if (process.platform !== 'win32') fs.chmodSync(tmp, 0o600);   // against a umask, which only narrows
     fs.renameSync(tmp, file);
   } catch (e) {
     try { fs.unlinkSync(tmp); } catch (_) { /* never made */ }

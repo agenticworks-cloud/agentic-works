@@ -76,6 +76,12 @@ invalid(mut((d) => { delete d.mcpServers[2].connect.doneWhen; }), 'mcpServers[2]
 invalid(mut((d) => { d.mcpServers[1].register = { type: 'http', url: 'https://mcp.example.com/mcp' }; }), 'mcpServers[1].register.type');
 invalid(mut((d) => { d.mcpServers[1].register.env.X = 'a ${token}'; }), 'mcpServers[1].register');
 invalid(mut((d) => { d.gateway.keyPage = 'nope'; }), 'gateway.keyPage');
+// ${token} only in a tokenPage server's headers or env: never on argv, nor in a URL
+invalid(mut((d) => { d.mcpServers[0].register.url = 'https://mcp.example.com/mcp?key=${token}'; }), 'mcpServers[0].register.url');
+const stdioToken = (reg) => mut((d) => { d.mcpServers[0].register = reg; });
+invalid(stdioToken({ type: 'stdio', command: '/x', args: ['--token', '${token}'] }), 'mcpServers[0].register.args[1]');
+invalid(stdioToken({ type: 'stdio', command: '/x/${token}' }), 'mcpServers[0].register.command');
+assert.strictEqual(read(stdioToken({ type: 'stdio', command: '/x', env: { TOKEN: '${token}' } })).ok, true, 'a stdio env may hold the token');
 invalid(mut((d) => { d.gateway.env.A = 1; }), 'gateway.env.A');
 invalid(mut((d) => { d.mcpServers = {}; }), 'mcpServers');
 invalid(mut((d) => { d.mcpServers[0].id = 'a b'; }), 'mcpServers[0].id');

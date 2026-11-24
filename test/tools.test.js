@@ -65,10 +65,10 @@ test('promptOf picks the link and the code', () => {
 
 test('rows: all unknown, nothing spawned, no check at construction', async () => {
   const s = setup();
-  assert.deepStrictEqual(s.tools.rows().map((r) => [r.id, r.kind, r.state, r.page, r.prompt, r.conflict]), [
-    ['docs', 'tokenPage', 'unknown', 'https://mcp.example.com/token', null, false],
-    ['mail', 'mcpTool', 'unknown', '', null, false],
-    ['tickets', 'command', 'unknown', '', null, false],
+  assert.deepStrictEqual(s.tools.rows().map((r) => [r.id, r.kind, r.state, r.page, r.prompt, r.conflict, r.signedIn]), [
+    ['docs', 'tokenPage', 'unknown', 'https://mcp.example.com/token', null, false, false],
+    ['mail', 'mcpTool', 'unknown', '', null, false, false],
+    ['tickets', 'command', 'unknown', '', null, false, false],
   ]);
   assert.strictEqual(row(s.tools, 'mail').name, 'Example Mail');
   assert.strictEqual(row(s.tools, 'mail').about, 'mail');
@@ -188,6 +188,42 @@ test('connectCommand: the terminal closing without the file, then the file appea
   assert.deepStrictEqual(readJson(s.claude).mcpServers.tickets, { type: 'stdio', command: '/opt/t/mcp', args: [], env: {} });
 });
 
+test('connectCommand, signing in again: an existing file is done only once it is rewritten, or the terminal closes', async () => {
+  const s = setup();
+  s.runResult.code = 0;
+  s.tools.pollMs = 20;
+  const done = path.join(s.home, '.t', 'credentials.json');
+  fs.mkdirSync(path.dirname(done), { recursive: true });
+  fs.writeFileSync(done, '{"old":1}');
+  const old = new Date(Date.now() - 60000);
+  fs.utimesSync(done, old, old);
+  let rewritten = false;
+  const p = s.tools.connectCommand('tickets', { runInTerminal: () => {
+    setTimeout(() => { fs.writeFileSync(done, '{"new":1}'); rewritten = true; }, 150);
+    return { closed: new Promise(() => {}) };
+  } });
+  await new Promise((r) => setTimeout(r, 80));
+  assert.strictEqual(row(s.tools, 'tickets').state, 'connecting', 'still waiting: the file is the old one');
+  assert.strictEqual(s.runs.length, 0);
+  const r = await p;
+  assert.ok(rewritten);
+  assert.strictEqual(r.state, 'connected', r.reason);
+  assert.strictEqual(s.runs.length, 1);
+
+  // the terminal closes leaving the older file: it is checked, not taken as done
+  fs.utimesSync(done, old, old);
+  s.runResult.code = 1;
+  let close;
+  const q = s.tools.connectCommand('tickets', { runInTerminal: () => ({ closed: new Promise((res) => { close = res; }) }) });
+  await new Promise((res) => setTimeout(res, 60));
+  assert.strictEqual(row(s.tools, 'tickets').state, 'connecting');
+  close();
+  const r2 = await q;
+  assert.strictEqual(s.runs.length, 2, 'checked once the terminal closed');
+  assert.strictEqual(r2.state, 'notConnected');
+  assert.strictEqual(r2.reason, 'not signed in');
+});
+
 test('connectCommand: polls for the file until it appears', async () => {
   const s = setup();
   s.runResult.code = 0;
@@ -244,18 +280,46 @@ test('a different entry already in ~/.claude.json: conflict until replaceRegistr
   const mine = { type: 'http', url: 'https://other.example.com/mcp', headers: {} };
   const s = setup({ claudeJson: JSON.stringify({ mcpServers: { docs: mine } }) });
   const r = await s.tools.saveToken('docs', 'tok');
-  assert.strictEqual(r.state, 'connected');
+  assert.strictEqual(r.state, 'notConnected', 'not connected while Claude Code has another entry');
+  assert.strictEqual(r.signedIn, true);
   assert.strictEqual(r.conflict, true);
+  assert.ok(r.reason.includes('already has a different server named docs'), r.reason);
   assert.deepStrictEqual(readJson(s.claude).mcpServers.docs, mine, 'left as it was');
+  assert.strictEqual(fs.readFileSync(path.join(s.home, '.config/roost/tokens/docs'), 'utf8'), 'tok\n', 'the token is kept for Replace');
+  // the conflict stays across a later check, until Replace
+  assert.strictEqual((await s.tools.check('docs')).conflict, true);
   const after = await s.tools.replaceRegistration('docs');
   assert.strictEqual(after.conflict, false);
+  assert.strictEqual(after.state, 'connected');
+  assert.strictEqual(after.reason, '');
   assert.strictEqual(readJson(s.claude).mcpServers.docs.headers.Authorization, 'Bearer tok');
+});
+
+test('allConnected: false while a signed-in row is in conflict or its registration failed', async () => {
+  const s = setup({ claudeJson: JSON.stringify({ mcpServers: { tickets: { type: 'stdio', command: '/other', args: [], env: {} } } }) });
+  s.runResult.code = 0;
+  await s.tools.saveToken('docs', 'tok');
+  await s.tools.connectMcpTool('mail', { onPrompt: () => {} });
+  await s.tools.check('tickets');
+  assert.strictEqual(row(s.tools, 'docs').state, 'connected');
+  assert.strictEqual(row(s.tools, 'mail').state, 'connected');
+  assert.strictEqual(row(s.tools, 'tickets').conflict, true);
+  assert.strictEqual(s.tools.allConnected(), false);
+  await s.tools.replaceRegistration('tickets');
+  assert.strictEqual(s.tools.allConnected(), true);
+  // a ~/.claude.json that stops parsing: the next check is not connected
+  fs.writeFileSync(s.claude, '{');
+  await s.tools.check('docs');
+  assert.strictEqual(row(s.tools, 'docs').state, 'notConnected');
+  assert.strictEqual(row(s.tools, 'docs').signedIn, true);
+  assert.strictEqual(s.tools.allConnected(), false);
 });
 
 test('a ~/.claude.json that does not parse: left alone, and the row says so', async () => {
   const s = setup({ claudeJson: '{' });
   const r = await s.tools.saveToken('docs', 'tok');
-  assert.strictEqual(r.state, 'connected');
+  assert.strictEqual(r.state, 'notConnected');
+  assert.strictEqual(r.signedIn, true);
   assert.ok(r.reason.includes('is not a JSON object; it was left alone'), r.reason);
   assert.strictEqual(fs.readFileSync(s.claude, 'utf8'), '{');
 });

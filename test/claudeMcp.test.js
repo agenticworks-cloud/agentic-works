@@ -24,6 +24,12 @@ const d = registration(docs, { token: 't' });
 assert.deepStrictEqual(d, { type: 'http', url: 'https://mcp.example.com/mcp', headers: { Authorization: 'Bearer t' } });
 assert.deepStrictEqual(registration(mail), { type: 'stdio', command: '/h/.local/bin/example-mcp', args: [], env: { EXAMPLE_ID: '00000000-0000-0000-0000-000000000000' } });
 assert.deepStrictEqual(registration(docs).headers, { Authorization: 'Bearer ' });
+// a token never on a command line, nor in a URL
+const withToken = (register) => ({ ...docs, register });
+assert.throws(() => registration(withToken({ type: 'stdio', command: '/x', args: ['--token', '${token}'], env: {} }), { token: 't' }), /may appear only in headers or env/);
+assert.throws(() => registration(withToken({ type: 'stdio', command: '/x/${token}', args: [], env: {} })), /may appear only in headers or env/);
+assert.throws(() => registration(withToken({ type: 'http', url: 'https://mcp.example.com/mcp?key=${token}', headers: {} })), /may appear only in headers or env/);
+assert.deepStrictEqual(registration(withToken({ type: 'stdio', command: '/x', args: [], env: { TOKEN: '${token}' } }), { token: 't' }).env, { TOKEN: 't' });
 
 // added, same, conflict, replaced
 const f = path.join(dir, 'sub', '.claude.json');
@@ -56,7 +62,7 @@ assert.deepStrictEqual(after.projects, { '/w': { allowedTools: [] } });
 assert.strictEqual(after.numStartups, 5);
 assert.strictEqual(after.userID, 'abc');
 assert.deepStrictEqual(Object.keys(after.mcpServers), ['mine', 'docs', 'mail']);
-if (process.platform !== 'win32') assert.strictEqual(fs.statSync(g).mode & 0o777, 0o644, 'an existing file keeps its mode');
+if (process.platform !== 'win32') assert.strictEqual(fs.statSync(g).mode & 0o777, 0o600, 'a 0644 file ends up 0600: it can hold a token');
 
 // a file that is not a JSON object is left alone
 for (const [name, bytes] of [['brace.json', '{'], ['array.json', '[]'], ['comment.json', '// x\n{}']]) {

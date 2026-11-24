@@ -9,6 +9,9 @@
 //   none       checked
 // A check: `request` passes on 2xx, `mcpTool` when the call isn't an error, `command` on exit 0. With no check: the
 // doneWhen file exists (command, mcpTool), a token is saved (tokenPage), always (none). No check runs at construction.
+// A row is `connected` only when its check passed (`signedIn`) and Claude Code was given the server: a registration
+// that failed, or a different entry of the same name waiting for Replace (`conflict`), leaves it `notConnected` with
+// the reason.
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -57,6 +60,8 @@ function defaultRun(argv, { timeoutMs = CHECK_MS } = {}) {
   });
 }
 
+// A file's modification time and inode, or null when it isn't there
+const stamp = (file) => { try { const s = fs.statSync(file); return `${s.mtimeMs}:${s.ino}:${s.size}`; } catch (_) { return null; } };
 const lastLine = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,7 +78,7 @@ class Tools {
     this.servers = new Map(((company && company.mcpServers) || []).map((s) => [s.id, s]));
     this.state = new Map([...this.servers.values()].map((s) => [s.id, {
       id: s.id, name: s.name, about: s.about, kind: s.connect.kind, page: s.connect.page || '',
-      state: 'unknown', reason: '', prompt: null, conflict: false,
+      state: 'unknown', reason: '', prompt: null, conflict: false, signedIn: false,
     }]));
     this.clients = new Set();
     this.disposed = false;
@@ -110,7 +115,7 @@ class Tools {
     } catch (e) {
       return this._set(id, { state: 'notConnected', reason: `The token couldn't be saved: ${e.message}` });
     }
-    return this._passed(server, t, before ? registration(server, { token: before }) : undefined);
+    return this._passed(server, t, before || undefined);
   }
 
   async connectCommand(id, { runInTerminal }) {
@@ -118,6 +123,8 @@ class Tools {
     if (this._busy(id)) return { ...this._row(id) };
     this._set(id, { state: 'connecting', reason: '', prompt: null });
     const file = server.connect.doneWhen && server.connect.doneWhen.file;
+    const before = stamp(file);   // signing in again: the file is usually there already, and only a new one is done
+    const fresh = () => { const now = stamp(file); return now !== null && now !== before; };
     let terminal;
     try {
       terminal = runInTerminal(server.connect.command.slice());
@@ -126,9 +133,9 @@ class Tools {
     }
     let isClosed = false;
     const closed = Promise.resolve(terminal && terminal.closed).then(() => { isClosed = true; }, () => { isClosed = true; });
-    while (!this.disposed && !isClosed && !fs.existsSync(file)) await Promise.race([sleep(this.pollMs), closed]);
+    while (!this.disposed && !isClosed && !fresh()) await Promise.race([sleep(this.pollMs), closed]);
     if (this.disposed) return { ...this._row(id) };
-    if (!fs.existsSync(file)) {   // the terminal closed, and one last look found nothing
+    if (!fs.existsSync(file)) {   // the terminal closed, and one last look found nothing (an older file is checked)
       return this._set(id, { state: 'notConnected', reason: "The sign-in didn't finish." });
     }
     return this._checkAndRegister(id);
@@ -164,9 +171,10 @@ class Tools {
 
   async replaceRegistration(id) {
     const server = this._server(id);
+    const row = this._row(id);
     try {
       register(this.claudeJson, id, registration(server, { token: this._readToken(id) }), { replace: true });
-      return this._set(id, { conflict: false, reason: '' });
+      return this._set(id, row.signedIn ? { state: 'connected', conflict: false, reason: '' } : { conflict: false });
     } catch (e) {
       return this._set(id, { reason: `Claude Code's settings weren't changed: ${e.message}` });
     }
@@ -193,6 +201,7 @@ class Tools {
 
   _set(id, patch) {
     const row = this._row(id);
+    if (patch.state === 'notConnected' && patch.signedIn === undefined) patch = { ...patch, signedIn: false };
     Object.assign(row, patch);
     if (!this.disposed) { try { this.onChange(this.rows()); } catch (_) { /* a listener's error isn't ours */ } }
     return { ...row };
@@ -252,14 +261,20 @@ class Tools {
 
   // A row that passes is registered with Claude Code; a different entry of the same name waits for Replace, unless it
   // is the one Roost wrote with the token this one replaces.
-  _passed(server, token, previous) {
-    let outcome, reason = '';
+  _passed(server, token, previousToken) {
+    let outcome;
     try {
+      const previous = previousToken === undefined ? undefined : registration(server, { token: previousToken });
       outcome = register(this.claudeJson, server.id, registration(server, { token }), { previous });
     } catch (e) {
-      reason = `Claude Code wasn't given this server: ${e.message}`;
+      return this._set(server.id, { state: 'notConnected', signedIn: true, prompt: null, conflict: false,
+        reason: `Signed in, but Claude Code wasn't given this server: ${e.message}` });
     }
-    return this._set(server.id, { state: 'connected', reason, prompt: null, conflict: outcome === 'conflict' });
+    if (outcome === 'conflict') {
+      return this._set(server.id, { state: 'notConnected', signedIn: true, prompt: null, conflict: true,
+        reason: `Signed in, but Claude Code already has a different server named ${server.id}.` });
+    }
+    return this._set(server.id, { state: 'connected', signedIn: true, reason: '', prompt: null, conflict: false });
   }
 
   /** null when the check passes, else why it failed. */

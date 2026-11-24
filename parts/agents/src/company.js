@@ -157,6 +157,11 @@ function server(s, i, seen, home) {
   if (conn.kind !== 'tokenPage' && JSON.stringify(reg).includes(TOKEN)) {
     throw new Invalid(`${at}.register`, `${TOKEN} may appear only in a tokenPage server's register`);
   }
+  // never on a command line (argv is visible to every process), nor in a URL: only in headers or env
+  const onArgv = reg.type === 'http' ? [['url', reg.url]] : [['command', reg.command], ...reg.args.map((a, j) => [`args[${j}]`, a])];
+  for (const [k, v] of onArgv) {
+    if (v.includes(TOKEN)) throw new Invalid(`${at}.register.${k}`, `${TOKEN} may appear only in headers or env`);
+  }
   return { id: s.id, name: s.name, about: s.about, register: reg, connect: conn };
 }
 
