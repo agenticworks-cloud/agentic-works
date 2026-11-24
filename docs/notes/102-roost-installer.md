@@ -27,8 +27,8 @@ installer on top; C3's installer is rebuilt that way, as a layer that runs this 
 - Linux servers reached over Remote-SSH (headless, no desktop VS Code): the next iteration. *(Sean)* Linux here means a
   desktop where VS Code runs on the machine.
 - Sign-ins (Claude, Codex, Teams, Jira) and per-part questions: each part signs itself in inside Roost, with its own
-  UI, and all parts are on (switched in Roost: Settings). *(my call, Sean: "do as you wish")* The one exception is
-  GitHub, below.
+  UI, and all parts are on (switched in Roost: Settings). *(my call, Sean: "do as you wish")* The exceptions are
+  GitHub, below, and one question at the look, codebase search (step 5). *(Sean)*
 - Anything company-specific: gateways, MCP servers, company apps.
 - The Marketplace: Roost is not published there yet. *(Sean: GitHub for now)*
 - A graphical installer (`.pkg`, `.deb`): a `.sh` is fine on both systems. *(Sean)*
@@ -103,7 +103,13 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    - `"workbench.startupEditor": "none"` — no Welcome page;
    - `"workbench.secondarySideBar.defaultVisibility": "hidden"` — Claude Code's and ChatGPT's own chat views stay
      closed;
-   - `"workbench.activityBar.location": "top"`.
+   - `"workbench.activityBar.location": "top"`;
+   - `"agents.codebaseIndex.enabled": true` — the agents' `codebase_search` tool, when the user answers yes to
+     "Turn on codebase search in Claude and Codex tabs (search the workspace by keywords)? [Y/n]", asked just before
+     this step. Enter, no terminal, or no answer is yes; `n` or `--no-codebase-search` leaves the key out (its
+     default is off); `--skip settings` asks nothing. *(Sean: a choice, default on)* When it is added, the step says
+     search by meaning is one command away, **Agents: Install Codebase Search by Meaning**, which the installer does
+     not run (a model download, inside VS Code). *(my call)*
 6. **The icons.** Only on a VS Code **that has never been started**: `User/globalStorage/state.vscdb` is absent, or has
    no `workbench.activity.pinnedViewlets2` entry yet (the `code` CLI may create the file without one). Then write
    `workbench.activity.pinnedViewlets2` so the bar shows Explorer, Search, Extensions, Perch, Teams, Jira &
@@ -112,10 +118,11 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    VS Code keeps its own layout, and the checklist says how to hide icons by hand. VS Code running during the run:
    the icons step is skipped with "quit VS Code and rerun" (VS Code would overwrite the file on exit); the other
    steps go through the `code` CLI and are fine. *(my calls: never undo someone's own layout)*
-7. **Open VS Code** (not when run as root, not with `--dry-run`). Roost's first start opens the PRs tab.
+7. **Open VS Code** (not when run as root, not with `--dry-run`). Roost's first start opens the PRs tab and its
+   Get started walkthrough (note 101, *First start*).
 
 Flags: `--dry-run` (print what would be done), `--skip <step>`, `--yes` (answer the standalone-four question with
-Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--help`. Exit status 0 when no
+Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--no-codebase-search` (codebase search off, not asked), `--help`. Exit status 0 when no
 step failed, else 1. *(my call)*
 
 **OpenSSL 3 on Fedora.** Fedora 45 ships OpenSSL 4, and VS Code's rpm does not depend on `libssl.so.3`, which its
@@ -265,6 +272,8 @@ copy with one byte changed has not been tried by hand.
 
 ## Parked
 
+- The codebase-search question is asked on every run, even when settings.json already has the key (which is then
+  kept): the shell does not read settings.json itself.
 - The sudo keep-alive loop survives a SIGKILL of the installer and keeps sudo's timestamp fresh every 50 s until
   logout; every catchable exit kills it. Fix: `kill -0 $$` in the loop's condition.
 - The `release-publish-check` test picks up the user's global git config (commit signing, hooks), so it can fail on

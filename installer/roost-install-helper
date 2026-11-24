@@ -25,6 +25,8 @@ WANTED_SETTINGS = {
     "workbench.secondarySideBar.defaultVisibility": "hidden",
     "workbench.activityBar.location": "top",
 }
+# --codebase-search: the installer's question answered yes (default); added only when absent, like the rest
+CODEBASE_SEARCH = {"agents.codebaseIndex.enabled": True}
 PINNED_KEY = "workbench.activity.pinnedViewlets2"
 LAYOUT_RECORD_KEY = "roost.installer.layoutWritten"  # in state.vscdb: the layout was written once; never again
 SHOWN_VIEWLETS = [
@@ -100,17 +102,20 @@ def _write_atomic(path: Path, text: str) -> None:
     os.replace(str(tmp), str(path))
 
 
-def cmd_vscode_settings(_args: argparse.Namespace) -> int:
+def cmd_vscode_settings(args: argparse.Namespace) -> int:
     """Merge the wanted keys into VS Code user settings.json without overwriting a key or rewriting JSONC."""
     path = user_dir() / "settings.json"
+    wanted = dict(WANTED_SETTINGS)
+    if args.codebase_search:
+        wanted.update(CODEBASE_SEARCH)
     try:
         text = path.read_text(encoding="utf-8") if path.exists() else ""
-        merged = merge_settings(text, WANTED_SETTINGS)
+        merged = merge_settings(text, wanted)
     except UnicodeDecodeError:
         merged = None
     if merged is None:
         print(f"{path} has comments or is not plain UTF-8 JSON; not rewriting it. Add these lines yourself:")
-        for key, value in WANTED_SETTINGS.items():
+        for key, value in wanted.items():
             print(f"    {json.dumps(key)}: {json.dumps(value)},")
         return EXIT_SKIPPED
     if merged == text:
@@ -217,9 +222,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="roost-install-helper", description=__doc__)
     sub = parser.add_subparsers(dest="command")
     sub.required = True  # add_subparsers(required=) is 3.7+
-    sub.add_parser("vscode-settings", help="merge Roost's keys into VS Code user settings.json").set_defaults(
-        func=cmd_vscode_settings
-    )
+    settings = sub.add_parser("vscode-settings", help="merge Roost's keys into VS Code user settings.json")
+    settings.add_argument("--codebase-search", action="store_true", help="also turn on the agents' codebase search")
+    settings.set_defaults(func=cmd_vscode_settings)
     sub.add_parser("vscode-layout", help="write the activity-bar layout into state.vscdb").set_defaults(
         func=cmd_vscode_layout
     )

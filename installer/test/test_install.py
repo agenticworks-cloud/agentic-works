@@ -1155,7 +1155,8 @@ class TestLook(_Installer):
     def test_settings_and_icons_applied(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
         self.assertEqual(rc, 0, out)
-        self.assertEqual(self.python3_calls(), [f"python3 {HELPER} vscode-settings", f"python3 {HELPER} vscode-layout"])
+        self.assertEqual(self.python3_calls(), [f"python3 {HELPER} vscode-settings --codebase-search",
+                                                f"python3 {HELPER} vscode-layout"])
         self.assertIn("  ✓ Settings (added to settings.json)", out)
         self.assertIn("  ✓ Icons (activity bar trimmed)", out)
         lines = out.splitlines()
@@ -1182,10 +1183,37 @@ class TestLook(_Installer):
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.python3_calls(), [])
-        self.assertIn(f"$ python3 {HELPER} vscode-settings", out)
+        self.assertIn(f"$ python3 {HELPER} vscode-settings --codebase-search", out)
         self.assertIn(f"$ python3 {HELPER} vscode-layout", out)
         self.assertIn("  ✓ Settings (dry run)", out)
         self.assertIn("  ✓ Icons (dry run)", out)
+
+    def test_codebase_search_question(self) -> None:
+        """Asked once, before Settings: Enter or no terminal is yes; n leaves it off; --no-codebase-search never asks."""
+        question = "Turn on codebase search in Claude and Codex tabs"
+        hint = "to search by meaning too, run Agents: Install Codebase Search by Meaning"
+        for label, answers, args, on, asked in [
+            # (gh is signed in here, so this is the only question)
+            ("answered Enter", ("",), (), True, True),
+            ("answered n", ("n",), (), False, True),
+            ("no terminal", None, (), True, False),
+            ("--no-codebase-search", ("y",), ("--no-codebase-search",), False, False),
+        ]:
+            with self.subTest(label):
+                self.log.write_text("")
+                tty = self.tty(*answers) if answers else str(self.tmp / "no-tty")
+                rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=tty), *args)
+                self.assertEqual(rc, 0, out)
+                want = f"python3 {HELPER} vscode-settings" + (" --codebase-search" if on else "")
+                self.assertEqual(self.python3_calls()[0], want, out)
+                self.assertEqual(question in out, asked, out)
+                self.assertEqual(hint in out, on, out)
+        # --skip settings: neither asked nor written
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("")), "--skip", "settings")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(question, out)
+        self.assertEqual(self.python3_calls(), [f"python3 {HELPER} vscode-layout"])
 
     def test_helper_found_beside_the_script(self) -> None:
         """Without ROOST_INSTALL_HELPER, the helper next to the script is used, as in a clone."""
@@ -1193,7 +1221,7 @@ class TestLook(_Installer):
         del env["ROOST_INSTALL_HELPER"]
         rc, out = self.run_pipe(env, script=SCRIPT)  # unstamped: Roost fails, the rest goes on
         self.assertEqual(rc, 1, out)
-        self.assertEqual(self.python3_calls()[0], f"python3 {HELPER} vscode-settings")
+        self.assertEqual(self.python3_calls()[0], f"python3 {HELPER} vscode-settings --codebase-search")
         self.assertIn("  ✓ Settings (added to settings.json)", out)
 
         self.log.write_text("")

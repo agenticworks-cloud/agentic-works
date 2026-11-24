@@ -50,6 +50,8 @@ ORIG_PATH=$PATH  # the PATH a new terminal would have, before this run adds to i
 DRY_RUN=0
 YES=0
 NO_OPEN=0
+CODEBASE_SEARCH=1  # agents.codebaseIndex.enabled true in the settings step: asked there, Enter is yes; --no-codebase-search
+CODEBASE_FLAG=0    # --no-codebase-search given: not asked
 SKIPS=" "
 OS=""
 ARCH=""
@@ -902,7 +904,7 @@ python_ok() {  # true when there is a python3 to run the helper with (in PYTHON)
   fi
 }
 
-run_helper() {  # $1 = subcommand: its stdout in HELPER_OUT; returns its exit status (0 done, 2 skipped, 1 error)
+run_helper() {  # $* = subcommand and its options: its stdout in HELPER_OUT; returns its exit status (0 done, 2 skipped, 1 error)
   local helper rc
   HELPER_OUT=""
   if ! helper=$(helper_path); then
@@ -910,19 +912,19 @@ run_helper() {  # $1 = subcommand: its stdout in HELPER_OUT; returns its exit st
     return 1
   fi
   if [ "$DRY_RUN" = 1 ]; then
-    step_say "\$ python3 $helper $1"
+    step_say "\$ python3 $helper $*"
     return 0
   fi
-  printf '$ %s %s %s\n' "$PYTHON" "$helper" "$1" >> "$LOG"
+  printf '$ %s %s %s\n' "$PYTHON" "$helper" "$*" >> "$LOG"
   # As root on Linux, the user data dir the code calls use.
-  HELPER_OUT=$(env ${CODE_DATA:+"ROOST_VSCODE_USER_DIR=$CODE_DATA/User"} "$PYTHON" "$helper" "$1" \
+  HELPER_OUT=$(env ${CODE_DATA:+"ROOST_VSCODE_USER_DIR=$CODE_DATA/User"} "$PYTHON" "$helper" "$@" \
     < /dev/null 2>> "$LOG")
   rc=$?
   case $rc in 0|2) ;; *) HELPER_OUT="" ;; esac  # an error's own words are in the log
   return "$rc"
 }
 
-look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand, $4 = done detail, $5 = failure detail
+look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand (and options, split on spaces), $4 = done detail, $5 = failure detail
   local rc first rest line
   skipped "$1" "$2" && return 0
   step_begin "$2"
@@ -934,7 +936,8 @@ look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand, $4 = done d
     step_end skipped "$PYTHON_WHY"
     return 0
   fi
-  run_helper "$3"
+  # shellcheck disable=SC2086  # $3 is a subcommand and its options
+  run_helper $3
   rc=$?
   if [ "$DRY_RUN" = 1 ] && [ "$rc" = 0 ]; then
     step_end done "dry run"
@@ -954,8 +957,26 @@ look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand, $4 = done d
   esac
 }
 
-apply_settings() {  # the look's four keys, each only when absent; a settings file with comments is left as it is
-  look_step settings "Settings" vscode-settings "added to settings.json" "couldn't write VS Code's settings; see $LOG"
+ask_codebase_search() {  # the one question about Roost's parts: codebase search in Claude and Codex tabs, default on
+  local rc
+  [ "$CODEBASE_FLAG" = 1 ] && return 0
+  skip_named settings && return 0
+  [ -n "$CLASH" ] && return 0
+  [ "$DRY_RUN" = 1 ] && return 0  # the dry run shows the default
+  ask_yn "Turn on codebase search in Claude and Codex tabs (search the workspace by keywords)? [Y/n]"
+  rc=$?
+  [ "$rc" = 1 ] && CODEBASE_SEARCH=0  # no terminal, or no answer: the default, on
+  return 0
+}
+
+apply_settings() {  # the look's four keys, and codebase search when on, each only when absent; JSONC is left as it is
+  local sub=vscode-settings
+  ask_codebase_search
+  [ "$CODEBASE_SEARCH" = 1 ] && sub="$sub --codebase-search"
+  look_step settings "Settings" "$sub" "added to settings.json" "couldn't write VS Code's settings; see $LOG"
+  if [ "$CODEBASE_SEARCH" = 1 ] && [ "$STEP_RESULT" = done ]; then
+    step_say "codebase search is on; to search by meaning too, run Agents: Install Codebase Search by Meaning in VS Code"
+  fi
 }
 
 apply_icons() {  # the activity bar's icons, only on a VS Code never started (its state.vscdb has no layout yet)
@@ -1059,6 +1080,8 @@ Options:
   --yes          answer yes when asked to uninstall the standalone extensions Roost replaces (needed with no
                  terminal); never answers the GitHub sign-in
   --no-open      don't open VS Code at the end
+  --no-codebase-search
+                 leave codebase search in Claude and Codex tabs off, without asking (asked otherwise; Enter is yes)
   --help         this text
 
 Environment:
@@ -1072,6 +1095,7 @@ parse_args() {
       --dry-run) DRY_RUN=1 ;;
       --yes) YES=1 ;;
       --no-open) NO_OPEN=1 ;;
+      --no-codebase-search) CODEBASE_SEARCH=0; CODEBASE_FLAG=1 ;;
       --skip)
         [ $# -ge 2 ] || { printf 'roost-install: --skip needs a step: %s\n' "$STEP_NAMES" >&2; exit 2; }
         case " $STEP_NAMES " in

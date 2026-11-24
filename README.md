@@ -29,7 +29,8 @@ Run it without `sudo`: it asks for your password when it needs it, after listing
 - installs the GitHub CLI and offers one `gh auth login`, for the PRs panel;
 - sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
   and trims the activity-bar icons on a VS Code that has never been started;
-- opens VS Code.
+- asks whether to turn on codebase search in Claude and Codex tabs (Enter is yes);
+- opens VS Code, where Roost's first start opens its Get started walkthrough (again any time: Roost: Get Started).
 
 It prints a ✓ / – / ✗ checklist and is safe to run again; a second run changes nothing that is in place. Running
 the newest installer is also how Roost is updated.
@@ -40,6 +41,7 @@ the newest installer is also how Roost is updated.
 | `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions github settings icons open` |
 | `--yes` | answer yes to uninstalling the standalone four (needed with no terminal); never answers the GitHub sign-in |
 | `--no-open` | don't open VS Code at the end |
+| `--no-codebase-search` | leave codebase search in Claude and Codex tabs off, without asking (it asks otherwise; Enter is yes) |
 | `--help` | the options |
 
 Supported: macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora, on a desktop

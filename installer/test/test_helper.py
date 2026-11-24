@@ -78,6 +78,19 @@ class SettingsTests(_Case):
             },
         )
 
+    def test_codebase_search_added_only_when_asked_and_absent(self) -> None:
+        code, _ = self.run_cli("vscode-settings", "--codebase-search")
+        self.assertEqual(code, 0)
+        self.assertIs(json.loads((self.user / "settings.json").read_text())["agents.codebaseIndex.enabled"], True)
+        (self.user / "settings.json").write_text(json.dumps({"agents.codebaseIndex.enabled": False}))
+        code, _ = self.run_cli("vscode-settings", "--codebase-search")
+        self.assertEqual(code, 0)
+        self.assertIs(json.loads((self.user / "settings.json").read_text())["agents.codebaseIndex.enabled"], False,
+                      "a value the user set is kept")
+        (self.user / "settings.json").write_text("{}")
+        self.run_cli("vscode-settings")
+        self.assertNotIn("agents.codebaseIndex.enabled", json.loads((self.user / "settings.json").read_text()))
+
     def test_keeps_foreign_keys(self) -> None:
         self.user.mkdir()
         (self.user / "settings.json").write_text(
