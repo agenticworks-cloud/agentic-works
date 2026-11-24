@@ -827,6 +827,22 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     a real VS Code; whether Roost watching the parts' context keys works in a real extension host (the ruling to verify
     on the first live run); a real gateway, or a real sign-in (GitHub, Teams, Jira, Claude) through the page.
 
+- **A key helper for the company gateway (design, for 0.5.1)** *(Sean, 2026-11-24: get the gateway key automatically
+  — "if [the] key does not exist yet, create one, get the key, if exist, refresh it, get the key"; "if for any
+  reason cannot create or replace, what do we show to user?")*. A company file's `gateway.keyCommand` (optional,
+  argv: first word absolute or `~/`) names a program that prints a fresh key on stdout and nothing else, progress
+  and errors on stderr; exit 0 with a key, 2 when the person didn't finish signing in, anything else a failure.
+  - **Get a key** runs it (argv, no shell; stdin closed; a timeout of 12 minutes, since a sign-in window may be open)
+    while the step says "Getting your <gateway name> key…". On exit 0 the key goes straight to **Check and save**
+    (never shown, never logged, never in argv); its verdicts are the usual ones.
+  - **When it can't:** the step says "Couldn't get a key automatically:" and the program's last stderr line
+    (anything key-shaped masked, one line, at most 200 characters); exit 2 reads "The sign-in wasn't completed.";
+    a program that isn't there reads "The key helper isn't installed."; a timeout reads "That took too long." Then,
+    always: **Try again**, and the manual way: **Open the key page**, the key field and **Check and save**. Nothing
+    dead-ends.
+  - A company's own helper (outside this repo) writes plain reasons for its cases: a key limit, the page changed,
+    the gateway unreachable.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of
