@@ -15,7 +15,7 @@ class Emitter {
 }
 
 function install() {
-  process.env.ROOST_TEST = '1';   // Roost then refuses to start without a stubbed ghLogins (never this machine's gh)
+  process.env.ROOST_TEST_HARNESS_STRICT_GH = '1';   // Roost then refuses to start without a stubbed ghLogins (never this machine's gh)
   const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve(), panels: [], opened: [], clipboard: [] };
   const configChange = new Emitter();
   const terminalClose = new Emitter();

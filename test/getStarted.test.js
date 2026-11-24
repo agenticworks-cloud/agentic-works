@@ -324,6 +324,24 @@ test('a key or token is sent only to a part that is running: else "<part> isn\'t
   await s.extension.deactivate();
 });
 
+test('the gh guard reads ROOST_TEST_HARNESS_STRICT_GH only: a ROOST_TEST a user happens to have set is not it', async () => {
+  const env = setup();
+  const { Roost } = env.extension;
+  const output = { appendLine: () => {} };
+  assert.strictEqual(process.env.ROOST_TEST_HARNESS_STRICT_GH, '1', 'the test stub sets it');
+  try {
+    delete process.env.ROOST_TEST_HARNESS_STRICT_GH;
+    process.env.ROOST_TEST = '1';
+    assert.doesNotThrow(() => new Roost(env.base, [], output));
+    process.env.ROOST_TEST_HARNESS_STRICT_GH = '1';
+    assert.throws(() => new Roost(env.base, [], output), /tests must stub ghLogins/);
+    assert.doesNotThrow(() => new Roost(env.base, [], output, { ghLogins: async () => [] }));
+  } finally {
+    delete process.env.ROOST_TEST;
+    process.env.ROOST_TEST_HARNESS_STRICT_GH = '1';
+  }
+});
+
 test('a reply after the page closed is dropped quietly', async () => {
   const s = await pageSetup(null); let finish;
   s.ui.commands['perch.connectClaude.request'] = () => new Promise((r) => { finish = r; });

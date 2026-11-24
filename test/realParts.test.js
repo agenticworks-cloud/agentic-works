@@ -16,7 +16,7 @@ globalThis.fetch = async () => { throw new Error('no network in tests'); };
 const root = path.join(__dirname, '..');
 const { install, memento, secrets } = require(path.join(root, 'parts', 'jira', 'test', 'vscodeStub.js'));
 const { ui, vscode } = install();
-process.env.ROOST_TEST = '1';   // jay's stub: Roost refuses to start without a stubbed ghLogins
+process.env.ROOST_TEST_HARNESS_STRICT_GH = '1';   // jay's stub: Roost refuses to start without a stubbed ghLogins
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const open = () => ui.panels.filter((p) => !p.disposed && p.viewType === 'jay.ticket').map((p) => p.title);
 

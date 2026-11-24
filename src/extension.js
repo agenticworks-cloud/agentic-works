@@ -45,10 +45,10 @@ const isWeb = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
 
 class Roost {
   // `makeTools`: for tests, a stand-in for Connect Your Tools' Tools (src/tools.js); `ghLogins`: the accounts gh is
-  // signed in to (tests never run this machine's gh: under ROOST_TEST, set by the test stubs and `make test`, a Roost
-  // made without one throws)
+  // signed in to (tests never run this machine's gh: under ROOST_TEST_HARNESS_STRICT_GH, set by the test stubs and
+  // `make test`, a Roost made without one throws; the name is one nobody sets by accident)
   constructor(base, parts, output, { makeTools = (opts) => new Tools(opts), ghLogins } = {}) {
-    if (!ghLogins && process.env.ROOST_TEST) throw new Error("Roost: tests must stub ghLogins (activate(base, { ghLogins }))");
+    if (!ghLogins && process.env.ROOST_TEST_HARNESS_STRICT_GH) throw new Error("Roost: tests must stub ghLogins (activate(base, { ghLogins }))");
     this.base = base;
     this.output = output;
     this.makeTools = makeTools;
