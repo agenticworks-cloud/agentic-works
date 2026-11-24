@@ -73,8 +73,8 @@ function setup(config = {}) {
 }
 
 // Roost's activate returns before its parts have started; `ready` settles once every enabled part's start has.
-async function activate(extension, base) {
-  const roost = await extension.activate(base);
+async function activate(extension, base, options = { ghLogins: async () => [] }) {   // never the machine's own gh
+  const roost = await extension.activate(base, options);
   await roost.ready;
   return roost;
 }
@@ -488,7 +488,7 @@ test('a setting change after Roost has stopped starts nothing', async () => {
 test('a part whose activate never ends blocks neither Roost nor the others', async () => {
   const { extension, base } = setup();
   fake.parts.teams = { activate: () => new Promise(() => {}) };
-  const roost = await within(extension.activate(base));
+  const roost = await within(extension.activate(base, { ghLogins: async () => [] }));
   assert.notStrictEqual(roost, 'timed out', "Roost's activate returned");
   for (let i = 0; i < 10; i++) await tick();
   assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams']);
@@ -539,7 +539,7 @@ function firstStartSetup(config) {
   return env;
 }
 async function activateFirst(env) {
-  const roost = await env.extension.activate(env.base);
+  const roost = await env.extension.activate(env.base, { ghLogins: async () => [] });
   await roost.firstStarted;
   return roost;
 }
@@ -614,7 +614,7 @@ test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh
   await ui.vscode.commands.executeCommand('roost.githubSignIn');
   assert.strictEqual(ui.terminals.length, 1);
   assert.ok(ui.terminals[0].shown);
-  assert.deepStrictEqual(ui.terminals[0].sent, ['gh auth login --hostname github.com && exit']);
+  assert.deepStrictEqual(ui.terminals[0].sent, ['gh auth login --hostname github.com --git-protocol https --web && exit']);
   const refreshed = [];
   ui.commands['kestrel.refresh'] = () => { refreshed.push(1); };
   ui.closeTerminal({ name: 'another terminal' });
@@ -628,6 +628,16 @@ test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh
   await ui.vscode.commands.executeCommand('roost.githubSignIn');
   ui.closeTerminal(ui.terminals[1]);   // the PRs part off: kestrel.refresh is not found, and that is ignored
   await new Promise((r) => setImmediate(r));
+  await extension.deactivate();
+});
+
+test('Roost: Sign In to GitHub, already signed in: says who, opens no terminal unless another account is asked for', async () => {
+  const { ui, extension, base } = setup({});
+  await (await activate(extension, base, { ghLogins: async () => ['octocat'] })).firstStarted;
+  ui.infos = [];
+  await ui.vscode.commands.executeCommand('roost.githubSignIn');
+  assert.ok(ui.infos.some((m) => m.includes('signed in as octocat')), 'says who is signed in');
+  assert.strictEqual((ui.terminals || []).length, 0, 'no sign-in terminal');
   await extension.deactivate();
 });
 
@@ -662,7 +672,7 @@ test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never 
 test('first start: does not hold up activation or the parts', async () => {
   const env = firstStartSetup({});
   env.ui.commands['workbench.view.extension.kestrel'] = () => new Promise(() => {});
-  const roost = await within(env.extension.activate(env.base));
+  const roost = await within(env.extension.activate(env.base, { ghLogins: async () => [] }));
   assert.notStrictEqual(roost, 'timed out');
   assert.strictEqual(await within(roost.ready), undefined, 'the parts start');
   await env.extension.deactivate();
@@ -760,7 +770,7 @@ async function toolsSetup(company = EXAMPLE, config = {}) {
   const env = company ? withCompanyFile(company) : setup();
   Object.assign(env.ui.config, config);
   const fakes = fakeTools();
-  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools });
+  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
   await roost.ready;
   const signIns = [];
   env.ui.commands['chirp.signIn'] = () => signIns.push('chirp');
@@ -841,7 +851,7 @@ test('the page\'s messages: connect by kind, the token, the page, Copy code and 
   assert.strictEqual(terminals().length, ran, 'no action on the row: nothing');
   t.set('mail', { state: 'notConnected', reason: 'Sign in to GitHub first.', action: 'githubSignIn' });
   await panel.receive({ type: 'githubSignIn', id: 'mail' });
-  assert.deepStrictEqual(terminals().slice(ran).map((x) => [x.name, x.sent]), [['GitHub sign-in', ['gh auth login --hostname github.com && exit']]]);
+  assert.deepStrictEqual(terminals().slice(ran).map((x) => [x.name, x.sent]), [['GitHub sign-in', ['gh auth login --hostname github.com --git-protocol https --web && exit']]]);
   await s.extension.deactivate();
 });
 

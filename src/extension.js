@@ -395,6 +395,17 @@ class Roost {
 let roost = null;
 
 // `options`: for tests, Roost's constructor options (VS Code passes the context alone)
+// The accounts gh is signed in to on github.com, from `gh auth status` (argv, no shell); [] when none or no gh.
+function defaultGhLogins() {
+  return new Promise((resolve) => {
+    require('node:child_process').execFile('gh', ['auth', 'status', '--hostname', 'github.com'], { timeout: 10000 }, (err, stdout, stderr) => {
+      const text = `${stdout || ''}\n${stderr || ''}`;
+      const logins = [...text.matchAll(/Logged in to github\.com (?:account|as) ([\w-]+)/g)].map((m) => m[1]);
+      resolve(err && !logins.length ? [] : [...new Set(logins)]);
+    });
+  });
+}
+
 function activate(context, options = {}) {
   const output = vscode.window.createOutputChannel('Roost');
   context.subscriptions.push(output);
@@ -440,8 +451,17 @@ function activate(context, options = {}) {
   };
   context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeTab', () => besideWalkthrough('perch.newClaude')));
   context.subscriptions.push(vscode.commands.registerCommand('roost.newCodexTab', () => besideWalkthrough('perch.newCodex')));
-  // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal
-  context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', () => {
+  // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal. Already signed in, it
+  // says so and offers another account; the sign-in goes straight to the browser over HTTPS, without gh's protocol
+  // and SSH-key questions (Sean's first-time run, 2026-11-24)
+  const ghLogins = options.ghLogins || defaultGhLogins;
+  context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', async () => {
+    const logins = await ghLogins().catch(() => []);
+    if (logins.length) {
+      const ANOTHER = 'Add Another Account';
+      const pick = await vscode.window.showInformationMessage(`GitHub is signed in as ${logins.join(', ')}.`, ANOTHER);
+      if (pick !== ANOTHER) return;
+    }
     const terminal = vscode.window.createTerminal({ name: 'GitHub sign-in' });
     // the terminal closes once gh is done: the PRs part looks for the new login then, not at its next 30 s retry
     const closed = vscode.window.onDidCloseTerminal((t) => {
@@ -451,7 +471,7 @@ function activate(context, options = {}) {
     });
     context.subscriptions.push(closed);
     terminal.show();
-    terminal.sendText('gh auth login --hostname github.com && exit');
+    terminal.sendText('gh auth login --hostname github.com --git-protocol https --web && exit');
   }));
   // the company file, read before the parts start; a file that is there but invalid is logged once
   const file = companyFile();
