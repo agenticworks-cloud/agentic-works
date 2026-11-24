@@ -536,6 +536,10 @@ function firstStartSetup(config) {
   env.ui.commands['workbench.view.extension.kestrel'] = () => { env.order.push('prs'); prs(); };
   env.walkthroughs = [];
   env.ui.commands['workbench.action.openWalkthrough'] = (...a) => { env.order.push('walkthrough'); env.walkthroughs.push(a); };
+  // the Get started page: a roost.getStarted panel
+  env.pages = () => env.ui.panels.filter((p) => p.viewType === 'roost.getStarted');
+  const create = env.ui.vscode.window.createWebviewPanel;
+  env.ui.vscode.window.createWebviewPanel = (type, ...a) => { if (type === 'roost.getStarted') env.order.push('page'); return create(type, ...a); };
   return env;
 }
 async function activateFirst(env) {
@@ -554,7 +558,8 @@ test('first start: PRs on opens the PRs tab once and records it', async () => {
   env.ui.commands = { 'workbench.view.extension.kestrel': env.ui.commands['workbench.view.extension.kestrel'], 'workbench.action.openWalkthrough': env.ui.commands['workbench.action.openWalkthrough'] };
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 1, 'a second activation does not open it');
-  assert.strictEqual(env.walkthroughs.length, 1, 'nor the walkthrough');
+  assert.strictEqual(env.pages().length, 1, 'nor the Get started page');
+  assert.deepStrictEqual(env.walkthroughs, [], 'and the walkthrough never');
   await env.extension.deactivate();
 });
 
@@ -562,7 +567,7 @@ test('first start: PRs off opens nothing and still records', async () => {
   const env = firstStartSetup({ 'roost.pullRequests.enabled': false });
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 0);
-  assert.deepStrictEqual(env.walkthroughs, [['seanahn.roost#roost.getStarted', false]], 'the walkthrough still opens');
+  assert.strictEqual(env.pages().length, 1, 'the Get started page still opens');
   assert.strictEqual(env.store.get('roost.firstStart.done'), true);
   await env.extension.deactivate();
 });
@@ -576,41 +581,43 @@ test('first start: a failing command is logged and still recorded', async () => 
   await env.extension.deactivate();
 });
 
-test('first start: the PRs tab, the walkthrough in the editor, then the Perch view; Perch only while Agents is on', async () => {
+test('first start: the PRs tab, the Get started page in the editor, then the Perch view; Perch only while Agents is on', async () => {
   let env = firstStartSetup({});
   await activateFirst(env);
-  assert.deepStrictEqual(env.order, ['prs', 'walkthrough', 'perch']);
+  assert.deepStrictEqual(env.order, ['prs', 'page', 'perch']);
   await env.extension.deactivate();
   env = firstStartSetup({ 'roost.agents.enabled': false });
   await activateFirst(env);
-  assert.deepStrictEqual(env.order, ['prs', 'walkthrough']);
+  assert.deepStrictEqual(env.order, ['prs', 'page']);
   await env.extension.deactivate();
   env = firstStartSetup({});
   env.ui.commands['workbench.view.extension.perch'] = () => { throw new Error('no perch'); };
   await activateFirst(env);
   assert.ok(env.ui.out.some((l) => l.includes('Perch view') && l.includes('no perch')));
-  assert.deepStrictEqual(env.order, ['prs', 'walkthrough'], 'the rest still opens');
+  assert.deepStrictEqual(env.order, ['prs', 'page'], 'the rest still opens');
   assert.strictEqual(env.store.get('roost.firstStart.done'), true);
   await env.extension.deactivate();
 });
 
-test('first start: a walkthrough that fails to open is logged and still recorded', async () => {
+test('first start: a Get started page that fails to open is logged and still recorded', async () => {
   const env = firstStartSetup({});
-  env.ui.commands['workbench.action.openWalkthrough'] = () => { throw new Error('no walkthrough'); };
+  env.ui.vscode.window.createWebviewPanel = () => { throw new Error('no page'); };
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 1, 'the PRs tab opened first');
-  assert.ok(env.ui.out.some((l) => l.includes('walkthrough') && l.includes('no walkthrough')));
+  assert.ok(env.ui.out.some((l) => l.includes('its Get started page') && l.includes('no page')), env.ui.out.join('\n'));
   assert.strictEqual(env.store.get('roost.firstStart.done'), true);
   await env.extension.deactivate();
 });
 
-test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh auth login in a terminal, and refreshes the PRs when it closes', async () => {
+test('Roost: Get Started opens the Get started page; Roost: Sign In to GitHub runs gh auth login in a terminal, and refreshes the PRs when it closes', async () => {
   const { ui, extension, base } = setup({});
-  await (await activate(extension, base)).firstStarted;   // its own walkthrough call done first
+  await (await activate(extension, base)).firstStarted;   // its own page opened first
+  ui.panels.forEach((p) => p.dispose());
   const opened = [];
   ui.commands['workbench.action.openWalkthrough'] = (...a) => opened.push(a);
   await ui.vscode.commands.executeCommand('roost.getStarted');
-  assert.deepStrictEqual(opened, [['seanahn.roost#roost.getStarted', false]]);
+  assert.deepStrictEqual(opened, [], 'not the walkthrough');
+  assert.deepStrictEqual(ui.panels.filter((p) => !p.disposed).map((p) => [p.viewType, p.title]), [['roost.getStarted', 'Get started']]);
   await ui.vscode.commands.executeCommand('roost.githubSignIn');
   assert.strictEqual(ui.terminals.length, 1);
   assert.ok(ui.terminals[0].shown);
@@ -769,9 +776,12 @@ function fakeTools() {
 async function toolsSetup(company = EXAMPLE, config = {}) {
   const env = company ? withCompanyFile(company) : setup();
   Object.assign(env.ui.config, config);
+  // first start already recorded: its Get started page would open a panel of its own
+  env.base.globalState = { get: (k) => (k === 'roost.firstStart.done' ? true : undefined), update: async () => {} };
   const fakes = fakeTools();
   const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
   await roost.ready;
+  await roost.firstStarted;
   const signIns = [];
   env.ui.commands['chirp.signIn'] = () => signIns.push('chirp');
   env.ui.commands['jay.signIn'] = () => signIns.push('jay');

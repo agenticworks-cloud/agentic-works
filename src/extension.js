@@ -13,6 +13,7 @@ const { companyFile, readCompany } = require('./company');
 const { Tools } = require('./tools');
 const { getToolsHtml } = require('./toolsPage');
 const { watchContexts } = require('./contextWatch');
+const { GetStarted } = require('./getStarted');
 
 const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
@@ -21,8 +22,6 @@ const FIRST_START_KEY = 'roost.firstStart.done';
 const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn'];
 const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
 const AGENTS_VIEW_COMMAND = 'workbench.view.extension.perch';  // Perch's activity-bar container id: opens the side bar on it
-const WALKTHROUGH = 'seanahn.roost#roost.getStarted';            // roost.contributes.json's walkthrough
-const openWalkthrough = () => vscode.commands.executeCommand('workbench.action.openWalkthrough', WALKTHROUGH, false);
 // The Agents part was called perch in 0.1.0: while roost.agents.enabled is set nowhere, a roost.perch.enabled the
 // user set then still decides (read only, never written or removed).
 const OLD_SWITCH = { agents: 'perch' };
@@ -45,11 +44,14 @@ const shellQuote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${String(a).replac
 const isWeb = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
 
 class Roost {
-  // `makeTools`: for tests, a stand-in for Connect Your Tools' Tools (src/tools.js)
-  constructor(base, parts, output, { makeTools = (opts) => new Tools(opts) } = {}) {
+  // `makeTools`: for tests, a stand-in for Connect Your Tools' Tools (src/tools.js); `ghLogins`: the accounts gh is
+  // signed in to (tests never run this machine's gh)
+  constructor(base, parts, output, { makeTools = (opts) => new Tools(opts), ghLogins = defaultGhLogins } = {}) {
     this.base = base;
     this.output = output;
     this.makeTools = makeTools;
+    this.ghLogins = ghLogins;
+    this.getStarted = null;            // the Get started page's host (src/getStarted.js), made once startAll has begun
     this.tools = null;                 // made the first time Connect Your Tools (or a sign-in that uses it) needs it
     this.toolsPanel = null;
     this.toolsChecked = Promise.resolve();
@@ -64,6 +66,8 @@ class Roost {
 
   state(id) { return this.entry(id).state; }
 
+  isEnabled(id) { return isEnabled(id); }
+
   entry(id) {
     const e = this.parts.get(id);
     if (!e) throw new Error(`Roost: no part ${id}`);
@@ -71,12 +75,22 @@ class Roost {
   }
 
   // Starts and stops of one part run one after another, in the order asked; one that fails is logged and does not
-  // hold up the next.
+  // hold up the next. Once each has settled, onPartsChanged.
   queue(id, op) {
     const e = this.entry(id);
     const p = e.queue.then(() => op(e));
-    e.queue = p.catch((err) => this.log(`${e.part.title}: a start or stop failed: ${errorText(err)}`));
+    e.queue = p.catch((err) => this.log(`${e.part.title}: a start or stop failed: ${errorText(err)}`))
+      .then(() => this.onPartsChanged());
     return p;
+  }
+
+  // A part started, stopped or failed: the Get started page shows its steps or hides them
+  onPartsChanged() {
+    try {
+      if (this.getStarted) this.getStarted.refresh();
+    } catch (err) {
+      this.log(`Roost could not refresh its Get started page: ${errorText(err)}`);
+    }
   }
 
   log(line) { this.output.appendLine(line); }
@@ -230,9 +244,13 @@ class Roost {
     return this.tools;
   }
 
-  // Every change: the rows to the page, and roost.toolsConnected (the walkthrough step) to whether all are connected
+  // Every change: the rows to the pages, and roost.toolsConnected (the walkthrough step) to whether all are connected
   toolsChanged(rows) {
     this.postRows(rows);
+    if (this.getStarted) {
+      this.getStarted.rows(rows);
+      this.getStarted.refresh();
+    }
     const value = !!(this.tools && this.tools.allConnected());
     Promise.resolve(vscode.commands.executeCommand('setContext', 'roost.toolsConnected', value))
       .catch((err) => this.log(`roost.toolsConnected could not be set: ${errorText(err)}`));
@@ -263,16 +281,17 @@ class Roost {
     return this.toolsChecked;
   }
 
-  // A message from the page. A row the page names that is no longer there is ignored. A token is handed to Tools
-  // only: never logged, never sent back (the rows hold none).
-  async onToolsMessage(m) {
+  // A message from the page (Connect Your Tools', or a row on Get started's, whose `reveal` shows that page for a
+  // sign-in prompt). A row the page names that is no longer there is ignored. A token is handed to Tools only: never
+  // logged, never sent back (the rows hold none).
+  async onToolsMessage(m, { reveal } = {}) {
     const tools = this.tools;
     if (!tools || !m || typeof m.type !== 'string') return;
     if (m.type === 'ready') { this.postRows(tools.rows()); return; }
     const row = tools.rows().find((r) => r.id === m.id);
     if (!row) return;
     try {
-      if (m.type === 'connect') await this.connectTool(row);
+      if (m.type === 'connect') await this.connectTool(row, { reveal });
       else if (m.type === 'token') await tools.saveToken(row.id, typeof m.token === 'string' ? m.token : '');
       else if (m.type === 'openPage') { if (isWeb(row.page)) await vscode.env.openExternal(vscode.Uri.parse(row.page)); }
       else if (m.type === 'copyAndOpen') await this.copyAndOpen(row);
@@ -284,11 +303,13 @@ class Roost {
   }
 
   // The row's sign-in, by kind (each downloads the server's program first when it has an install and it's missing); a
-  // tokenPage row's Connect checks the token already saved
-  connectTool(row) {
+  // tokenPage row's Connect checks the token already saved. An mcpTool row's prompt shows the page it is on: `reveal`,
+  // else Connect Your Tools' panel.
+  connectTool(row, { reveal } = {}) {
     const tools = this.tools;
+    const show = reveal || (() => { if (this.toolsPanel) this.toolsPanel.reveal(); });
     if (row.kind === 'command') return tools.connectCommand(row.id, { runInTerminal: (argv) => this.runInTerminal(row.name || row.id, argv) });
-    if (row.kind === 'mcpTool') return tools.connectMcpTool(row.id, { onPrompt: () => { if (this.toolsPanel) this.toolsPanel.reveal(); } });
+    if (row.kind === 'mcpTool') return tools.connectMcpTool(row.id, { onPrompt: () => show() });
     if (row.kind === 'none') return tools.connectNone(row.id);
     return tools.connectChecked(row.id);
   }
@@ -319,19 +340,40 @@ class Roost {
 
   // The walkthrough's Teams and Jira buttons: with a company file, a tools row that writes the part's token file
   // (<part>.signIn.tokenFile) signs in in the panel, and the part picks the file up; else the part's own sign-in.
-  async toolSignIn(section, fallback) {
+  // `panel: false` (the Get started page, which shows the row itself): the row signs in without opening the panel.
+  async toolSignIn(section, fallback, { panel = true } = {}) {
     const file = vscode.workspace.getConfiguration(section).get('signIn.tokenFile', '');
     const id = this.hasTools() && typeof file === 'string' && file ? this.toolsNow().rowForTokenFile(file) : null;
     if (!id) return vscode.commands.executeCommand(fallback);
-    await this.openTools();
+    if (panel) await this.openTools();
     const row = this.tools.rows().find((r) => r.id === id);
     if (!row || row.state === 'connected') return undefined;
     try {
-      await this.connectTool(row);
+      await this.connectTool(row, panel ? {} : { reveal: () => { if (this.getStarted) this.getStarted.reveal(); } });
     } catch (err) {
       this.log(`Connect Your Tools: ${row.name || row.id}: ${err && err.message}`);
     }
     return undefined;
+  }
+
+  // gh's sign-in, in a terminal: straight to the browser over HTTPS, without gh's protocol and SSH-key questions
+  // (Sean's first-time run, 2026-11-24). The terminal closes once gh is done; then the PRs part looks for the new
+  // login (not at its next 30 s retry), and `closed` resolves.
+  startGithubSignIn() {
+    const terminal = vscode.window.createTerminal({ name: 'GitHub sign-in' });
+    let listener;
+    const closed = new Promise((resolve) => {
+      listener = vscode.window.onDidCloseTerminal((t) => {
+        if (t !== terminal) return;
+        listener.dispose();
+        Promise.resolve(vscode.commands.executeCommand('kestrel.refresh')).catch(() => { /* the PRs part is off */ });
+        resolve();
+      });
+    });
+    this.base.subscriptions.push(listener);
+    terminal.show();
+    terminal.sendText('gh auth login --hostname github.com --git-protocol https --web && exit');
+    return { terminal, closed };
   }
 
   // Every failed key false first (one can be left from before an extension host restart); a part that fails sets
@@ -352,7 +394,7 @@ class Roost {
   }
 
   // Roost's very first activation: once the parts have started, the bottom panel opens on the PRs tab (closed on a
-  // fresh profile), the Get started walkthrough in the editor, and last the side bar on Perch's view (a fresh window
+  // fresh profile), the Get started page in the editor, and last the side bar on Perch's view (a fresh window
   // may have it closed, and with the activity bar on top its icons go with it). Then roost.firstStart.done is recorded,
   // whatever happened: a part that is off or failed, or a command that fails, is not retried later.
   async firstStart() {
@@ -366,7 +408,7 @@ class Roost {
     };
     const on = (id) => this.parts.has(id) && this.state(id) === 'on';
     if (on('pullRequests')) await open('the PRs tab', () => vscode.commands.executeCommand(PRS_VIEW_COMMAND));
-    await open('its walkthrough', openWalkthrough);
+    await open('its Get started page', () => this.getStarted.open());
     // last: opened first, the side bar ended on Explorer in a fresh window (installer run, 2026-11-24)
     if (on('agents')) await open('the Perch view', () => vscode.commands.executeCommand(AGENTS_VIEW_COMMAND));
     try {
@@ -389,6 +431,7 @@ class Roost {
   // thread), and no serializer is left behind.
   async stopAll() {
     this.closed = true;
+    if (this.getStarted) this.getStarted.dispose();
     if (this.tools) this.tools.dispose();
     if (this.toolsPanel) this.toolsPanel.dispose();
     await Promise.all([...this.parts.keys()].map((id) => this.stop(id)));
@@ -420,7 +463,8 @@ function activate(context, options = {}) {
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => r.onConfigChange(e)));
   // Roost's own, whatever parts are on: the Settings page filtered to this extension's switches and the parts' settings
   context.subscriptions.push(vscode.commands.registerCommand('roost.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:seanahn.roost')));
-  context.subscriptions.push(vscode.commands.registerCommand('roost.getStarted', openWalkthrough));
+  // the Get started page (the walkthrough stays on VS Code's Welcome page)
+  context.subscriptions.push(vscode.commands.registerCommand('roost.getStarted', () => { r.getStarted.open(); }));
   // the walkthrough's codebase-search step: on (never off, unlike Agents: Toggle Codebase Search), or left off
   context.subscriptions.push(vscode.commands.registerCommand('roost.codebaseSearchOn', async () => {
     if (vscode.workspace.getConfiguration('agents').get('codebaseIndex.enabled') === true) {
@@ -457,27 +501,16 @@ function activate(context, options = {}) {
   };
   context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeTab', () => besideWalkthrough('perch.newClaude')));
   context.subscriptions.push(vscode.commands.registerCommand('roost.newCodexTab', () => besideWalkthrough('perch.newCodex')));
-  // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal. Already signed in, it
-  // says so and offers another account; the sign-in goes straight to the browser over HTTPS, without gh's protocol
-  // and SSH-key questions (Sean's first-time run, 2026-11-24)
-  const ghLogins = options.ghLogins || defaultGhLogins;
+  // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal (startGithubSignIn).
+  // Already signed in, it says so first and offers another account.
   context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', async () => {
-    const logins = await ghLogins().catch(() => []);
+    const logins = await Promise.resolve().then(() => r.ghLogins()).catch(() => []);
     if (logins.length) {
       const ANOTHER = 'Add Another Account';
       const pick = await vscode.window.showInformationMessage(`GitHub is signed in as ${logins.join(', ')}.`, ANOTHER);
       if (pick !== ANOTHER) return;
     }
-    const terminal = vscode.window.createTerminal({ name: 'GitHub sign-in' });
-    // the terminal closes once gh is done: the PRs part looks for the new login then, not at its next 30 s retry
-    const closed = vscode.window.onDidCloseTerminal((t) => {
-      if (t !== terminal) return;
-      closed.dispose();
-      Promise.resolve(vscode.commands.executeCommand('kestrel.refresh')).catch(() => { /* the PRs part is off */ });
-    });
-    context.subscriptions.push(closed);
-    terminal.show();
-    terminal.sendText('gh auth login --hostname github.com --git-protocol https --web && exit');
+    r.startGithubSignIn();
   }));
   // the company file, read before the parts start; a file that is there but invalid is logged once
   const file = companyFile();
@@ -485,7 +518,10 @@ function activate(context, options = {}) {
   if (!r.company.ok && !r.company.missing) r.log(`${file} is not a valid company file: ${r.company.error}`);
   const companyKeys = r.setCompanyContexts();
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
-  r.ready = Promise.all([companyKeys, r.startAll()]).then(() => undefined).catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
+  const started = r.startAll();
+  // made once startAll has begun: the watch on the parts' context keys (r.contexts) is in place from its first line
+  r.getStarted = new GetStarted({ roost: r, vscode, store: context.globalState, ghLogins: () => r.ghLogins(), log: (l) => r.log(l) });
+  r.ready = Promise.all([companyKeys, started]).then(() => undefined).catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
   // after the parts have started, and not awaited here: activation does not wait for it
   r.firstStarted = r.ready.then(() => r.firstStart()).catch((err) => r.log(`Roost first start failed: ${errorText(err)}`));
   return r;
