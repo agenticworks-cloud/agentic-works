@@ -113,6 +113,11 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
      default is off); `--skip settings` asks nothing. *(Sean: a choice, default on)* When it is added, the step says
      search by meaning is one command away, **Agents: Install Codebase Search by Meaning**, which the installer does
      not run (a model download, inside VS Code). *(my call)*
+   - `"teams.signIn.clientId"` and `"teams.signIn.tenant"` — a company's own Microsoft app for the Teams sign-in
+     (note 101, *Follow-ups*, "a company's own Microsoft app"), only with `--teams-app <clientId>:<tenant>`. Both
+     are added only when neither is set, so a client id never meets another app's tenant. The installer checks the
+     shape (a GUID, a colon, then a GUID or a domain) before any step runs; the helper checks it again. Nothing is
+     asked: a company's own setup passes its IDs, and Roost's repo and installer name none. *(0.3.0)*
 6. **The icons.** Only on a VS Code **that has never been started**: `User/globalStorage/state.vscdb` is absent, or has
    no `workbench.activity.pinnedViewlets2` entry yet (the `code` CLI may create the file without one). Then write
    `workbench.activity.pinnedViewlets2` so the bar shows Explorer, Search, Extensions, Perch, Teams, Jira &
@@ -125,7 +130,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    Get started walkthrough (note 101, *First start*).
 
 Flags: `--dry-run` (print what would be done), `--skip <step>`, `--yes` (answer the standalone-four question with
-Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--no-codebase-search` (codebase search off, not asked), `--help`. Exit status 0 when no
+Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--no-codebase-search` (codebase search off, not asked), `--teams-app <clientId>:<tenant>` (the Teams sign-in's company app, step 5; a malformed value is a usage error, exit 2), `--help`. Exit status 0 when no
 step failed, else 1. *(my call)*
 
 **OpenSSL 3 on Fedora.** Fedora 45 ships OpenSSL 4, and VS Code's rpm does not depend on `libssl.so.3`, which its

@@ -94,6 +94,47 @@ class SettingsTests(_Case):
         self.run_cli("vscode-settings")
         self.assertNotIn("agents.codebaseIndex.enabled", json.loads((self.user / "settings.json").read_text()))
 
+    def test_teams_app_added_only_when_asked_and_absent(self) -> None:
+        app = "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D"
+        code, out = self.run_cli("vscode-settings", "--teams-app", app + ":Contoso.onmicrosoft.com")
+        self.assertEqual((code, out), (0, ""))
+        data = json.loads((self.user / "settings.json").read_text())
+        self.assertEqual((data["teams.signIn.clientId"], data["teams.signIn.tenant"]),
+                         (app.lower(), "contoso.onmicrosoft.com"))
+        self.assertIn("chat.disableAIFeatures", data, "with the look's keys")
+        # a tenant GUID, with --codebase-search too
+        (self.user / "settings.json").write_text("{}")
+        code, out = self.run_cli("vscode-settings", "--codebase-search", "--teams-app", app + ":" + app)
+        self.assertEqual((code, out), (0, "codebase search added\n"))
+        self.assertEqual(json.loads((self.user / "settings.json").read_text())["teams.signIn.tenant"], app.lower())
+        # either already set: both kept as they are, so an app never meets another's tenant
+        for have in ({"teams.signIn.clientId": "mine"}, {"teams.signIn.tenant": "fabrikam.com"}):
+            (self.user / "settings.json").write_text(json.dumps(have))
+            code, _ = self.run_cli("vscode-settings", "--teams-app", app + ":contoso.com")
+            self.assertEqual(code, 0)
+            data = json.loads((self.user / "settings.json").read_text())
+            self.assertEqual({k: v for k, v in data.items() if k.startswith("teams.")}, have)
+        # without the flag: neither
+        (self.user / "settings.json").write_text("{}")
+        self.run_cli("vscode-settings")
+        self.assertFalse(any(k.startswith("teams.") for k in json.loads((self.user / "settings.json").read_text())))
+
+    def test_teams_app_shape_is_checked(self) -> None:
+        for bad in ("x:y", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d:contoso",
+                    ":contoso.com", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d:contoso com"):
+            with self.subTest(bad), contextlib.redirect_stderr(io.StringIO()):
+                code, _ = self.run_cli("vscode-settings", "--teams-app", bad)
+                self.assertEqual(code, 1)
+                self.assertFalse((self.user / "settings.json").exists(), "nothing written")
+
+    def test_teams_app_in_jsonc_is_printed(self) -> None:
+        self.user.mkdir()
+        (self.user / "settings.json").write_text('{\n  // mine\n  "editor.fontSize": 15\n}\n')
+        code, out = self.run_cli("vscode-settings", "--teams-app", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d:contoso.com")
+        self.assertEqual(code, 2)
+        self.assertIn('"teams.signIn.clientId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",', out)
+        self.assertIn('"teams.signIn.tenant": "contoso.com",', out)
+
     def test_keeps_foreign_keys(self) -> None:
         self.user.mkdir()
         (self.user / "settings.json").write_text(

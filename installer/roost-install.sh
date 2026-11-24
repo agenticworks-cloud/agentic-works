@@ -52,6 +52,7 @@ YES=0
 NO_OPEN=0
 CODEBASE_SEARCH=1  # agents.codebaseIndex.enabled true in the settings step: asked there, Enter is yes; --no-codebase-search
 CODEBASE_FLAG=0    # --no-codebase-search given: not asked
+TEAMS_APP=""       # --teams-app <clientId>:<tenant>: the Teams sign-in's company app, for the settings step
 SKIPS=" "
 OS=""
 ARCH=""
@@ -974,6 +975,7 @@ apply_settings() {  # the look's four keys, and codebase search when on, each on
   local sub=vscode-settings
   ask_codebase_search
   [ "$CODEBASE_SEARCH" = 1 ] && sub="$sub --codebase-search"
+  [ -n "$TEAMS_APP" ] && sub="$sub --teams-app $TEAMS_APP"  # checked by parse_args: no spaces in it
   look_step settings "Settings" "$sub" "added to settings.json" "couldn't write VS Code's settings; see $LOG"
   if [ "$STEP_RESULT" = done ] && [ "$HELPER_OUT" = "codebase search added" ]; then
     step_say "codebase search is on; to search by meaning too, run Agents: Install Codebase Search by Meaning in VS Code"
@@ -1083,11 +1085,21 @@ Options:
   --no-open      don't open VS Code at the end
   --no-codebase-search
                  leave codebase search in Claude and Codex tabs off, without asking (asked otherwise; Enter is yes)
+  --teams-app <clientId>:<tenant>
+                 sign Teams in with your company's own Microsoft app: its Application (client) ID, then the
+                 Directory (tenant) ID or domain, from your IT team (added only when not already set)
   --help         this text
 
 Environment:
   NO_COLOR       plain marks even on a terminal
 EOF
+}
+
+teams_app_ok() {  # $1 = <clientId>:<tenant>: a GUID, a colon, then a GUID or a domain such as contoso.onmicrosoft.com
+  local guid='[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'
+  local domain='([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}'
+  local re="^$guid:($guid|$domain)\$"
+  [[ $1 =~ $re ]]
 }
 
 parse_args() {
@@ -1097,6 +1109,14 @@ parse_args() {
       --yes) YES=1 ;;
       --no-open) NO_OPEN=1 ;;
       --no-codebase-search) CODEBASE_SEARCH=0; CODEBASE_FLAG=1 ;;
+      --teams-app)
+        [ $# -ge 2 ] || { printf 'roost-install: --teams-app needs <clientId>:<tenant>\n' >&2; exit 2; }
+        teams_app_ok "$2" || {
+          printf "roost-install: --teams-app '%s' isn't <clientId>:<tenant> (a GUID, then a tenant GUID or a domain)\n" "$2" >&2
+          exit 2
+        }
+        TEAMS_APP=$2
+        shift ;;
       --skip)
         [ $# -ge 2 ] || { printf 'roost-install: --skip needs a step: %s\n' "$STEP_NAMES" >&2; exit 2; }
         case " $STEP_NAMES " in

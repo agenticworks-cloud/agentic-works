@@ -42,6 +42,7 @@ the newest installer is also how Roost is updated.
 | `--yes` | answer yes to uninstalling the standalone four (needed with no terminal); never answers the GitHub sign-in |
 | `--no-open` | don't open VS Code at the end |
 | `--no-codebase-search` | leave codebase search in Claude and Codex tabs off, without asking (it asks otherwise; Enter is yes) |
+| `--teams-app <clientId>:<tenant>` | sign Teams in with your company's own Microsoft app: its Application (client) ID, then the Directory (tenant) ID or domain, from your IT team (written to `teams.signIn.clientId` and `teams.signIn.tenant` only when neither is set) |
 | `--help` | the options |
 
 Supported: macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora, on a desktop

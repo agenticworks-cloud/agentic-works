@@ -10,6 +10,7 @@ Runs on Python 3.6 (RHEL 8's python3), stdlib only: typing's List/Optional rathe
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -29,6 +30,11 @@ WANTED_SETTINGS = {
 }
 # --codebase-search: the installer's question answered yes (default); added only when absent, like the rest
 CODEBASE_SEARCH = {"agents.codebaseIndex.enabled": True}
+# --teams-app <clientId>:<tenant>: a company's own Microsoft app for the Teams part's sign-in, added only when absent
+TEAMS_APP_KEYS = ("teams.signIn.clientId", "teams.signIn.tenant")
+GUID = r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
+DOMAIN = r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}"
+TEAMS_APP = re.compile(r"^(%s):(%s|%s)$" % (GUID, GUID, DOMAIN))
 PINNED_KEY = "workbench.activity.pinnedViewlets2"
 LAYOUT_RECORD_KEY = "roost.installer.layoutWritten"  # in state.vscdb: the layout was written once; never again
 SHOWN_VIEWLETS = [
@@ -104,14 +110,41 @@ def _write_atomic(path: Path, text: str) -> None:
     os.replace(str(tmp), str(path))
 
 
+def teams_app(value: str) -> Dict[str, str]:
+    """`<clientId>:<tenant>` as the two Teams settings; the tenant is a GUID or a domain. ValueError when not."""
+    match = TEAMS_APP.match(value.strip())
+    if not match:
+        raise ValueError("--teams-app takes <clientId>:<tenant>: a GUID, then a tenant GUID or domain")
+    return dict(zip(TEAMS_APP_KEYS, (match.group(1).lower(), match.group(2).lower())))
+
+
+def _has_any(text: str, keys: tuple) -> bool:
+    """Whether plain-JSON settings text has any of the keys (JSONC: no, its lines are printed for the user to add)."""
+    try:
+        data = json.loads(text) if text.strip() else {}
+    except ValueError:
+        return False
+    return isinstance(data, dict) and any(k in data for k in keys)
+
+
 def cmd_vscode_settings(args: argparse.Namespace) -> int:
     """Merge the wanted keys into VS Code user settings.json without overwriting a key or rewriting JSONC."""
     path = user_dir() / "settings.json"
     wanted = dict(WANTED_SETTINGS)
     if args.codebase_search:
         wanted.update(CODEBASE_SEARCH)
+    pair = {}  # type: Dict[str, str]
+    if args.teams_app:
+        try:
+            pair = teams_app(args.teams_app)
+        except ValueError as exc:
+            print(f"roost-install-helper: {exc}", file=sys.stderr)
+            return EXIT_ERROR
     try:
         text = path.read_text(encoding="utf-8") if path.exists() else ""
+        # the two go together: either already set keeps both as they are, so an app never meets another's tenant
+        if pair and not _has_any(text, TEAMS_APP_KEYS):
+            wanted.update(pair)
         merged = merge_settings(text, wanted)
     except UnicodeDecodeError:
         merged = None
@@ -228,6 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.required = True  # add_subparsers(required=) is 3.7+
     settings = sub.add_parser("vscode-settings", help="merge Roost's keys into VS Code user settings.json")
     settings.add_argument("--codebase-search", action="store_true", help="also turn on the agents' codebase search")
+    settings.add_argument("--teams-app", metavar="CLIENT_ID:TENANT",
+                          help="also set the Teams sign-in's company app (teams.signIn.clientId and .tenant)")
     settings.set_defaults(func=cmd_vscode_settings)
     sub.add_parser("vscode-layout", help="write the activity-bar layout into state.vscdb").set_defaults(
         func=cmd_vscode_layout

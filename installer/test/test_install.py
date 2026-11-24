@@ -660,10 +660,20 @@ class TestFlags(_Installer):
         self.assertEqual(rc, 2, out)
         self.assertIn("nonsense", out)
 
+    def test_teams_app_shape_is_checked(self) -> None:
+        for args in (("--teams-app",), ("--teams-app", "x:y"), ("--teams-app", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"),
+                     ("--teams-app", "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d:not a domain")):
+            with self.subTest(args):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.env("macos", ALL_PRESENT), *args)
+                self.assertEqual(rc, 2, out)
+                self.assertIn("--teams-app", out)
+                self.assertEqual(self.stub_log(), [], "nothing run")
+
     def test_help(self) -> None:
         rc, out = self.run_pipe(self.env("macos", ALL_PRESENT), "--help")
         self.assertEqual(rc, 0, out)
-        for text in ("--dry-run", "--skip", "--yes", "--no-open",
+        for text in ("--dry-run", "--skip", "--yes", "--no-open", "--teams-app <clientId>:<tenant>",
                      "vscode path standalone roost companions github settings icons open"):
             self.assertIn(text, out)
         self.assertEqual(self.stub_log(), [])
@@ -1236,6 +1246,22 @@ class TestLook(_Installer):
         self.assertEqual(rc, 0, out)
         self.assertNotIn(question, out)
         self.assertEqual(self.python3_calls(), [f"python3 {HELPER} vscode-layout"])
+
+    def test_teams_app_reaches_the_settings_step(self) -> None:
+        """--teams-app goes to the helper as given; without it, no --teams-app."""
+        app = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d:contoso.onmicrosoft.com"
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), "--teams-app", app, "--no-codebase-search")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.python3_calls()[0], f"python3 {HELPER} vscode-settings --teams-app {app}")
+        self.assertIn("  ✓ Settings (added to settings.json)", out)
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), "--teams-app", app, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"$ python3 {HELPER} vscode-settings --codebase-search --teams-app {app}", out)
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=str(self.tmp / "no-tty")))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("--teams-app", self.python3_calls()[0])
 
     def test_helper_found_beside_the_script(self) -> None:
         """Without ROOST_INSTALL_HELPER, the helper next to the script is used, as in a clone."""
