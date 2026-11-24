@@ -295,7 +295,7 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   // a sign-in step is done once its part says it is signed in (a context key it sets), not when its button runs
   const contexts = Object.fromEntries(w.steps.map((s) => [s.id, s.completionEvents.filter((e) => e.startsWith('onContext:'))]));
   assert.deepStrictEqual(contexts, {
-    agents: [], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
+    agents: ['onContext:perch.messageSent'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
   });
   const commands = new Set(m.contributes.commands.map((c) => c.command));
   for (const step of w.steps) {

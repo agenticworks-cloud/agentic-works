@@ -21,7 +21,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
 
 (async () => {
   const extraRoot = '/git/perch-extra-root';
-  const { perch, registered, commands, memento, picks, cats, loads } = install(undefined, { workspaceFolders: [process.cwd(), extraRoot, extraRoot] });
+  const { perch, registered, commands, memento, picks, cats, loads, ui } = install(undefined, { workspaceFolders: [process.cwd(), extraRoot, extraRoot] });
   const p = registered['perch.main'];
   assert(p, 'single view registered');
 
@@ -69,6 +69,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
   // a message goes to its own tab only, and titles the tab
   v1.fire({ type: 'send', sid: c1, text: 'explain the  flush   bug in detail please' });
   assert.strictEqual(created.length, 1, 'one agent for one used tab');
+  assert.deepStrictEqual(ui.contexts.filter((c) => c[0] === 'perch.messageSent'), [['perch.messageSent', true]], 'Roost\'s walkthrough is told a message was sent');
   assert(v1.events(c1).some((e) => e.kind === 'text'), 'answer on the claude tab');
   assert(!v1.events(x1).some((e) => e.kind === 'text' || e.kind === 'user'), 'nothing leaked to the codex tab');
   t = v1.lastTabs();

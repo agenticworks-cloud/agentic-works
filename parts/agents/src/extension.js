@@ -286,6 +286,14 @@ function collabInfo(a) {
   return out;
 }
 
+/** perch.messageSent: a message was sent from a tab in this window (Roost's walkthrough ticks "Talk to Claude" on it). */
+let sentOnce = false;
+function messageSent() {
+  if (sentOnce) return;
+  sentOnce = true;
+  Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.messageSent', true)).catch(() => { /* an older VS Code */ });
+}
+
 class Session {
   constructor(view, { id, kind, title, titled, unsaved, named, mode, effort, model, ide, resume, location, paneled, costSoFar, kept, gateway, own, gatewayCost, gatewayEstimate, periods, left, handoff, records, dir }) {
     this.view = view;
@@ -834,6 +842,7 @@ class Session {
    * turn at a time, the queue is kept here and drained as each turn ends. */
   send(text, offered) {
     text = String(text || '');
+    messageSent();
     const { images, dropped } = usableImages(offered);
     if (dropped) this.post({ kind: 'note', text: `${dropped} image${dropped > 1 ? 's' : ''} left out: a message takes ${MAX_IMAGES} images, each a PNG, JPEG, GIF, or WebP of up to 5 MB` });
     // Once a Claude conversation carries more than 20 images, the API refuses every request in which any image is 2000 px

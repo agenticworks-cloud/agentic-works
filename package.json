@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -358,6 +358,10 @@
       {
         "command": "roost.codebaseSearchNotNow",
         "title": "Roost: Leave Codebase Search Off"
+      },
+      {
+        "command": "roost.goToClaude",
+        "title": "Roost: Go to the Claude Tab"
       }
     ],
     "menus": {
@@ -593,6 +597,10 @@
         {
           "command": "roost.codebaseSearchNotNow",
           "when": "false"
+        },
+        {
+          "command": "roost.goToClaude",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -802,15 +810,13 @@
           {
             "id": "agents",
             "title": "Talk to Claude",
-            "description": "Open a tab backed by Claude Code. Codex tabs work the same way.\n[New Claude Tab](command:perch.newClaude)",
+            "description": "Your first Claude tab is open beside this page: type a message there. Codex tabs work the same way.\n[Go to the Claude Tab](command:roost.goToClaude)",
             "media": {
               "markdown": "media/walkthrough/agents.md"
             },
             "when": "config.roost.agents.enabled && !roost.agents.failed",
             "completionEvents": [
-              "onCommand:perch.newClaude",
-              "onCommand:perch.newClaudeGateway",
-              "onCommand:perch.newCodex"
+              "onContext:perch.messageSent"
             ]
           },
           {

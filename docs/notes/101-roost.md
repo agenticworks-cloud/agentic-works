@@ -192,7 +192,7 @@ shown only while its part is switched on and started (`when: config.roost.<id>.e
 
 | Step | Button | Done when |
 |---|---|---|
-| Talk to Claude | Agents: New Claude Tab | a Claude, gateway or Codex tab is opened from it or the palette |
+| Talk to Claude | Go to the Claude Tab (Agents: Open; the tab first start opened, else a picker) | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: a tab is already open, so no New Claude Tab button)* |
 | Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
 | Sign in to Teams | Teams: Sign In | Teams is signed in (`chirp.signedIn`) |
 | Connect Jira and Confluence | Jira: Site URL, then Jira: Sign In | Jira is signed in (`jay.signedIn`) |
