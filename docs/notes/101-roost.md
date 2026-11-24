@@ -449,6 +449,44 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     your company's app (0123abcd…) · Change*. **Signed in**, the command shows "Sign out first to change the app
     Teams signs in with." rather than a form under the account line (the form lives only in the signed-out page);
     while a sign-in is waiting, the command cancels it and opens the form.
+- **Agents: a company's gateway, ready but for the key (design, for 0.4)** *(Sean, 2026-11-24)*. A company LLM
+  gateway usually needs a personal key that each person makes on a web page of the company's. Today a company
+  installer has to ask for it in the terminal before VS Code ever opens. Instead the installer prepares everything
+  but the key, and the walkthrough is where the person gets the key and pastes it. Roost stays generic: what a
+  company's gateway is (its name, addresses, key page, environment) comes from a file its installer writes, never
+  from Roost's repo.
+  - **The preset.** `preset.json`, beside the gateway file (`agents.claude.gatewayEnv`'s directory, by default
+    `~/.config/gateway-claude/`), written by a company's installer:
+    `{ "name": "Example Gateway", "baseUrls": ["https://ai.example.com/llm-api", "https://public.example.com/llm-api"],
+    "keyPage": "https://ai.example.com/api-access", "requiredModel": "…" (optional), "env": { "ANTHROPIC_MODEL": "…",
+    … } (optional), "keyFiles": ["~/.config/example-gateway/token"] (optional) }`. Read when present, ignored with a
+    note in the form when it doesn't parse. `baseUrls` in order of preference: the first that answers wins (an office
+    network or VPN address first, a public one after). `keyFiles`: other places the key is saved, for the company's
+    own tools (a terminal launcher, Claude Code's `apiKeyHelper`).
+  - **The key check.** `GET <baseUrl>/v1/models` with the key as both `Authorization: Bearer` and `x-api-key` (it
+    authenticates the key and lists its models without calling one), each base URL in order until one answers at all.
+    Verdicts: *works*; *works, but its scope lacks `requiredModel`*; *rejected* (401/403); *can't reach the gateway*
+    (none answered: say "on the VPN?" when the preset has more than one address); *unexpected answer*. Only a key that
+    works is saved. The same check serves the form without a preset, against the Base URL typed in.
+  - **The form with a preset.** **Agents: Set Up a Gateway…** shows the preset's name, no Base URL field (the
+    address that answered is shown once checked), a **Get a key** button that opens `keyPage` in the browser, a Key
+    field (hidden as typed) and **Check and save**. On *works*: the gateway file gets `ANTHROPIC_BASE_URL` (the address
+    that answered), `ANTHROPIC_AUTH_TOKEN` and the preset's `env`, mode 0600 as today; each `keyFiles` entry gets the
+    key alone, mode 0600 in a 0700 directory; `perch.gatewayReady` turns true, and the form offers **New Claude Tab**
+    on the gateway. A key already saved shows as set, with *Replace*; it is never sent to the form.
+  - **The walkthrough with a preset.** Context key `perch.gatewayPreset` (the preset read and valid). Two gateway
+    steps, one shown at a time: with a preset, **Connect to the company gateway** comes first, before *Talk to
+    Claude or Codex* (button **Set Up the Gateway**, ticked on `perch.gatewayReady`; the page says the address is
+    already known and only the key is needed; the step title can't carry the preset's name, as walkthrough text is
+    static); without one, the optional *Use an LLM gateway* stays where it is. With a working gateway, the first
+    step's **New Claude Tab** opens on the gateway (Perch's choice of backend; the first-start order already prefers a
+    usable gateway).
+  - **What a company installer then does** (C3's: note 802 in its own repo): writes the preset; points the terminal's
+    `claude` at the gateway with Claude Code's `apiKeyHelper` reading the key file (so it works as soon as the
+    walkthrough saves the key; to confirm against the real gateway); no longer asks for the key in the terminal,
+    keeping an optional flag for scripted installs.
+  - **Open:** whether `apiKeyHelper` with a key that doesn't exist yet fails gently in a terminal `claude` started
+    before the walkthrough; whether a VPN-off machine should prefer the public address silently or say so.
 
 ## Left to the builder
 
