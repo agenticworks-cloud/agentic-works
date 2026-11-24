@@ -747,6 +747,7 @@ function fakeTools() {
       connectCommand: async (id, opts) => { t.calls.push(['connectCommand', id]); t.runInTerminal = opts.runInTerminal; return { ...find(id) }; },
       connectMcpTool: async (id, opts) => { t.calls.push(['connectMcpTool', id, typeof opts.onPrompt]); return { ...find(id) }; },
       connectNone: async (id) => { t.calls.push(['connectNone', id]); return { ...find(id) }; },
+      connectChecked: async (id) => { t.calls.push(['connectChecked', id]); return { ...find(id) }; },
       replaceRegistration: async (id) => { t.calls.push(['replaceRegistration', id]); return t.set(id, { conflict: false }); },
       dispose: () => { t.calls.push(['dispose']); },
     };
@@ -815,7 +816,7 @@ test('the page\'s messages: connect by kind, the token, the page, Copy code and 
   const [panel] = s.ui.panels;
   t.calls.length = 0;
   for (const id of ['docs', 'mail', 'tickets']) await panel.receive({ type: 'connect', id });
-  assert.deepStrictEqual(t.calls, [['check', 'docs'], ['connectMcpTool', 'mail', 'function'], ['connectCommand', 'tickets']]);
+  assert.deepStrictEqual(t.calls, [['connectChecked', 'docs'], ['connectMcpTool', 'mail', 'function'], ['connectCommand', 'tickets']]);
   t.calls.length = 0;
   await panel.receive({ type: 'token', id: 'docs', token: 'secret-token-1' });
   assert.deepStrictEqual(t.calls, [['saveToken', 'docs', 'secret-token-1']]);
@@ -833,6 +834,14 @@ test('the page\'s messages: connect by kind, the token, the page, Copy code and 
   await panel.receive({ type: 'replace', id: 'tickets' });
   assert.deepStrictEqual(t.calls.pop(), ['replaceRegistration', 'tickets']);
   await panel.receive({ type: 'connect', id: 'nope' });   // a stale page: nothing happens, nothing thrown
+  // a download that needs GitHub's sign-in: the row's button runs Roost: Sign In to GitHub, and only then
+  const terminals = () => s.ui.terminals || [];
+  const ran = terminals().length;
+  await panel.receive({ type: 'githubSignIn', id: 'mail' });
+  assert.strictEqual(terminals().length, ran, 'no action on the row: nothing');
+  t.set('mail', { state: 'notConnected', reason: 'Sign in to GitHub first.', action: 'githubSignIn' });
+  await panel.receive({ type: 'githubSignIn', id: 'mail' });
+  assert.deepStrictEqual(terminals().slice(ran).map((x) => [x.name, x.sent]), [['GitHub sign-in', ['gh auth login --hostname github.com && exit']]]);
   await s.extension.deactivate();
 });
 

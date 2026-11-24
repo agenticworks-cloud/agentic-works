@@ -4,7 +4,9 @@
 // save; command, mcpTool and none, Connect. A sign-in tool's prompt (mcpTool) shows its text and Copy code and open
 // (Open with no code, Copy code with no link); a conflict with an entry Claude Code already has offers Replace. The
 // host (src/extension.js) does the work through Tools (src/tools.js) and sends the rows after every change.
-// Messages, page to host: ready; connect {id}; token {id, token}; openPage {id}; copyAndOpen {id}; replace {id}.
+// A row whose download needs GitHub's sign-in (action 'githubSignIn') offers Sign In to GitHub.
+// Messages, page to host: ready; connect {id}; token {id, token}; openPage {id}; copyAndOpen {id}; replace {id};
+// githubSignIn {id}.
 // Host to page: rows {rows}, which never hold a token. No VS Code dependency.
 
 function getToolsHtml({ nonce, cspSource }) {
@@ -97,11 +99,13 @@ function getToolsHtml({ nonce, cspSource }) {
     v.copy = button('Copy code and open', '', () => post('copyAndOpen', r.id));
     const p = el('div', 'row'); p.append(v.copy);
     v.prompt.append(v.promptText, p);
+    v.github = button('Sign In to GitHub', '', () => post('githubSignIn', r.id));
+    v.githubRow = el('div', 'row'); v.githubRow.append(v.github);
     v.conflict = el('div', 'conflict');
     v.conflictText = el('p');
     v.replace = button('Replace', '', () => post('replace', r.id));
     v.conflict.append(v.conflictText, v.replace);
-    v.root.append(v.prompt, v.conflict);
+    v.root.append(v.githubRow, v.prompt, v.conflict);
     return v;
   }
 
@@ -121,6 +125,8 @@ function getToolsHtml({ nonce, cspSource }) {
       v.copy.textContent = pr.url && pr.code ? 'Copy code and open' : pr.url ? 'Open' : 'Copy code';
       v.copy.hidden = !pr.url && !pr.code;
     }
+    v.githubRow.hidden = r.action !== 'githubSignIn';
+    v.github.disabled = busy;
     v.conflict.hidden = !r.conflict;
     v.conflictText.textContent = 'Claude Code already has a server named ' + r.id + '. Replace it with this one?';
     v.replace.disabled = busy;

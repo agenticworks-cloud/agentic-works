@@ -94,6 +94,26 @@ invalid(mut((d) => { d.mcpServers[0].id = 'a b'; }), 'mcpServers[0].id');
 invalid(mut((d) => { delete d.mcpServers[0].connect.page; }), 'mcpServers[0].connect.page');
 invalid([], 'the file');
 
+// install: a GitHub release's asset per platform, put at `to` (~ expanded); every value that reaches gh's argv checked
+const INSTALL = { github: { repo: 'example-org/example-mcp', assets: { 'darwin-arm64': 'example-mcp-darwin-arm64', 'linux-x64': 'example-mcp-linux-x64', 'windows-x64': 'ignored.exe' } }, to: '~/.local/bin/example-mcp' };
+const withInstall = (fn) => mut((d) => { d.mcpServers[1].install = clone(INSTALL); if (fn) fn(d.mcpServers[1].install); });
+assert.strictEqual(c.mcpServers[1].install, null, 'none by default');
+const inst = read(withInstall());
+assert.strictEqual(inst.ok, true, inst.error);
+assert.deepStrictEqual(inst.company.mcpServers[1].install, { github: { repo: 'example-org/example-mcp', tag: 'latest', assets: { 'darwin-arm64': 'example-mcp-darwin-arm64', 'linux-x64': 'example-mcp-linux-x64' } }, to: '/h/.local/bin/example-mcp' }, 'tag latest by default; an unknown platform ignored');
+assert.strictEqual(read(withInstall((i) => { i.github.tag = 'v1.2.3'; })).company.mcpServers[1].install.github.tag, 'v1.2.3');
+invalid(withInstall((i) => { i.github.repo = 'example-mcp'; }), 'mcpServers[1].install.github.repo');
+invalid(withInstall((i) => { i.github.repo = 'a/b/c'; }), 'mcpServers[1].install.github.repo');
+invalid(withInstall((i) => { i.github.repo = '--repo=x/y'; }), 'mcpServers[1].install.github.repo');
+invalid(withInstall((i) => { i.github.tag = '--clobber'; }), 'mcpServers[1].install.github.tag');
+invalid(withInstall((i) => { i.github.tag = ''; }), 'mcpServers[1].install.github.tag');
+invalid(withInstall((i) => { i.github.assets['linux-x64'] = '../x'; }), 'mcpServers[1].install.github.assets.linux-x64');
+invalid(withInstall((i) => { i.github.assets['linux-x64'] = '-x'; }), 'mcpServers[1].install.github.assets.linux-x64');
+invalid(withInstall((i) => { i.github.assets = []; }), 'mcpServers[1].install.github.assets');
+invalid(withInstall((i) => { delete i.github; }), 'mcpServers[1].install.github');
+invalid(withInstall((i) => { delete i.to; }), 'mcpServers[1].install.to');
+invalid(withInstall((i) => { i.to = 'bin/example-mcp'; }), 'mcpServers[1].install.to');
+
 // unknown keys are ignored
 const extra = mut((d) => { d.future = 1; d.mcpServers[0].extra = { a: 1 }; });
 assert.strictEqual(read(extra).ok, true);

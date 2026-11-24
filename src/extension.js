@@ -274,18 +274,20 @@ class Roost {
       else if (m.type === 'openPage') { if (isWeb(row.page)) await vscode.env.openExternal(vscode.Uri.parse(row.page)); }
       else if (m.type === 'copyAndOpen') await this.copyAndOpen(row);
       else if (m.type === 'replace') await tools.replaceRegistration(row.id);
+      else if (m.type === 'githubSignIn') { if (row.action === 'githubSignIn') await vscode.commands.executeCommand('roost.githubSignIn'); }
     } catch (err) {
       this.log(`Connect Your Tools: ${row.name || row.id}: ${err && err.message}`);
     }
   }
 
-  // The row's sign-in, by kind; a tokenPage row's Connect checks the token already saved
+  // The row's sign-in, by kind (each downloads the server's program first when it has an install and it's missing); a
+  // tokenPage row's Connect checks the token already saved
   connectTool(row) {
     const tools = this.tools;
     if (row.kind === 'command') return tools.connectCommand(row.id, { runInTerminal: (argv) => this.runInTerminal(row.name || row.id, argv) });
     if (row.kind === 'mcpTool') return tools.connectMcpTool(row.id, { onPrompt: () => { if (this.toolsPanel) this.toolsPanel.reveal(); } });
     if (row.kind === 'none') return tools.connectNone(row.id);
-    return tools.check(row.id);
+    return tools.connectChecked(row.id);
   }
 
   // A command sign-in, in a VS Code terminal named after the server; `closed` resolves when that terminal closes

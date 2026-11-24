@@ -108,6 +108,14 @@ files. Required keys are marked **required**.
     Any kind may also have `doneWhen` and a `check` that must pass before the row counts as connected. A `check` is
     one of three shapes: `{ "method", "url", "body" }` (a request), `{ "mcpTool", "args" }` (a tool call that needs
     the sign-in) or `{ "command": [ ... ] }` (a status command).
+  - `install` (optional): where the server's program comes from when it isn't there yet:
+    `{ "github": { "repo": "owner/name", "tag": "latest", "assets": { "darwin-arm64": "<asset>", "darwin-x64": …,
+    "linux-x64": …, "linux-arm64": … } }, "to": "~/.local/bin/<name>" }`. `tag` is `latest` (the default) or a
+    release tag; `assets` names the release asset for each platform (a file name: no `/`, not starting with `-`);
+    `to` is where it goes (`~` expands). When `to`, or a `stdio` `command` that is a path, is missing, **Connect**
+    first downloads this computer's asset with `gh release download` (the person's GitHub sign-in, so a private
+    repository works), puts it at `to` with mode 0755, then signs in. Not signed in to GitHub: the row says so, with
+    a **Sign In to GitHub** button. A platform with no asset: the row says so.
 
 ```json
 {
@@ -139,6 +147,8 @@ files. Required keys are marked **required**.
 
 What Roost does with it (the design and what was built: [note 101](docs/notes/101-roost.md), the 0.4 bullets under Follow-ups):
 
+- **Sign in to GitHub** is the walkthrough's first step (without a company file it comes later), since a server's
+  `install` downloads through that sign-in.
 - **Connect Claude** offers the company's gateway only. The other ways (a Claude subscription, an Anthropic API key,
   AWS Bedrock, and Codex's ChatGPT login, OpenAI API key or Bedrock) are a tab's footer away, whenever the person
   likes. With `gateway.terminal`, `claude` in the terminal uses the same connection, and its address in `~/.claude/settings.json` follows whichever of `baseUrls` answers.

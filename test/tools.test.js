@@ -7,7 +7,7 @@ const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { Tools, promptOf, TOKEN_DIR } = require('../src/tools');
+const { Tools, promptOf, platformKey, scrub, TOKEN_DIR, GITHUB_FIRST, NOT_INSTALLED } = require('../src/tools');
 const { readCompany } = require('../src/company');
 const EXAMPLE = require('./fixtures/exampleCompany');
 
@@ -348,6 +348,108 @@ test('a server that exits at once: the row says why, nothing left running', asyn
   assert.strictEqual(r.state, 'notConnected');
   assert.strictEqual(r.reason, 'the server exited');
   await allGone(s.spawned);
+});
+
+// ---- install: a server's program from its GitHub release, through gh (a fake runner here: no gh, no network)
+function installSetup({ tag, assets = { 'linux-x64': 'wiki-mcp-linux-x64', 'darwin-arm64': 'wiki-mcp-darwin-arm64' }, platform = 'linux-x64' } = {}) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-install-'));
+  temps.push(home);
+  const tmpDir = path.join(home, 'tmp'); fs.mkdirSync(tmpDir);
+  const install = { github: { repo: 'example-org/wiki-mcp', assets }, to: '~/.local/bin/wiki-mcp' };
+  if (tag) install.github.tag = tag;
+  const data = { name: 'Example Co', mcpServers: [{ id: 'wiki', name: 'Example Wiki', about: 'the wiki',
+    register: { type: 'stdio', command: '~/.local/bin/wiki-mcp' }, connect: { kind: 'none' }, install }] };
+  const file = path.join(home, 'company.json');
+  fs.writeFileSync(file, JSON.stringify(data));
+  const r = readCompany(file, { home });
+  assert.ok(r.ok, r.error);
+  const runs = [];
+  const gh = { signedIn: true, download: { code: 0, stderr: '' }, bytes: '#!/bin/sh\necho wiki\n' };
+  const run = async (argv) => {
+    runs.push(argv);
+    if (argv[0] !== 'gh') throw Object.assign(new Error(`spawn ${argv[0]} ENOENT`), { code: 'ENOENT' });
+    if (argv[1] === 'auth') return gh.signedIn ? { code: 0, stderr: '' } : { code: 1, stderr: 'You are not logged into any GitHub hosts. To log in, run: gh auth login\n' };
+    if (argv[1] === 'release' && argv[2] === 'download') {
+      if (gh.download.code === 0) fs.writeFileSync(argv[argv.indexOf('--output') + 1], gh.bytes);
+      return { ...gh.download };
+    }
+    return { code: 1, stderr: 'unknown' };
+  };
+  const tools = new Tools({ company: r.company, home, run, platform, tmpDir, claudeJson: path.join(home, '.claude.json') });
+  return { home, tools, runs, gh, tmpDir, to: path.join(home, '.local', 'bin', 'wiki-mcp') };
+}
+
+test('install: platformKey is process.platform-process.arch; a token-like text is scrubbed', () => {
+  assert.strictEqual(platformKey('darwin', 'arm64'), 'darwin-arm64');
+  assert.strictEqual(platformKey('linux', 'x64'), 'linux-x64');
+  assert.strictEqual(platformKey(), `${process.platform}-${process.arch}`);
+  assert.strictEqual(scrub('HTTP 401 for ghp_abcDEF123 and gho_x_y, github_pat_11AB_cd'), 'HTTP 401 for ghp_… and gho_…, github_pat_…');
+});
+
+test('install: already there, nothing downloaded and no gh run', async () => {
+  const s = installSetup();
+  fs.mkdirSync(path.dirname(s.to), { recursive: true });
+  fs.writeFileSync(s.to, 'x');
+  const r = await s.tools.connectNone('wiki');
+  assert.strictEqual(r.state, 'connected', r.reason);
+  assert.deepStrictEqual(s.runs, []);
+});
+
+test('install: downloaded from the latest release (no tag on argv), placed at `to` mode 0755, then connected', async () => {
+  const s = installSetup();
+  assert.strictEqual((await s.tools.check('wiki')).reason, NOT_INSTALLED, 'a check never downloads');
+  assert.deepStrictEqual(s.runs, []);
+  const r = await s.tools.connectNone('wiki');
+  assert.strictEqual(r.state, 'connected', r.reason);
+  assert.deepStrictEqual(s.runs[0], ['gh', 'auth', 'status']);
+  const dl = s.runs[1];
+  const out = dl[dl.indexOf('--output') + 1];
+  assert.deepStrictEqual(dl, ['gh', 'release', 'download', '--repo', 'example-org/wiki-mcp', '--pattern', 'wiki-mcp-linux-x64', '--output', out]);
+  assert.ok(out.startsWith(s.tmpDir + path.sep), 'to a temporary file first');
+  assert.strictEqual(fs.readFileSync(s.to, 'utf8'), s.gh.bytes);
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(s.to).mode & 0o777, 0o755);
+  assert.deepStrictEqual(fs.readdirSync(s.tmpDir), [], 'the temporary directory is gone');
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(s.to)), ['wiki-mcp'], 'nothing else left beside it');
+  // a tag: on argv, before the options
+  const t = installSetup({ tag: 'v1.2.3', platform: 'darwin-arm64' });
+  await t.tools.connectNone('wiki');
+  assert.deepStrictEqual(t.runs[1].slice(0, 8), ['gh', 'release', 'download', 'v1.2.3', '--repo', 'example-org/wiki-mcp', '--pattern', 'wiki-mcp-darwin-arm64']);
+});
+
+test('install: gh not signed in: "Sign in to GitHub first", the row\'s action, and no download', async () => {
+  const s = installSetup();
+  s.gh.signedIn = false;
+  const r = await s.tools.connectNone('wiki');
+  assert.deepStrictEqual([r.state, r.reason, r.action], ['notConnected', GITHUB_FIRST, 'githubSignIn']);
+  assert.deepStrictEqual(s.runs, [['gh', 'auth', 'status']]);
+  assert.strictEqual(fs.existsSync(s.to), false);
+  // signed in now: Connect again downloads, and the action is gone
+  s.gh.signedIn = true;
+  const again = await s.tools.connectNone('wiki');
+  assert.deepStrictEqual([again.state, again.action], ['connected', '']);
+});
+
+test('install: no asset for this platform: said, with the platform, and gh never run', async () => {
+  const s = installSetup({ platform: 'linux-arm64' });
+  const r = await s.tools.connectNone('wiki');
+  assert.deepStrictEqual([r.state, r.reason, r.action], ['notConnected', 'No download of Example Wiki for this computer (linux-arm64).', '']);
+  assert.deepStrictEqual(s.runs, []);
+});
+
+test('install: a download that fails: a short reason, token-like text scrubbed, nothing placed', async () => {
+  const s = installSetup();
+  s.gh.download = { code: 1, stderr: 'some progress\nHTTP 404: Not Found (https://api.github.com/repos/example-org/wiki-mcp/releases/latest) token ghs_Secret123\n' };
+  const r = await s.tools.connectNone('wiki');
+  assert.strictEqual(r.state, 'notConnected');
+  assert.strictEqual(r.reason, 'The download of Example Wiki failed: HTTP 404: Not Found (https://api.github.com/repos/example-org/wiki-mcp/releases/latest) token ghs_…');
+  assert.ok(!JSON.stringify(s.tools.rows()).includes('Secret123'));
+  assert.strictEqual(fs.existsSync(s.to), false);
+  assert.deepStrictEqual(fs.readdirSync(s.tmpDir), [], 'the temporary directory is gone');
+  // gh itself missing
+  const m = installSetup();
+  m.tools.run = async (argv) => { throw Object.assign(new Error(`spawn ${argv[0]} ENOENT`), { code: 'ENOENT' }); };
+  const nogh = await m.tools.connectNone('wiki');
+  assert.strictEqual(nogh.reason, "Example Wiki couldn't be downloaded: the GitHub CLI (gh) isn't installed; the Roost installer installs it.");
 });
 
 (async () => {

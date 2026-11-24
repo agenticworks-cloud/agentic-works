@@ -12,6 +12,9 @@
 // A row is `connected` only when its check passed (`signedIn`) and Claude Code was given the server: a registration
 // that failed, or a different entry of the same name waiting for Replace (`conflict`), leaves it `notConnected` with
 // the reason.
+// A server with `install` (company.js) whose program isn't there yet is first downloaded, when Connect is pressed (never
+// by a check): gh release download, the asset for this platform, argv with no shell, to a temporary file that is then
+// moved to `to`, mode 0755. gh not signed in: the row says so, with `action: 'githubSignIn'` for the page's button.
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -26,6 +29,16 @@ const COMPLETE_MS = 15 * 60000;
 const POLL_MS = 2000;
 /** A command sign-in's row, while its terminal is open. */
 const COMMAND_WAIT_HINT = 'If the sign-in failed, close its terminal to try again.';
+const DOWNLOAD_MS = 5 * 60000;
+/** An install row's reason when gh has no login; the row's action then runs Roost: Sign In to GitHub. */
+const GITHUB_FIRST = 'Sign in to GitHub first.';
+/** A check's reason for a server whose program isn't downloaded yet (a check never downloads). */
+const NOT_INSTALLED = 'Not installed yet: Connect downloads it.';
+
+/** process.platform and process.arch as the company file's asset keys: darwin-arm64, linux-x64, ... */
+const platformKey = (platform = process.platform, arch = process.arch) => `${platform}-${arch}`;
+/** Anything that looks like a GitHub token, out of a text that is shown or logged. */
+const scrub = (t) => String(t || '').replace(/\b(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/g, '$1…');
 
 const expand = (p, home) => (p === '~' ? home : p.startsWith('~/') ? path.join(home, p.slice(2)) : p);
 
@@ -68,8 +81,10 @@ const lastLine = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim()).filt
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 class Tools {
-  constructor({ company, home = os.homedir(), fetch = globalThis.fetch, spawn = childProcess.spawn, run = defaultRun, claudeJson, onChange = () => {} }) {
+  constructor({ company, home = os.homedir(), fetch = globalThis.fetch, spawn = childProcess.spawn, run = defaultRun, claudeJson, onChange = () => {}, platform = platformKey(), tmpDir = os.tmpdir() }) {
     this.home = home;
+    this.platform = platform;
+    this.tmpDir = tmpDir;
     this.fetch = fetch;
     this.spawn = spawn;
     this.run = run;
@@ -80,7 +95,7 @@ class Tools {
     this.servers = new Map(((company && company.mcpServers) || []).map((s) => [s.id, s]));
     this.state = new Map([...this.servers.values()].map((s) => [s.id, {
       id: s.id, name: s.name, about: s.about, kind: s.connect.kind, page: s.connect.page || '',
-      state: 'unknown', reason: '', prompt: null, conflict: false, signedIn: false,
+      state: 'unknown', reason: '', prompt: null, conflict: false, signedIn: false, action: '',
     }]));
     this.clients = new Set();
     this.disposed = false;
@@ -100,6 +115,7 @@ class Tools {
 
   async check(id) {
     if (this._busy(id)) return { ...this._row(id) };
+    if (this._needsInstall(this._server(id))) return this._set(id, { state: 'notConnected', reason: NOT_INSTALLED });
     return this._checkAndRegister(id);
   }
 
@@ -108,6 +124,7 @@ class Tools {
     if (this._busy(id)) return { ...this._row(id) };
     const t = String(token || '').trim();
     if (!t) return this._set(id, { state: 'notConnected', reason: 'The token is empty.' });
+    if (!(await this._install(server))) return { ...this._row(id) };
     this._set(id, { state: 'checking', reason: '' });
     const failed = server.connect.check ? await this._runCheck(server, t) : null;
     if (failed) return this._set(id, { state: 'notConnected', reason: failed });
@@ -123,6 +140,7 @@ class Tools {
   async connectCommand(id, { runInTerminal }) {
     const server = this._server(id);
     if (this._busy(id)) return { ...this._row(id) };
+    if (!(await this._install(server))) return { ...this._row(id) };
     this._set(id, { state: 'connecting', reason: '', prompt: null });
     const file = server.connect.doneWhen && server.connect.doneWhen.file;
     const before = stamp(file);   // signing in again: the file is usually there already, and only a new one is done
@@ -148,6 +166,7 @@ class Tools {
   async connectMcpTool(id, { onPrompt = () => {} } = {}) {
     const server = this._server(id);
     if (this._busy(id)) return { ...this._row(id) };
+    if (!(await this._install(server))) return { ...this._row(id) };
     const c = server.connect;
     this._set(id, { state: 'connecting', reason: '', prompt: null });
     const client = this._client(server, SIGN_IN_MS);
@@ -171,7 +190,15 @@ class Tools {
     return this._checkAndRegister(id);
   }
 
-  async connectNone(id) { return this.check(id); }
+  async connectNone(id) { return this.connectChecked(id); }
+
+  /** Connect for a row whose sign-in is a check (none, or a tokenPage row's saved token): installed first, then checked. */
+  async connectChecked(id) {
+    const server = this._server(id);
+    if (this._busy(id)) return { ...this._row(id) };
+    if (!(await this._install(server))) return { ...this._row(id) };
+    return this._checkAndRegister(id);
+  }
 
   async replaceRegistration(id) {
     const server = this._server(id);
@@ -206,6 +233,7 @@ class Tools {
   _set(id, patch) {
     const row = this._row(id);
     if (patch.state === 'notConnected' && patch.signedIn === undefined) patch = { ...patch, signedIn: false };
+    if (patch.state !== undefined && patch.action === undefined) patch = { ...patch, action: '' };
     Object.assign(row, patch);
     if (!this.disposed) { try { this.onChange(this.rows()); } catch (_) { /* a listener's error isn't ours */ } }
     return { ...row };
@@ -239,6 +267,76 @@ class Tools {
       fs.renameSync(tmp, file);
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch (_) { /* never made */ }
+      throw e;
+    }
+  }
+
+  // ---- install: the server's program, from its GitHub release, when it isn't there
+
+  /** Whether the server has an install and its program (`to`, or a register.command that is a path) is missing. */
+  _needsInstall(server) {
+    const inst = server.install;
+    if (!inst) return false;
+    const files = [inst.to];
+    const r = server.register;
+    if (r.type === 'stdio' && r.command.includes('/')) files.push(r.command);
+    return files.some((f) => !fs.existsSync(f));
+  }
+
+  /** true when there is nothing to install or the download landed; false with the row set to why not. */
+  async _install(server) {
+    if (!this._needsInstall(server)) return true;
+    const id = server.id, inst = server.install, gh = inst.github;
+    const asset = gh.assets[this.platform];
+    if (!asset) { this._set(id, { state: 'notConnected', reason: `No download of ${server.name} for this computer (${this.platform}).` }); return false; }
+    this._set(id, { state: 'connecting', reason: 'Checking the GitHub sign-in…', prompt: null });
+    let auth;
+    try {
+      auth = await this.run(['gh', 'auth', 'status'], { timeoutMs: CHECK_MS });
+    } catch (e) {
+      const why = e && e.code === 'ENOENT' ? "the GitHub CLI (gh) isn't installed; the Roost installer installs it." : scrub(e && e.message);
+      this._set(id, { state: 'notConnected', reason: `${server.name} couldn't be downloaded: ${why}` });
+      return false;
+    }
+    if (this.disposed) return false;
+    if (auth.code !== 0) { this._set(id, { state: 'notConnected', reason: GITHUB_FIRST, action: 'githubSignIn' }); return false; }
+    this._set(id, { state: 'connecting', reason: `Downloading ${asset}…` });
+    let dir = '';
+    try {
+      dir = fs.mkdtempSync(path.join(this.tmpDir, 'roost-install-'));
+      const tmp = path.join(dir, asset);
+      // no tag: gh downloads from the latest release (`gh release download --help`)
+      const argv = ['gh', 'release', 'download', ...(gh.tag === 'latest' ? [] : [gh.tag]), '--repo', gh.repo, '--pattern', asset, '--output', tmp];
+      let r;
+      try {
+        r = await this.run(argv, { timeoutMs: DOWNLOAD_MS });
+      } catch (e) {
+        throw new Error(scrub(e && e.message));
+      }
+      if (r.code !== 0) throw new Error(scrub(lastLine(r.stderr)) || `gh exited with code ${r.code}`);
+      if (!fs.existsSync(tmp)) throw new Error('gh gave no file');
+      this._place(tmp, inst.to);
+    } catch (e) {
+      if (!this.disposed) this._set(id, { state: 'notConnected', reason: `The download of ${server.name} failed: ${scrub(e && e.message)}` });
+      return false;
+    } finally {
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    }
+    if (this.disposed) return false;
+    this._set(id, { reason: '' });
+    return true;
+  }
+
+  // The downloaded file to `to`: copied beside it first (the temp dir may be another disk), then renamed over it.
+  _place(tmp, to) {
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    const next = `${to}.${process.pid}-${Date.now()}.tmp`;
+    try {
+      fs.copyFileSync(tmp, next);
+      fs.chmodSync(next, 0o755);
+      fs.renameSync(next, to);
+    } catch (e) {
+      try { fs.unlinkSync(next); } catch (_) { /* never made */ }
       throw e;
     }
   }
@@ -345,4 +443,4 @@ class Tools {
   }
 }
 
-module.exports = { Tools, promptOf, TOKEN_DIR, COMMAND_WAIT_HINT };
+module.exports = { Tools, promptOf, platformKey, scrub, TOKEN_DIR, COMMAND_WAIT_HINT, GITHUB_FIRST, NOT_INSTALLED };

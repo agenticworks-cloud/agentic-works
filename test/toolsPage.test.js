@@ -99,6 +99,16 @@ assert.ok(stateOf('tickets').startsWith('Signed in, but'), stateOf('tickets'));
 button('tickets', 'Replace').click();
 assert.deepStrictEqual(out.pop(), { type: 'replace', id: 'tickets' });
 
+// a download that needs GitHub's sign-in: said on the row, with Sign In to GitHub; no button otherwise
+assert.strictEqual(button('tickets', 'Sign In to GitHub'), undefined);
+host({ type: 'rows', rows: [{ ...tickets, state: 'notConnected', signedIn: false, reason: 'Sign in to GitHub first.', action: 'githubSignIn' }] });
+assert.strictEqual(stateOf('tickets'), 'Not connected: Sign in to GitHub first.');
+button('tickets', 'Sign In to GitHub').click();
+assert.deepStrictEqual(out.pop(), { type: 'githubSignIn', id: 'tickets' });
+host({ type: 'rows', rows: [{ ...tickets, state: 'connecting', reason: 'Downloading example-mcp…', action: '' }] });
+assert.strictEqual(button('tickets', 'Sign In to GitHub'), undefined, 'gone once the row moves on');
+assert.strictEqual(stateOf('tickets'), 'Connecting… Downloading example-mcp…');
+
 // names from the company file are text, never markup
 host({ type: 'rows', rows: [row({ id: 'odd', name: '<img src=x onerror=alert(1)>', about: '<b>bold</b>' })] });
 assert.strictEqual(tool('odd').querySelector('img'), null);

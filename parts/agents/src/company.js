@@ -148,6 +148,34 @@ function connect(c, at, reg, home) {
   return out;
 }
 
+// install: where a server's program comes from when it isn't there yet: a GitHub release's asset for this platform,
+// downloaded with gh (src/tools.js) and put at `to`. Everything that reaches gh's argv is checked here: no value can
+// start with "-" (an option), and an asset name is a file name, not a path.
+const PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64'];
+const REPO = /^[\w.-]+\/[\w.-]+$/;
+
+function install(v, at, home) {
+  if (v === undefined || v === null) return null;
+  if (!isObject(v)) throw new Invalid(at, 'must be an object');
+  const g = v.github;
+  if (!isObject(g)) throw new Invalid(`${at}.github`, 'must be an object');
+  if (!isString(g.repo) || !REPO.test(g.repo)) throw new Invalid(`${at}.github.repo`, 'must be owner/name');
+  const tag = g.tag === undefined ? 'latest' : g.tag;
+  if (!isString(tag) || !tag || tag.startsWith('-')) throw new Invalid(`${at}.github.tag`, 'must be "latest" or a tag that does not start with -');
+  if (!isObject(g.assets)) throw new Invalid(`${at}.github.assets`, 'must be an object of asset names by platform');
+  const assets = {};
+  for (const k of PLATFORMS) {
+    const a = g.assets[k];
+    if (a === undefined) continue;
+    if (!isString(a) || !a || a.includes('/') || a.startsWith('-')) throw new Invalid(`${at}.github.assets.${k}`, 'must be a file name, with no / and not starting with -');
+    assets[k] = a;
+  }
+  if (!isString(v.to) || !v.to) throw new Invalid(`${at}.to`, 'must be a non-empty string');
+  const to = expand(v.to, home);
+  if (!path.isAbsolute(to)) throw new Invalid(`${at}.to`, 'must be an absolute path or start with ~/');
+  return { github: { repo: g.repo, tag, assets }, to };
+}
+
 function server(s, i, seen, home) {
   const at = `mcpServers[${i}]`;
   if (!isObject(s)) throw new Invalid(at, 'must be an object');
@@ -166,7 +194,7 @@ function server(s, i, seen, home) {
   for (const [k, v] of onArgv) {
     if (v.includes(TOKEN)) throw new Invalid(`${at}.register.${k}`, `${TOKEN} may appear only in headers or env`);
   }
-  return { id: s.id, name: s.name, about: s.about, register: reg, connect: conn };
+  return { id: s.id, name: s.name, about: s.about, register: reg, connect: conn, install: install(s.install, `${at}.install`, home) };
 }
 
 function validate(data, home) {

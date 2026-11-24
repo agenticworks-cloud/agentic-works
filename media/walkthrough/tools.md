@@ -11,6 +11,10 @@ way, and the row shows the button it needs:
   paste the code there and sign in.
 - **Connect** alone: nothing to sign in to; the tool is checked.
 
+A tool that isn't on this computer yet is downloaded first, when you press its button: from your company's GitHub
+releases, with your GitHub sign-in (the **Sign in to GitHub** step). Not signed in yet, the row says so and offers
+**Sign In to GitHub**; if there is no download for this kind of computer, the row says that too.
+
 Once a tool's check passes, Claude Code is given it, for every Claude tab and for `claude` in the terminal. If Claude
 Code already has a different server of the same name, the row says so and offers **Replace**; until then that tool
 is not connected.
