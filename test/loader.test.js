@@ -68,6 +68,7 @@ function setup(config = {}) {
   };
   fake.parts = {};
   fake.calls = [];
+  process.env.ROOST_COMPANY_FILE = path.join(root, 'no-company.json');   // none, unless a test writes one
   return { ui, extension, root, base };
 }
 
@@ -98,6 +99,8 @@ test('enabled parts start, disabled do not', async () => {
     'roost.jira.failed': false,
     'roost.pullRequests.failed': false,
     'roost.agents.failed': false,
+    'roost.company': false,
+    'roost.companyTools': false,
   });
   assert.strictEqual(roost.state('teams'), 'off');
   assert.strictEqual(roost.state('agents'), 'on');
@@ -134,7 +137,7 @@ test('every failed key is cleared before any part starts', async () => {
   fake.parts.pullRequests = { activate: () => { throw new Error('boom'); } };
   await activate(extension, base);
   await ui.applied;
-  assert.deepStrictEqual(sentBefore, [
+  assert.deepStrictEqual(sentBefore.filter(([k]) => k.endsWith('.failed')), [
     ['roost.agents.failed', false],
     ['roost.jira.failed', false],
     ['roost.pullRequests.failed', false],
@@ -145,6 +148,8 @@ test('every failed key is cleared before any part starts', async () => {
     'roost.jira.failed': false,
     'roost.pullRequests.failed': true,
     'roost.agents.failed': false,
+    'roost.company': false,
+    'roost.companyTools': false,
   }, 'and none of those lands after its part was marked failed');
   await extension.deactivate();
 });
@@ -659,6 +664,60 @@ test('first start: does not hold up activation or the parts', async () => {
   const roost = await within(env.extension.activate(env.base));
   assert.notStrictEqual(roost, 'timed out');
   assert.strictEqual(await within(roost.ready), undefined, 'the parts start');
+  await env.extension.deactivate();
+});
+
+const COMPANY = { name: 'Example Co', mcpServers: [{ id: 'docs', name: 'Example Docs', about: 'the docs', register: { type: 'http', url: 'https://mcp.example.com/mcp' }, connect: { kind: 'none' } }] };
+function withCompanyFile(content) {
+  const env = setup();
+  const file = path.join(env.root, 'company.json');
+  fs.writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content));
+  process.env.ROOST_COMPANY_FILE = file;
+  return { ...env, file };
+}
+
+test('roost.company and roost.companyTools follow the company file', async () => {
+  let env = withCompanyFile(COMPANY);
+  let roost = await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], true);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], true);
+  assert.strictEqual(roost.company.ok, true);
+  assert.strictEqual(roost.company.company.name, 'Example Co');
+  await env.extension.deactivate();
+
+  env = withCompanyFile({ ...COMPANY, mcpServers: [] });
+  await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], true);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  await env.extension.deactivate();
+});
+
+test('an invalid company file is logged once and both keys are false', async () => {
+  const env = withCompanyFile({ name: '' });
+  await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], false);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  const lines = env.ui.out.filter((l) => l.includes('not a valid company file'));
+  assert.strictEqual(lines.length, 1, env.ui.out.join('\n'));
+  assert.ok(lines[0].includes(env.file));
+  await env.extension.deactivate();
+});
+
+test('no company file: both keys false and nothing logged', async () => {
+  const env = setup();
+  const roost = await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['roost.company'], false);
+  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  assert.strictEqual(roost.company.missing, true);
+  assert.ok(!env.ui.out.some((l) => l.includes('not a valid company file')));
+  await env.extension.deactivate();
+});
+
+test('a company context key that cannot be set is logged', async () => {
+  const env = withCompanyFile(COMPANY);
+  env.ui.failSetContext = 100;
+  await activate(env.extension, env.base);
+  assert.ok(env.ui.out.some((l) => l.includes('roost.company could not be set')), env.ui.out.join('\n'));
   await env.extension.deactivate();
 });
 

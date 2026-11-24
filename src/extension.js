@@ -8,6 +8,7 @@
 const path = require('node:path');
 const vscode = require('vscode');
 const { readParts, partContext } = require('./parts');
+const { companyFile, readCompany } = require('./company');
 
 const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
@@ -195,6 +196,15 @@ class Roost {
       .catch((err) => this.log(`${key} could not be set: ${errorText(err)}`));
   }
 
+  // roost.company: a valid company file; roost.companyTools: valid, with at least one MCP server. A key that cannot
+  // be set is logged, as setFailed does.
+  setCompanyContexts() {
+    const c = this.company;
+    const keys = { 'roost.company': c.ok, 'roost.companyTools': c.ok && c.company.mcpServers.length > 0 };
+    return Promise.all(Object.entries(keys).map(([key, value]) => Promise.resolve(vscode.commands.executeCommand('setContext', key, value))
+      .catch((err) => this.log(`${key} could not be set: ${errorText(err)}`))));
+  }
+
   // Every failed key false first (one can be left from before an extension host restart); a part that fails sets
   // its own true after that. The parts start side by side: one whose activate never ends holds up none of the
   // others. Nothing here is awaited before the parts' activate calls, so each part registers its serializers before
@@ -305,8 +315,13 @@ function activate(context) {
     terminal.show();
     terminal.sendText('gh auth login --hostname github.com && exit');
   }));
+  // the company file, read before the parts start; a file that is there but invalid is logged once
+  const file = companyFile();
+  r.company = readCompany(file);
+  if (!r.company.ok && !r.company.missing) r.log(`${file} is not a valid company file: ${r.company.error}`);
+  const companyKeys = r.setCompanyContexts();
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
-  r.ready = r.startAll().catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
+  r.ready = Promise.all([companyKeys, r.startAll()]).then(() => undefined).catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
   // after the parts have started, and not awaited here: activation does not wait for it
   r.firstStarted = r.ready.then(() => r.firstStart()).catch((err) => r.log(`Roost first start failed: ${errorText(err)}`));
   return r;
