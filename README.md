@@ -137,7 +137,7 @@ files. Required keys are marked **required**.
 }
 ```
 
-What Roost does with it:
+What Roost does with it (the design and what was built: [note 101](docs/notes/101-roost.md), the 0.4 bullets under Follow-ups):
 
 - **Connect Claude** offers the company's gateway as the recommended way (the other ways stay: a Claude
   subscription, an Anthropic API key, AWS Bedrock, Codex only). With `gateway.terminal`, `claude` in the terminal

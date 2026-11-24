@@ -453,7 +453,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     your company's app (0123abcd…) · Change*. **Signed in**, the command shows "Sign out first to change the app
     Teams signs in with." rather than a form under the account line (the form lives only in the signed-out page);
     while a sign-in is waiting, the command cancels it and opens the form.
-- **Agents: a company's gateway, ready but for the key (design, for 0.4)** *(Sean, 2026-11-24)*. A company LLM
+- **Agents: a company's gateway, ready but for the key (Built, 0.4.0; superseded in shape by the company file below)** *(Sean, 2026-11-24)*. A company LLM
   gateway usually needs a personal key that each person makes on a web page of the company's. Today a company
   installer has to ask for it in the terminal before VS Code ever opens. Instead the installer prepares everything
   but the key, and the walkthrough is where the person gets the key and pastes it. Roost stays generic: what a
@@ -492,13 +492,14 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - **Open:** whether `apiKeyHelper` with a key that doesn't exist yet fails gently in a terminal `claude` started
     before the walkthrough; whether a VPN-off machine should prefer the public address silently or say so.
 
-- **A company file, Connect Claude, and Connect your tools (design, for 0.4; supersedes the preset above)**
+- **A company file, Connect Claude, and Connect your tools (Built, 0.4.0; supersedes the preset above)**
   *(Sean, 2026-11-24, designing a company installer on Roost: "the walkthrough walks through everything except
   what's already determined" for the company; subscription, API, Bedrock and Codex must work as well as the
   company's gateway; the company's MCP servers get a walkthrough step; one sign-in serves an MCP server and the
   matching part)*. Company details stay out of this repo; they come from one file the company's installer writes.
   - **The company file**, `~/.config/roost/company.json`: `name`; `gateway` (the preset above: `name`, `baseUrls`,
-    `keyPage`, `requiredModel`, `env`, `keyFiles`, plus `terminal`: write terminal `claude`'s settings by default);
+    `keyPage`, `requiredModel`, `env`, `keyFiles`, plus `terminal`: write terminal `claude`'s settings by default, and
+    `routerPrefixes`: model-id prefixes the gateway menu groups as Routers, default none);
     `mcpServers`: a list of `{ id, name, about, register, connect }`, where `register` is what Claude Code is
     given (`http` with a URL and headers, `${token}` standing for the token; or `stdio` with a command and env) and
     `connect` is how it gets signed in: `tokenPage` (a page to open, the token pasted, a check request), `command`
@@ -579,6 +580,63 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
       on a Mac without Homebrew it runs `xcode-select --install` and waits up to 10 minutes. "Homebrew was used" means
       this run installed something with it, or `code`, `gh` or `git` comes from it; its shellenv goes in a block of
       its own, step `homebrew`, with no line when Homebrew wasn't used.
+
+  - **Built (0.4.0), rulings made during the build and the final fixes** *(Sean's and mine, 2026-11-24; each: the
+    ruling, why, and the cost if wrong)*:
+    - *R1, no launcher.* Nothing is put at `~/.local/bin/claude`: Claude Code's CLI lives there and its updater
+      rewrites it. Terminal `claude`'s address is kept current by Roost instead (`syncTerminalBaseUrl`, after each
+      successful re-probe at a gateway tab start and at activation), and only while the value is the one Roost wrote.
+      `desiredSettings('gateway')` always sets `env.ANTHROPIC_BASE_URL`. Sean chose it. If wrong: off the VPN with VS
+      Code closed, terminal `claude` points at the last address until VS Code starts.
+    - *R2, the installer installs the Claude Code CLI.* Step `claude` (after companions) downloads Anthropic's
+      official installer and runs it (as Homebrew's is), when `claude` isn't on the PATH; `~/.local/bin` joins Roost's
+      PATH block when it isn't on the original PATH. Note 102 has the step; a company installer need not install it.
+      Sean's call. If wrong: an extra download of about 100 MB for users who never use a terminal. The up-front
+      list of system-wide changes counts the curl and ca-certificates this step may need.
+    - *R3, never `--yes` for company layers.* An earlier line of note 102 said a company installer passes `--yes`;
+      this note's rule wins (it would answer "uninstall the standalone four?" for the user), and 102 was fixed.
+    - *R4, the final review ran before closing.* The whole-branch review needed the plan, so the plan was deleted
+      only afterwards, with the final fixes folded in here.
+    - *R5, company mentions removed.* Pre-existing company mentions were removed from the current files in one
+      separate commit, with no history rewrite (the repo is public, nothing secret, the history already public, and
+      SHAs are referenced elsewhere). The gateway menu's Routers grouping, once a fixed prefix, now follows the company
+      file's `gateway.routerPrefixes` (default none). A guard test, `test/noCompanyNames.test.js`, run by `make
+      test`, scans the tracked files for company names (stored encoded, so it doesn't name them) and fails on a
+      hit. If wrong: a user with no company file loses the Routers grouping, and the company's own file
+      must add `routerPrefixes` (until it does its routers show under Other).
+    - *Task 3, whose address is probed.* The company's addresses are probed, and the gateway file's key sent to them,
+      only when the file's `ANTHROPIC_BASE_URL` is one of the company's `baseUrls` (normalized); otherwise no address
+      is tried. A key for a user's own gateway must not go to the company's hosts. The company form follows the same
+      rule: it reuses the file's key only for a company address (`companyKeyKept`), else shows the key field and
+      answers "A key is needed." with no request. If wrong: a company gateway saved under an address variant is
+      not re-probed.
+    - *Task 2, `company.js` copies.* `src/company.js` and `parts/agents/src/company.js` stay two byte-identical
+      copies, since a part never requires Roost's `src/` (as with `settingsCarryOver.js`); a test catches drift. If
+      wrong: a later edit must touch both.
+    - *Task 5, the walkthrough table.* This note's *First start* table was stale after the order changed; the task
+      that owns the walkthrough order updates it, and this closing pass checked it against the shipped manifest.
+    - *Task 6, "connected" and secrets.* A row is connected only when its registration succeeded with no conflict or
+      reason, and *Connect your tools* is ticked only when all are. A `${token}` is allowed only in a `tokenPage`
+      server's http headers or stdio env, never in args or the command (the argv rule); `company.js` validation
+      (both copies) and registration refuse otherwise, so a server that wants the token as an argument must take it
+      from env. `~/.claude.json` is Claude Code's file in `$HOME`: the rule there is a 0600 file, the 0700-directory
+      rule doesn't apply.
+    - *Final fixes.* (1) the company form no longer sends a key kept from another gateway (above). (2) Connect Claude's
+      conflicts and Saved are remembered by the host and resent when its page is shown again, and the gateway form
+      opens beside the panel, because a hidden webview drops messages. (3) `writeSettings` re-reads the file and
+      applies each change only if the key still holds its `from`; a key that changed since the plan is returned as a
+      conflict and asked again; a `kept` entry that changed is dropped from the record. (4) The installer's git
+      step on Ubuntu and Debian runs `apt-get update` and then a non-interactive `apt-get install -y git`; the
+      `claude` step's sudo (curl and ca-certificates) is listed up front. (5) A `command` sign-in's row says "If the
+      sign-in failed, close its terminal to try again." while its terminal is open.
+  - **Built (0.4.0), not checked live.** Everything above was run by the offline tests only (`make test`, the
+    installer's tests: 127 run, 4 skipped on this machine). Not run: hidden webviews in a real VS Code (the resend
+    after a hidden page is covered by a stub that drops messages); a real gateway (the key check, the re-probe, the
+    `routerPrefixes` grouping); a real installer run on a fresh machine (the `claude` and git steps, the PATH
+    block); and `make test-package`'s size check, which cannot run in a worktree because `node_modules` is a
+    symlink there.
+  - **Plan:** `docs/superpowers/plans/2026-11-24-roost-0.4-company.md`, last at bb25a76.
+    Built: branch `feat/roost-0.4`, merged directly, with no PR. The plan is deleted; this note is the record.
 
 ## Left to the builder
 
