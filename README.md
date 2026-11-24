@@ -80,16 +80,32 @@ A company can set Roost up for its people by writing one file, `~/.config/roost/
 `ROOST_COMPANY_FILE` environment variable overrides the path). Roost reads it at start; an invalid file is noted in
 the Roost output channel and ignored. Fields:
 
-- `name`: the company's name.
-- `gateway` (optional): `name`, `baseUrls` (tried in order, so a VPN address can come first), `keyPage` (where a
-  person makes a key), `requiredModel`, `env`, `keyFiles` (other places the key is saved) and `terminal` (when true,
+The file is rejected as a whole if anything in it is invalid (the Roost output channel names the offending value,
+such as `mcpServers[1].connect.kind`); unknown keys are ignored, and `~` expands in key files, commands and `doneWhen`
+files. Required keys are marked **required**.
+
+- `name` (**required**): the company's name.
+- `gateway` (optional): `name` (**required**), `baseUrls` (**required**, a non-empty list of http(s) URLs, tried in
+  order, so a VPN address can come first), `keyPage` (**required**, an http(s) URL where a person makes a key), and
+  optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved) and `terminal` (true, so
   terminal `claude` is set up by default too).
-- `mcpServers` (optional): a list of `{ id, name, about, register, connect }`. `register` is what Claude Code is
-  given: `http` (a `url` and `headers`, with `${token}` standing for the token) or `stdio` (a `command`, `args` and
-  `env`). `connect` says how it is signed in: `kind` is `tokenPage` (a `page` to open, the token pasted), `command`
-  (a sign-in command run in a terminal; needs `doneWhen`), `mcpTool` (the server's own sign-in tool, `tool`, with
-  `args` and `complete`; stdio servers only) or `none`. `doneWhen` is `{ "file": ... }`, the file that appears once
-  signed in. `check` (a request, an `mcpTool` call or a `command`) must pass before a row counts as connected.
+- `mcpServers` (optional): a list of servers with distinct ids, each `{ id, name, about, register, connect }`.
+  - `id` (**required**): letters, digits, `_` or `-`. `name` and `about` (**required**): strings.
+  - `register` (**required**) is what Claude Code is given: `{ "type": "http", "url", "headers" }` or
+    `{ "type": "stdio", "command", "args", "env" }`. `${token}` may appear only in a `tokenPage` server's http
+    `headers` or stdio `env`, never in a URL, a command or its args.
+  - `connect` (optional, default `none`) says how the server is signed in; `kind` is one of:
+
+    | `kind` | Keys |
+    | --- | --- |
+    | `tokenPage` | `page`: an http(s) URL to open; the person pastes the token |
+    | `command` | `command`: a non-empty array, the sign-in command run in a terminal; `doneWhen.file` (required): the file that appears once signed in |
+    | `mcpTool` | `tool`: the server's own sign-in tool; `args` and `complete`: the arguments of the first and second call; `doneWhen.file`; needs a `stdio` `register` |
+    | `none` | nothing to sign in |
+
+    Any kind may also have `doneWhen` and a `check` that must pass before the row counts as connected. A `check` is
+    one of three shapes: `{ "method", "url", "body" }` (a request), `{ "mcpTool", "args" }` (a tool call that needs
+    the sign-in) or `{ "command": [ ... ] }` (a status command).
 
 ```json
 {
