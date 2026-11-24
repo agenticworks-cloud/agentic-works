@@ -288,8 +288,9 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   assert.strictEqual(w.id, 'roost.getStarted');
   const when = Object.fromEntries(w.steps.map((s) => [s.id, s.when]));
   assert.deepStrictEqual(when, {
-    agents: 'config.roost.agents.enabled', teams: 'config.roost.teams.enabled', jira: 'config.roost.jira.enabled',
-    github: 'config.roost.pullRequests.enabled', parts: undefined,
+    agents: 'config.roost.agents.enabled && !roost.agents.failed', teams: 'config.roost.teams.enabled && !roost.teams.failed',
+    jira: 'config.roost.jira.enabled && !roost.jira.failed', github: 'config.roost.pullRequests.enabled && !roost.pullRequests.failed',
+    parts: undefined,
   });
   const commands = new Set(m.contributes.commands.map((c) => c.command));
   for (const step of w.steps) {

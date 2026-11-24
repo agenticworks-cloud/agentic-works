@@ -5,6 +5,6 @@ you allow it, and keeps its history across reloads.
 
 - **Agents: New Claude Tab** opens one; **Agents: New Codex Tab** opens a Codex one.
 - Each tab's footer shows which backend it uses and the usage left.
-- The Agents view in the activity bar lists your tabs and past sessions.
+- The **Perch** view in the activity bar lists your tabs and past sessions.
 
 Claude Code needs a sign-in the first time: **Agents: Log in to Claude (subscription)**, or an API key.

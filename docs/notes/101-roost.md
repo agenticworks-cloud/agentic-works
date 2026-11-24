@@ -184,7 +184,7 @@ After the PRs tab, the same first start opens Roost's walkthrough, **Get started
 (`workbench.action.openWalkthrough`, `seanahn.roost#roost.getStarted`); a failure is logged like the PRs tab's. The
 walkthrough is Roost's own (`contributes.walkthroughs` in roost.contributes.json, the one contribution point only
 Roost may use), so it also sits on VS Code's Welcome page, and **Roost: Get Started** opens it again. Its steps, each
-shown only while its part is switched on (`when: config.roost.<id>.enabled`), have a button and a short page
+shown only while its part is switched on and started (`when: config.roost.<id>.enabled && !roost.<id>.failed`), have a button and a short page
 (media/walkthrough/*.md):
 
 | Step | Button | Done when |

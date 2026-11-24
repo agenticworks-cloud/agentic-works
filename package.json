@@ -778,7 +778,7 @@
             "media": {
               "markdown": "media/walkthrough/agents.md"
             },
-            "when": "config.roost.agents.enabled",
+            "when": "config.roost.agents.enabled && !roost.agents.failed",
             "completionEvents": [
               "onCommand:perch.newClaude",
               "onCommand:perch.newClaudeGateway",
@@ -792,7 +792,7 @@
             "media": {
               "markdown": "media/walkthrough/teams.md"
             },
-            "when": "config.roost.teams.enabled",
+            "when": "config.roost.teams.enabled && !roost.teams.failed",
             "completionEvents": [
               "onCommand:chirp.signIn"
             ]
@@ -804,7 +804,7 @@
             "media": {
               "markdown": "media/walkthrough/jira.md"
             },
-            "when": "config.roost.jira.enabled",
+            "when": "config.roost.jira.enabled && !roost.jira.failed",
             "completionEvents": [
               "onCommand:jay.signIn"
             ]
@@ -812,11 +812,11 @@
           {
             "id": "github",
             "title": "Sign in to GitHub",
-            "description": "The Pull Requests tab shows the PRs waiting on you, using the GitHub CLI's sign-in.\n[Sign In to GitHub](command:roost.githubSignIn)",
+            "description": "The PRs tab shows the PRs waiting on you, using the GitHub CLI's sign-in.\n[Sign In to GitHub](command:roost.githubSignIn)",
             "media": {
               "markdown": "media/walkthrough/github.md"
             },
-            "when": "config.roost.pullRequests.enabled",
+            "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed",
             "completionEvents": [
               "onCommand:roost.githubSignIn"
             ]

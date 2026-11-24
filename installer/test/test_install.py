@@ -1202,12 +1202,34 @@ class TestLook(_Installer):
             with self.subTest(label):
                 self.log.write_text("")
                 tty = self.tty(*answers) if answers else str(self.tmp / "no-tty")
-                rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=tty), *args)
+                # the helper says when it added the key (the stub says so whatever it was asked)
+                env = self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=tty,
+                               PY_SETTINGS_OUT="codebase search added" if on else "")
+                rc, out = self.run_pipe(env, *args)
                 self.assertEqual(rc, 0, out)
                 want = f"python3 {HELPER} vscode-settings" + (" --codebase-search" if on else "")
                 self.assertEqual(self.python3_calls()[0], want, out)
                 self.assertEqual(question in out, asked, out)
                 self.assertEqual(hint in out, on, out)
+        # A value the user already had is kept: the helper says nothing, so no hint.
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("")))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Settings (added to settings.json)", out)
+        self.assertNotIn(hint, out)
+        # End of input on an open terminal: the default, on.
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY="/dev/null"))
+        self.assertEqual(rc, 0, out)
+        self.assertIn(question, out)
+        self.assertEqual(self.python3_calls()[0], f"python3 {HELPER} vscode-settings --codebase-search")
+        # No python3: the Settings step is skipped, so nothing is asked.
+        self.log.write_text("")
+        env = self.env("macos", ALL_PRESENT, XCODE_SELECT_FAIL="1", ROOST_INSTALL_PYTHON3="/usr/bin/python3",
+                       ROOST_INSTALL_TTY=self.tty(""))
+        rc, out = self.run_pipe(env)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(question, out)
         # --skip settings: neither asked nor written
         self.log.write_text("")
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("")), "--skip", "settings")
@@ -1281,7 +1303,8 @@ class TestLook(_Installer):
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.python3_calls(), [], self.stub_log())
-        self.assertEqual(self.logged("xcode-select -p"), ["xcode-select -p"] * 2)
+        # three checks: before the codebase-search question, then Settings and Icons
+        self.assertEqual(self.logged("xcode-select -p"), ["xcode-select -p"] * 3)
         for label in ("Settings", "Icons"):
             skipped = [mark for mark in self.marks(out) if mark.startswith(f"– {label}: ")]
             self.assertEqual(len(skipped), 1, out)

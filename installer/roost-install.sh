@@ -963,6 +963,7 @@ ask_codebase_search() {  # the one question about Roost's parts: codebase search
   skip_named settings && return 0
   [ -n "$CLASH" ] && return 0
   [ "$DRY_RUN" = 1 ] && return 0  # the dry run shows the default
+  python_ok || return 0  # the Settings step is skipped without python3: nothing to ask for
   ask_yn "Turn on codebase search in Claude and Codex tabs (search the workspace by keywords)? [Y/n]"
   rc=$?
   [ "$rc" = 1 ] && CODEBASE_SEARCH=0  # no terminal, or no answer: the default, on
@@ -974,7 +975,7 @@ apply_settings() {  # the look's four keys, and codebase search when on, each on
   ask_codebase_search
   [ "$CODEBASE_SEARCH" = 1 ] && sub="$sub --codebase-search"
   look_step settings "Settings" "$sub" "added to settings.json" "couldn't write VS Code's settings; see $LOG"
-  if [ "$CODEBASE_SEARCH" = 1 ] && [ "$STEP_RESULT" = done ]; then
+  if [ "$STEP_RESULT" = done ] && [ "$HELPER_OUT" = "codebase search added" ]; then
     step_say "codebase search is on; to search by meaning too, run Agents: Install Codebase Search by Meaning in VS Code"
   fi
 }

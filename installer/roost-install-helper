@@ -122,6 +122,8 @@ def cmd_vscode_settings(args: argparse.Namespace) -> int:
         print("already set")
         return EXIT_DONE
     _write_atomic(path, merged)
+    if args.codebase_search and "agents.codebaseIndex.enabled" not in json.loads(text.strip() or "{}"):
+        print("codebase search added")  # the installer's cue for its hint; a value already there was kept
     return EXIT_DONE
 
 
