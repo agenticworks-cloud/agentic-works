@@ -16,15 +16,15 @@ const state = (o) => Object.assign({ company: null, connection: null, connected:
 const shown = (el) => { for (let e = el; e && e !== d.body; e = e.parentElement) if (e.hidden) return false; return true; };
 const ways = () => [...d.querySelectorAll('.way')].filter(shown).map((s) => s.dataset.way);
 const names = () => [...d.querySelectorAll('.way')].filter(shown).map((s) => s.querySelector('.name').textContent);
-const SWITCH = "Using your own Claude subscription, an API key or Bedrock instead? Switch any tab's backend in its footer (subscription / gateway / API) whenever you like.";
+const SWITCH = "Using your own Claude subscription, an API key or Bedrock, or Codex? Switch any tab's backend in its footer whenever you like; a Codex tab's footer offers ChatGPT login, an OpenAI API key or Bedrock.";
 const awsShown = () => /AWS CLI|\.aws|aws sso|awscli/.test([...d.body.querySelectorAll('*')].filter((e) => shown(e) && !e.children.length).map((e) => e.textContent).join('\n'));
 
 assert.deepStrictEqual(out, [{ type: 'ready' }], 'the page asks for its state');
 
-// a company with a gateway: that gateway and Codex only, and the footer line for the other ways (Sean, 2026-11-24)
+// a company with a gateway: that gateway only, and the footer line for the other ways, Codex's too (Sean, 2026-11-24)
 host({ type: 'state', state: state({ company: { gatewayName: 'Example Gateway' }, terminal: { on: true, offered: true } }) });
-assert.deepStrictEqual(ways(), ['gateway', 'codex']);
-assert.deepStrictEqual(names(), ['Example Gateway', 'Codex only']);
+assert.deepStrictEqual(ways(), ['gateway']);
+assert.deepStrictEqual(names(), ['Example Gateway']);
 assert(shown($('recommended')) && $('recommended').textContent === 'Recommended', 'the company\'s gateway is recommended');
 assert.deepStrictEqual([shown($('switchNote')), $('switchNote').textContent], [true, SWITCH], 'one line: a tab\'s footer switches backend');
 assert.strictEqual($('gatewayBtn').textContent, 'Set Up…', 'the gateway form: Get a key, Check and save');

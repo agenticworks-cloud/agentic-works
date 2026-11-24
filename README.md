@@ -139,9 +139,9 @@ files. Required keys are marked **required**.
 
 What Roost does with it (the design and what was built: [note 101](docs/notes/101-roost.md), the 0.4 bullets under Follow-ups):
 
-- **Connect Claude** offers the company's gateway as the recommended way (the other ways stay: a Claude
-  subscription, an Anthropic API key, AWS Bedrock, Codex only). With `gateway.terminal`, `claude` in the terminal
-  uses the same connection, and its address in `~/.claude/settings.json` follows whichever of `baseUrls` answers.
+- **Connect Claude** offers the company's gateway only. The other ways (a Claude subscription, an Anthropic API key,
+  AWS Bedrock, and Codex's ChatGPT login, OpenAI API key or Bedrock) are a tab's footer away, whenever the person
+  likes. With `gateway.terminal`, `claude` in the terminal uses the same connection, and its address in `~/.claude/settings.json` follows whichever of `baseUrls` answers.
 - **Connect your tools** lists each MCP server, signs it in the way `connect` says, checks it, and registers it with
   Claude Code.
 

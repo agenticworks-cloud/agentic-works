@@ -4,7 +4,7 @@
 step is ticked once Claude is connected, or when you press **Not Now**. You can open the panel again at any time with
 **Agents: Connect Claude…**.
 
-Your company's setup may offer its gateway only (and Codex only); the other ways are then a tab's footer away (below).
+Your company's setup may offer its gateway only; the other ways, Codex's too, are then a tab's footer away (below).
 Otherwise the panel offers:
 
 - **Your company's gateway**, when your company has set one up for Roost (marked Recommended), or **an LLM gateway**
@@ -27,4 +27,5 @@ the choice is written to that file as well: a value you already have there is sh
 press **Replace**; **Keep Mine** leaves it. A file that isn't plain JSON (comments, say) is never rewritten.
 
 Whatever the panel offers, any Claude tab can be moved to another backend (subscription / gateway / API) from the
-menu in its footer, whenever you like; new tabs then follow that choice.
+menu in its footer, whenever you like; new tabs then follow that choice. A Codex tab's footer likewise offers your
+ChatGPT login, an OpenAI API key or Bedrock.

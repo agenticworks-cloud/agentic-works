@@ -2226,11 +2226,11 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const p = m.ui.panels.filter((x) => x.viewType === 'perch.connectClaude' && !x.disposed)[0], last = () => p.got[p.got.length - 1];
       p.fire({ type: 'ready' });
       assert.deepStrictEqual([last().state.company, last().state.terminal], [{ gatewayName: 'Example Gateway' }, { on: true, offered: true }], 'the company\'s gateway, and terminal claude on by default');
-      // the company's gateway only (and Codex only): the other ways are a tab footer's, and the host keeps to it (Sean, 2026-11-24)
+      // the company's gateway only: the other ways, Codex only too, are a tab footer's, and the host keeps to it (Sean, 2026-11-24)
       assert.deepStrictEqual([last().state.bedrockOpen, last().state.profiles, last().state.bedrock], [false, [], null], 'nothing about AWS');
       const runs = []; m.perch.runArgv = async (argv) => { runs.push(argv); return { code: 0, stdout: '{}', stderr: '' }; };
       const n0 = p.got.length;
-      for (const msg of [{ type: 'subscription' }, { type: 'apiKey', key: 'sk-ant-1' }, { type: 'bedrockPick' }, { type: 'bedrock', profile: '', region: 'us-west-2', force: true }]) p.fire(msg);
+      for (const msg of [{ type: 'subscription' }, { type: 'apiKey', key: 'sk-ant-1' }, { type: 'bedrockPick' }, { type: 'bedrock', profile: '', region: 'us-west-2', force: true }, { type: 'codex' }]) p.fire(msg);
       await flush(); await wait(20);
       assert.deepStrictEqual([p.got.length - n0, runs, m.globalState._dump()['perch.claude.connection']], [0, [], undefined], 'not offered: no answer, no check, nothing recorded');
       // the gateway way: the gateway form; its save, while this panel is open, is the choice

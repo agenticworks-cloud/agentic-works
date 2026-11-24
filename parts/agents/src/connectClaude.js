@@ -1,7 +1,7 @@
 'use strict';
 // The page of Agents: Connect Claude…: the ways Claude can run, one section each, in order: an LLM gateway, the Claude
 // subscription, an Anthropic API key, AWS Bedrock, Codex only. With a company gateway (state.company) the page offers
-// that gateway and Codex only, and a line on switching a tab's backend in its footer instead. (Sean, 2026-11-24.)
+// that gateway only, and a line on switching a tab's backend in its footer instead, Codex's too. (Sean, 2026-11-24.)
 // Bedrock's form, and anything about AWS, shows only once Bedrock is picked (state.bedrockOpen). The host does each
 // way's work (the gateway form, the login, the checks, the saves) and answers; the page never holds a saved key, only
 // whether there is one. The terminal box asks for terminal claude's settings too, for every way but Codex only.
@@ -91,7 +91,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
     <div class="verdict" id="verdict-codex"></div>
   </section>
 
-  <p class="muted" id="switchNote" hidden>Using your own Claude subscription, an API key or Bedrock instead? Switch any tab's backend in its footer (subscription / gateway / API) whenever you like.</p>
+  <p class="muted" id="switchNote" hidden>Using your own Claude subscription, an API key or Bedrock, or Codex? Switch any tab's backend in its footer whenever you like; a Codex tab's footer offers ChatGPT login, an OpenAI API key or Bedrock.</p>
 
   <label id="terminalRow"><input type="checkbox" id="terminal"> <span>Use for <code>claude</code> in the terminal too (writes <code>~/.claude/settings.json</code>)</span></label>
 
@@ -109,7 +109,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
 (function () {
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
-  const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex'], COMPANY_WAYS = ['gateway', 'codex'];
+  const WAYS = ['gateway', 'subscription', 'apiKey', 'bedrock', 'codex'], COMPANY_WAYS = ['gateway'];
   let profiles = [], defaultRegion = 'us-east-1', conflictKeys = [];
   const post = (m) => vscode.postMessage(m);
   function clearVerdicts() { for (const w of WAYS) { $('verdict-' + w).textContent = ''; $('verdict-' + w).className = 'verdict'; } $('bedrockForce').hidden = true; }
@@ -118,7 +118,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
     document.querySelector('.way[data-way="gateway"] .name').textContent = company ? company.gatewayName : 'An LLM gateway';
     $('recommended').hidden = !company;
     $('gatewayAbout').textContent = company ? 'Your company\\'s gateway: get a key from its page, and it is checked before it is saved.' : 'An Anthropic-compatible endpoint, such as a company\\'s LLM proxy: its address and a key, in a short form.';
-    // a company gateway: that gateway and Codex only; the other ways are a tab footer's
+    // a company gateway: that gateway only; the other ways, Codex's too, are a tab footer's
     for (const sec of document.querySelectorAll('.way')) sec.hidden = !!company && !COMPANY_WAYS.includes(sec.dataset.way);
     $('switchNote').hidden = !company;
     $('bedrockForm').hidden = !st.bedrockOpen;

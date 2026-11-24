@@ -2109,7 +2109,7 @@ class PerchView {
   async connectMessage(msg, ctx) {
     const post = ctx.post;
     const verdict = (way, text, ok = false, canForce = false) => post({ type: 'verdict', way, text, ok, canForce });
-    // a company gateway: the panel offers that gateway and Codex only, and the host keeps to it
+    // a company gateway: the panel offers that gateway only, and the host keeps to it (a codex message too)
     const offered = (w) => !Connections.WAYS.includes(w) || Connections.COMPANY_WAYS.includes(w);
     if (!offered(msg.type === 'bedrockPick' ? 'bedrock' : msg.type) && this.companyGateway()) return;
     switch (msg.type) {
