@@ -74,9 +74,12 @@ the new one is already set there; the old entries stay in your `settings.json`, 
 
 On its very first start Roost opens the PRs tab once, so the bottom panel shows it, and its **Get started** page in
 an editor tab. Open the page again any time with **Roost: Get Started** in the Command Palette. It is Roost's own
-page, with each step's controls in place: sign in to GitHub, connect Claude, connect your tools, sign in to Teams and
-Jira, talk to Claude or Codex, search your code, and choose your parts. The first step not yet done is open, the
-others closed with their tick, and a step once done stays done. VS Code's own walkthrough is still there as a
+page, with each step's controls in place. A step shows while its part is on. Without a company file the steps run:
+Connect Claude, Talk to Claude or Codex, Sign in to Teams, Connect Jira and Confluence, Sign in to GitHub, Search your
+code (optional), Choose your parts. With one: Sign in to GitHub, Connect Claude, Talk to Claude or Codex, Connect your
+tools, Sign in to Teams, Connect Jira and Confluence, Search your code (optional), Choose your parts. Connect your
+tools appears only when the company file lists at least one `mcpServers` entry. The first step not yet done is open,
+the others closed with their tick, and a step once done stays done. VS Code's own walkthrough is still there as a
 fallback, on the Welcome page.
 
 ## For a company's installer
