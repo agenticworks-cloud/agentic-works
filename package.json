@@ -259,6 +259,10 @@
         "title": "Jira: Search Tickets"
       },
       {
+        "command": "jay.useAtlassianView",
+        "title": "Jira: Use the Atlassian View Again"
+      },
+      {
         "command": "jay.activeIssueFile",
         "title": "Jira: Active Issue File"
       },
@@ -524,6 +528,10 @@
         },
         {
           "command": "jay.focusSearch",
+          "when": "config.roost.jira.enabled && !roost.jira.failed"
+        },
+        {
+          "command": "jay.useAtlassianView",
           "when": "config.roost.jira.enabled && !roost.jira.failed"
         },
         {
