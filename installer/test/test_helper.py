@@ -3,6 +3,9 @@
 Python 3.6-safe, as the helper is: test_install.TestPython36 runs this file under 3.6."""
 
 import contextlib
+import os
+import subprocess
+import sys
 import io
 import json
 import sqlite3
@@ -207,21 +210,26 @@ class SettingsTests(_Case):
 
 
 class VscodeRunningTests(_Case):
-    def _argv(self, platform: str) -> List[str]:
-        with mock.patch.object(self.h.sys, "platform", platform), mock.patch.object(
-            self.h.subprocess, "run", return_value=mock.Mock(returncode=0)
-        ) as run:
-            self.assertTrue(self.h.vscode_running())
-        return run.call_args[0][0]  # call_args.args is 3.8+
+    """Running means: the code.lock of this user data directory names a live process."""
 
-    def test_macos_matches_command_line(self) -> None:
-        uid = str(self.h.os.getuid())
-        self.assertEqual(self._argv("darwin"), ["pgrep", "-u", uid, "-f", "Visual Studio Code.app/Contents/MacOS/"])
+    def _lock(self, text: str) -> None:
+        self.user.mkdir(parents=True, exist_ok=True)
+        (self.user.parent / "code.lock").write_text(text)
 
-    def test_linux_matches_process_name(self) -> None:
-        uid = str(self.h.os.getuid())
-        self.assertEqual(self._argv("linux"), ["pgrep", "-x", "-u", uid, "code"])
+    def test_no_lock_is_not_running(self) -> None:
+        self.assertFalse(self.h.vscode_running())
 
+    def test_live_pid_is_running(self) -> None:
+        self._lock(str(os.getpid()))
+        self.assertTrue(self.h.vscode_running())
+
+    def test_dead_pid_or_garbage_is_not_running(self) -> None:
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        self._lock(str(dead.pid))
+        self.assertFalse(self.h.vscode_running())
+        self._lock("not a pid")
+        self.assertFalse(self.h.vscode_running())
 
 class LayoutTests(_Case):
     def _db(self) -> sqlite3.Connection:

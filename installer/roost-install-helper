@@ -12,7 +12,6 @@ import json
 import os
 import re
 import sqlite3
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -188,19 +187,24 @@ def codex_container_ids() -> List[str]:
     return ids
 
 
-def vscode_running_argv() -> List[str]:
-    uid = str(os.getuid())
-    if sys.platform == "darwin":
-        return ["pgrep", "-u", uid, "-f", "Visual Studio Code.app/Contents/MacOS/"]
-    return ["pgrep", "-x", "-u", uid, "code"]
-
-
 def vscode_running() -> bool:
+    """True while a VS Code runs on this user data directory: its code.lock names the main process, alive.
+
+    Only that VS Code matters (it rewrites state.vscdb and storage.json on exit); another one, on another data
+    directory, does not. A process scan skipped the layout whenever any VS Code was open (Sean's runs with a test
+    home, 2026-11-24). No lock file: none runs here."""
+    lock = user_dir().parent / "code.lock"
     try:
-        result = subprocess.run(vscode_running_argv(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    except FileNotFoundError:
+        pid = int(lock.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
         return False
-    return result.returncode == 0
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # alive, another user's
+    return True
 
 
 def _has_key(db: Path, key: str) -> bool:
