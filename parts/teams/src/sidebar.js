@@ -4,7 +4,7 @@ const vscode = require('vscode');
 const crypto = require('crypto');
 
 // the page's buttons, and the commands they run
-const ACTIONS = { signIn: 'chirp.signIn', cancelSignIn: 'chirp.cancelSignIn', copyCode: 'chirp.copyCode', enableChannels: 'chirp.enableChannels', copyAdminLink: 'chirp.copyAdminLink', useCompanyApp: 'chirp.useCompanyApp' };
+const ACTIONS = { signIn: 'chirp.signIn', cancelSignIn: 'chirp.cancelSignIn', copyCode: 'chirp.copyCode', enableChannels: 'chirp.enableChannels', copyAdminLink: 'chirp.copyAdminLink' };
 
 class Sidebar {
   constructor(extensionUri, { meName = () => '' } = {}) {
@@ -13,10 +13,13 @@ class Sidebar {
     this.view = null;
     this.state = { chats: [], teams: [], status: null };
     this.openers = [];
+    this.companyAppHandlers = [];
+    this.ready = false; this.formPending = false;
   }
 
   resolveWebviewView(view) {
     this.view = view;
+    this.ready = false;
     const media = vscode.Uri.joinPath(this.extensionUri, 'media');
     view.webview.options = { enableScripts: true, localResourceRoots: [media] };
     const nonce = crypto.randomBytes(16).toString('base64');
@@ -27,7 +30,14 @@ class Sidebar {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${csp}; img-src ${csp} https: data:; script-src 'nonce-${nonce}';">
 <link rel="stylesheet" href="${css}"></head><body><script nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((m) => {
-      if (m && m.type === 'ready') { this.post(); if (this.frontRef) this.view.webview.postMessage({ type: 'front', ref: this.frontRef }); }
+      if (m && m.type === 'ready') {
+        this.ready = true;
+        this.post();
+        if (this.frontRef) this.view.webview.postMessage({ type: 'front', ref: this.frontRef });
+        if (this.formPending) { this.formPending = false; this.view.webview.postMessage({ type: 'openAppForm' }); }
+      }
+      // the company-app form's Save and sign in: the two IDs as typed; the host checks them
+      else if (m && m.type === 'useCompanyApp') for (const fn of this.companyAppHandlers) fn({ clientId: String(m.clientId == null ? '' : m.clientId), tenant: String(m.tenant == null ? '' : m.tenant) });
       else if (m && m.type === 'open' && m.ref) for (const fn of this.openers) fn(m.ref);
       else if (m && m.type === 'findPeople') vscode.commands.executeCommand('chirp.findPeople', String(m.query || ''));
       else if (m && m.type === 'startChat') vscode.commands.executeCommand('chirp.startChat', String(m.userId || ''), String(m.name || ''));
@@ -54,6 +64,17 @@ class Sidebar {
   }
 
   onOpen(fn) { this.openers.push(fn); }
+  onUseCompanyApp(fn) { this.companyAppHandlers.push(fn); }
+
+  /** Opens the company-app form, prefilled, and focuses it; a page not loaded yet gets it once it is. */
+  openAppForm() {
+    if (!this.ready) this.formPending = true;
+    if (!this.view) return;
+    if (this.view.show) this.view.show(false);
+    this.view.webview.postMessage({ type: 'openAppForm' });
+  }
+  /** The form's outcome: { ok: true } closes it; { ok: false, errors: { clientId?, tenant?, save? } } shows why, inline. */
+  appFormResult(r) { if (this.view) this.view.webview.postMessage(Object.assign({ type: 'appFormResult' }, r)); }
 
   /** The chirp tab in front: its row is highlighted. Kept, so a sidebar shown later gets it too. */
   front(ref) {

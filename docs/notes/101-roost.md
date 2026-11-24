@@ -435,6 +435,18 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     sign-in-code path: whether the token poll, after the user meets "Need admin approval" at devicelogin, answers
     `AADSTS65001`, `authorization_declined` / `access_denied`, or nothing until `expired_token` (all three end in
     the hint); (3) whether `VSCODE_TENANT:` takes a domain as well as a tenant ID (Microsoft's authority does).
+  - **A form in the Teams view, not input boxes** *(Sean, 2026-11-24: no input box at the top)*. **Teams: Use a
+    Company Microsoft App…** no longer opens VS Code's two input boxes at the top of the window: it reveals the Teams
+    view and opens, prefilled from the two settings and focused, a **Use your company's app** section of the
+    signed-out page (collapsed otherwise; the hint's **Use a company app…** opens it too). Fields: Application
+    (client) ID; Directory (tenant) ID or domain; "Your IT team provides both."; **Save and sign in** (Enter too) and
+    **Cancel**. The extension checks both with `clientIdProblem` / `tenantProblem` on submit (the page does not
+    repeat the regexes) and sends what is wrong back by field, or a settings-write error under the fields; nothing is
+    written unless both are right. Then both settings are written at the user level and Teams signs in once, the
+    command's old code shared as `setCompanyApp`. With a company app set, the signed-out page says *Signing in with
+    your company's app (0123abcd…) · Change*. **Signed in**, the command shows "Sign out first to change the app
+    Teams signs in with." rather than a form under the account line (the form lives only in the signed-out page);
+    while a sign-in is waiting, the command cancels it and opens the form.
 
 ## Left to the builder
 

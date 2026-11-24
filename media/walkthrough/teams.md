@@ -8,8 +8,9 @@ The first time, Microsoft asks to allow **chirp**, the app Teams signs in with. 
 instead, your company lets only its admins approve apps: ask your IT team to approve chirp (or use **Request
 approval**, if the page offers it). Until then Teams stays signed out, and the rest of Roost works as usual.
 
-If your company has its own approved app for Teams, run **Teams: Use a Company Microsoft App…** and enter the two IDs
-your IT team gives you; Teams then signs in with that app.
+If your company has its own approved app for Teams: in the **Teams** view, click **Use your company's app** (or run
+**Teams: Use a Company Microsoft App…**), enter the two IDs from your IT team, then click **Save and sign in**. Teams
+then signs in with that app.
 
 If you close the browser before you finish, click **Cancel** on VS Code's "Signing in to Microsoft…" notification and
 try again.

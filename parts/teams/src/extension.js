@@ -81,6 +81,8 @@ function activate(context, deps = {}) {
     if (configNote && s.status && s.status.text === configNote) s.status = null;
     configNote = app.notes.length ? app.notes.join(' ') : null;
     if (configNote) { log(configNote); s.status = { kind: 'note', text: configNote }; }
+    // the form's prefill (the settings as written), and the company app in use, for the signed-out page
+    sidebar.update({ appSettings: { clientId: cfg('signIn.clientId') || '', tenant: cfg('signIn.tenant') || '' }, companyApp: app.company ? app.clientId : null });
     showStatus();
     const { clientId, tenant } = app;
     auth = createAuth({
@@ -419,24 +421,43 @@ function activate(context, deps = {}) {
     out,
   );
 
-  /** Asks for a company's own app (its IDs come from IT), writes both settings for the user, and signs in with it. */
+  // ---- a company's own app: its two IDs come from IT, entered in a form in the Teams view (Sean, 2026-11-24: no
+  // input box at the top of the window). The form shows while signed out; signed in, the command says to sign out first.
+  const SIGN_OUT_FIRST = 'Sign out first to change the app Teams signs in with.';
+  /** Teams: Use a Company Microsoft App…: reveals the Teams view with the form open and focused. */
   async function useCompanyApp() {
-    const ask = (step, o) => vscode.window.showInputBox(Object.assign({ title: `Teams: Use a Company Microsoft App (${step} of 2)`, ignoreFocusOut: true }, o));
-    const id = await ask(1, { prompt: "Your company's Application (client) ID for this app, from your IT team", placeHolder: '01234567-89ab-cdef-0123-456789abcdef',
-      value: cfg('signIn.clientId') || '', validateInput: (v) => clientIdProblem(v, { required: true }) });
-    if (id === undefined || clientIdProblem(id, { required: true })) return;
-    const tenant = await ask(2, { prompt: "Your company's Directory (tenant) ID, or its domain", placeHolder: 'contoso.onmicrosoft.com',
-      value: cfg('signIn.tenant') || '', validateInput: (v) => tenantProblem(v, { required: true }) });
-    if (tenant === undefined || tenantProblem(tenant, { required: true })) return;
+    if (!s.signedOut && accountRow()) { Promise.resolve(vscode.window.showInformationMessage(SIGN_OUT_FIRST)).catch(log); return; }
+    if (cancelSignIn) cancelSignIn();   // a sign-in waiting with the old app ends, so the signed-out page (and the form) shows
+    await Promise.resolve(vscode.commands.executeCommand('workbench.view.extension.chirp')).catch(() => { /* no Teams view */ });
+    sidebar.openAppForm();
+  }
+  /**
+   * The form's Save and sign in: checks both IDs (the same checks the settings get), writes them for the user, and
+   * signs in with the app. What's wrong goes back to the form, by field; nothing is written unless both are right.
+   */
+  async function setCompanyApp({ clientId, tenant } = {}) {
+    const id = String(clientId == null ? '' : clientId).trim(), t = String(tenant == null ? '' : tenant).trim();
+    const errors = {};
+    const idProblem = clientIdProblem(id, { required: true }), tenantBad = tenantProblem(t, { required: true });
+    if (idProblem) errors.clientId = idProblem;
+    if (tenantBad) errors.tenant = tenantBad;
+    if (idProblem || tenantBad) { sidebar.appFormResult({ ok: false, errors }); return false; }
     const conf = vscode.workspace.getConfiguration('teams');
     writingApp = true;   // one restart for both settings, here, rather than one per write
     try {
-      await conf.update('signIn.clientId', id.trim(), vscode.ConfigurationTarget.Global);
-      await conf.update('signIn.tenant', tenant.trim(), vscode.ConfigurationTarget.Global);
+      await conf.update('signIn.clientId', id, vscode.ConfigurationTarget.Global);
+      await conf.update('signIn.tenant', t, vscode.ConfigurationTarget.Global);
+    } catch (e) {
+      log(e);
+      sidebar.appFormResult({ ok: false, errors: { save: `Couldn't save the settings: ${(e && e.message) || e}` } });
+      return false;
     } finally { writingApp = false; }
+    sidebar.appFormResult({ ok: true });
     if (signInKey() !== builtKey) await onSettings();
     if (s.signedOut) await signIn();   // the new app may already have a session (set before, in another window)
+    return true;
   }
+  sidebar.onUseCompanyApp((m) => { setCompanyApp(m).catch(log); });
 
   /** People whose name or mail starts with what was typed, for a chat the filter didn't find. */
   async function findPeople(query) {
