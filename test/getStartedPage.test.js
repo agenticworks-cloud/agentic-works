@@ -112,6 +112,20 @@ assert.ok(gwSection.textContent.includes('The gateway answered oddly.'));
 button(gwSection, 'Save anyway').click();
 assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'gatewaySave', baseUrl: 'https://gw.example.com', token: 't-1', models: {}, force: true } });
 assert.ok(!button(gwSection, 'Save anyway'));
+// typing after an unexpected answer: Save anyway goes, and the held token with it
+for (const edit of [() => { baseUrl.value = 'https://other.example.com'; baseUrl.dispatchEvent(new w.Event('input', { bubbles: true })); },
+  () => { gwToken.value = 't-2'; gwToken.dispatchEvent(new w.Event('input', { bubbles: true })); }]) {
+  gwToken.value = ' t-1 ';
+  button(gwSection, 'Check and save').click(); out.pop();
+  host({ type: 'agents', replies: [{ type: 'gatewayVerdict', text: 'The gateway answered oddly.', canForce: true }] });
+  assert.ok(button(gwSection, 'Save anyway'));
+  edit();
+  assert.ok(!button(gwSection, 'Save anyway'), 'an edit hides Save anyway');
+  button(gwSection, 'Check and save').click();
+  assert.strictEqual(out.pop().request.force, false, 'the edit is checked');
+  assert.strictEqual(gwToken.value, '');
+}
+baseUrl.value = 'https://gw.example.com';
 // subscription
 button(c, 'Log In').click();
 assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'subscription' } });

@@ -186,6 +186,8 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     v.gwSave = button('Check and save', '', () => gwSave(false));
     v.gwForce = button('Save anyway', 'secondary', () => gwSave(true)); v.gwForce.hidden = true;
     onEnter(v.gwToken, v.gwSave);
+    // anything typed after an unexpected answer is unchecked: Save anyway goes, and the held token with it
+    gw.addEventListener('input', () => { v.gwForce.hidden = true; held = ''; });
     gw.append(field('Base URL', v.baseUrl), field('Token', v.gwToken), row(v.gwSave, v.gwForce), verdict('gateway'));
 
     const sub = way('subscription', 'Claude subscription', 'Your Claude plan, with Claude Code\'s own sign-in in a terminal.');
