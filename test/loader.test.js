@@ -626,6 +626,21 @@ test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh
   await extension.deactivate();
 });
 
+test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never off; Not Now does nothing', async () => {
+  const { ui, extension, base } = setup({});
+  await (await activate(extension, base)).firstStarted;
+  const toggled = [];
+  ui.commands['perch.codebaseIndex.toggle'] = () => toggled.push(1);
+  await ui.vscode.commands.executeCommand('roost.codebaseSearchOn');
+  assert.strictEqual(toggled.length, 1, 'off: turned on');
+  ui.config['agents.codebaseIndex.enabled'] = true;
+  await ui.vscode.commands.executeCommand('roost.codebaseSearchOn');
+  assert.strictEqual(toggled.length, 1, 'already on: not toggled off');
+  await ui.vscode.commands.executeCommand('roost.codebaseSearchNotNow');
+  assert.strictEqual(toggled.length, 1);
+  await extension.deactivate();
+});
+
 test('first start: does not hold up activation or the parts', async () => {
   const env = firstStartSetup({});
   env.ui.commands['workbench.view.extension.kestrel'] = () => new Promise(() => {});

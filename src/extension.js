@@ -265,6 +265,16 @@ function activate(context) {
   // Roost's own, whatever parts are on: the Settings page filtered to this extension's switches and the parts' settings
   context.subscriptions.push(vscode.commands.registerCommand('roost.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:seanahn.roost')));
   context.subscriptions.push(vscode.commands.registerCommand('roost.getStarted', openWalkthrough));
+  // the walkthrough's codebase-search step: on (never off, unlike Agents: Toggle Codebase Search), or left off
+  context.subscriptions.push(vscode.commands.registerCommand('roost.codebaseSearchOn', async () => {
+    if (vscode.workspace.getConfiguration('agents').get('codebaseIndex.enabled') === true) {
+      vscode.window.showInformationMessage('Codebase search is already on.');
+      return;
+    }
+    // Perch's toggle also checks for a Python that can run it, and says so
+    await vscode.commands.executeCommand('perch.codebaseIndex.toggle');
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.codebaseSearchNotNow', () => {}));
   // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal
   context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', () => {
     const terminal = vscode.window.createTerminal({ name: 'GitHub sign-in' });

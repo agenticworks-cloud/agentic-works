@@ -50,8 +50,7 @@ ORIG_PATH=$PATH  # the PATH a new terminal would have, before this run adds to i
 DRY_RUN=0
 YES=0
 NO_OPEN=0
-CODEBASE_SEARCH=1  # agents.codebaseIndex.enabled true in the settings step: asked there, Enter is yes; --no-codebase-search
-CODEBASE_FLAG=0    # --no-codebase-search given: not asked
+CODEBASE_SEARCH=0  # --codebase-search: agents.codebaseIndex.enabled true in the settings step; else the walkthrough offers it
 TEAMS_APP=""       # --teams-app <clientId>:<tenant>: the Teams sign-in's company app, for the settings step
 SKIPS=" "
 OS=""
@@ -958,22 +957,8 @@ look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand (and options
   esac
 }
 
-ask_codebase_search() {  # the one question about Roost's parts: codebase search in Claude and Codex tabs, default on
-  local rc
-  [ "$CODEBASE_FLAG" = 1 ] && return 0
-  skip_named settings && return 0
-  [ -n "$CLASH" ] && return 0
-  [ "$DRY_RUN" = 1 ] && return 0  # the dry run shows the default
-  python_ok || return 0  # the Settings step is skipped without python3: nothing to ask for
-  ask_yn "Turn on codebase search in Claude and Codex tabs (search the workspace by keywords)? [Y/n]"
-  rc=$?
-  [ "$rc" = 1 ] && CODEBASE_SEARCH=0  # no terminal, or no answer: the default, on
-  return 0
-}
-
-apply_settings() {  # the look's four keys, and codebase search when on, each only when absent; JSONC is left as it is
+apply_settings() {  # the look's keys, and codebase search when asked for, each only when absent; JSONC is left as it is
   local sub=vscode-settings
-  ask_codebase_search
   [ "$CODEBASE_SEARCH" = 1 ] && sub="$sub --codebase-search"
   [ -n "$TEAMS_APP" ] && sub="$sub --teams-app $TEAMS_APP"  # checked by parse_args: no spaces in it
   look_step settings "Settings" "$sub" "added to settings.json" "couldn't write VS Code's settings; see $LOG"
@@ -1083,8 +1068,8 @@ Options:
   --yes          answer yes when asked to uninstall the standalone extensions Roost replaces (needed with no
                  terminal); never answers the GitHub sign-in
   --no-open      don't open VS Code at the end
-  --no-codebase-search
-                 leave codebase search in Claude and Codex tabs off, without asking (asked otherwise; Enter is yes)
+  --codebase-search
+                 turn codebase search on in Claude and Codex tabs (off otherwise; Roost's walkthrough offers it)
   --teams-app <clientId>:<tenant>
                  sign Teams in with your company's own Microsoft app: its Application (client) ID, then the
                  Directory (tenant) ID or domain, from your IT team (added only when not already set)
@@ -1108,7 +1093,8 @@ parse_args() {
       --dry-run) DRY_RUN=1 ;;
       --yes) YES=1 ;;
       --no-open) NO_OPEN=1 ;;
-      --no-codebase-search) CODEBASE_SEARCH=0; CODEBASE_FLAG=1 ;;
+      --codebase-search) CODEBASE_SEARCH=1 ;;
+      --no-codebase-search) ;;  # 0.2.0–0.3.3 asked, and this said no; it is off now unless asked for
       --teams-app)
         [ $# -ge 2 ] || { printf 'roost-install: --teams-app needs <clientId>:<tenant>\n' >&2; exit 2; }
         teams_app_ok "$2" || {

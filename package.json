@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -350,6 +350,14 @@
       {
         "command": "roost.githubSignIn",
         "title": "Roost: Sign In to GitHub"
+      },
+      {
+        "command": "roost.codebaseSearchOn",
+        "title": "Roost: Turn On Codebase Search"
+      },
+      {
+        "command": "roost.codebaseSearchNotNow",
+        "title": "Roost: Leave Codebase Search Off"
       }
     ],
     "menus": {
@@ -581,6 +589,10 @@
         {
           "command": "chirp.useCompanyApp",
           "when": "config.roost.teams.enabled && !roost.teams.failed"
+        },
+        {
+          "command": "roost.codebaseSearchNotNow",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -799,6 +811,19 @@
               "onCommand:perch.newClaude",
               "onCommand:perch.newClaudeGateway",
               "onCommand:perch.newCodex"
+            ]
+          },
+          {
+            "id": "codebaseSearch",
+            "title": "Search your code (optional)",
+            "description": "Give Claude and Codex tabs a tool that searches the workspace, by keywords and, once installed, by meaning. Off unless you turn it on.\n[Turn On Codebase Search](command:roost.codebaseSearchOn)\n[Not Now](command:roost.codebaseSearchNotNow)",
+            "media": {
+              "markdown": "media/walkthrough/codebase-search.md"
+            },
+            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "completionEvents": [
+              "onCommand:roost.codebaseSearchOn",
+              "onCommand:roost.codebaseSearchNotNow"
             ]
           },
           {

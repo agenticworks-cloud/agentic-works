@@ -193,6 +193,7 @@ shown only while its part is switched on and started (`when: config.roost.<id>.e
 | Step | Button | Done when |
 |---|---|---|
 | Talk to Claude | Agents: New Claude Tab | a Claude, gateway or Codex tab is opened from it or the palette |
+| Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
 | Sign in to Teams | Teams: Sign In | Teams is signed in (`chirp.signedIn`) |
 | Connect Jira and Confluence | Jira: Site URL, then Jira: Sign In | Jira is signed in (`jay.signedIn`) |
 | Sign in to GitHub | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |

@@ -1,11 +1,41 @@
 {
   "commands": [
-    { "command": "roost.openSettings", "title": "Roost: Settings", "icon": "$(gear)" },
-    { "command": "roost.getStarted", "title": "Roost: Get Started" },
-    { "command": "roost.githubSignIn", "title": "Roost: Sign In to GitHub" }
+    {
+      "command": "roost.openSettings",
+      "title": "Roost: Settings",
+      "icon": "$(gear)"
+    },
+    {
+      "command": "roost.getStarted",
+      "title": "Roost: Get Started"
+    },
+    {
+      "command": "roost.githubSignIn",
+      "title": "Roost: Sign In to GitHub"
+    },
+    {
+      "command": "roost.codebaseSearchOn",
+      "title": "Roost: Turn On Codebase Search"
+    },
+    {
+      "command": "roost.codebaseSearchNotNow",
+      "title": "Roost: Leave Codebase Search Off"
+    }
   ],
   "menus": {
-    "view/title": [{ "command": "roost.openSettings", "when": "view == perch.main", "group": "navigation@99" }]
+    "view/title": [
+      {
+        "command": "roost.openSettings",
+        "when": "view == perch.main",
+        "group": "navigation@99"
+      }
+    ],
+    "commandPalette": [
+      {
+        "command": "roost.codebaseSearchNotNow",
+        "when": "false"
+      }
+    ]
   },
   "walkthroughs": [
     {
@@ -17,40 +47,75 @@
           "id": "agents",
           "title": "Talk to Claude",
           "description": "Open a tab backed by Claude Code. Codex tabs work the same way.\n[New Claude Tab](command:perch.newClaude)",
-          "media": { "markdown": "media/walkthrough/agents.md" },
+          "media": {
+            "markdown": "media/walkthrough/agents.md"
+          },
           "when": "config.roost.agents.enabled && !roost.agents.failed",
-          "completionEvents": ["onCommand:perch.newClaude", "onCommand:perch.newClaudeGateway", "onCommand:perch.newCodex"]
+          "completionEvents": [
+            "onCommand:perch.newClaude",
+            "onCommand:perch.newClaudeGateway",
+            "onCommand:perch.newCodex"
+          ]
+        },
+        {
+          "id": "codebaseSearch",
+          "title": "Search your code (optional)",
+          "description": "Give Claude and Codex tabs a tool that searches the workspace, by keywords and, once installed, by meaning. Off unless you turn it on.\n[Turn On Codebase Search](command:roost.codebaseSearchOn)\n[Not Now](command:roost.codebaseSearchNotNow)",
+          "media": {
+            "markdown": "media/walkthrough/codebase-search.md"
+          },
+          "when": "config.roost.agents.enabled && !roost.agents.failed",
+          "completionEvents": [
+            "onCommand:roost.codebaseSearchOn",
+            "onCommand:roost.codebaseSearchNotNow"
+          ]
         },
         {
           "id": "teams",
           "title": "Sign in to Teams",
           "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:chirp.signIn)",
-          "media": { "markdown": "media/walkthrough/teams.md" },
+          "media": {
+            "markdown": "media/walkthrough/teams.md"
+          },
           "when": "config.roost.teams.enabled && !roost.teams.failed",
-          "completionEvents": ["onContext:chirp.signedIn"]
+          "completionEvents": [
+            "onContext:chirp.signedIn"
+          ]
         },
         {
           "id": "jira",
           "title": "Connect Jira and Confluence",
           "description": "Set your Atlassian site, then sign in.\n[Set Site URL](command:jay.siteUrl)\n[Sign In to Jira](command:jay.signIn)",
-          "media": { "markdown": "media/walkthrough/jira.md" },
+          "media": {
+            "markdown": "media/walkthrough/jira.md"
+          },
           "when": "config.roost.jira.enabled && !roost.jira.failed",
-          "completionEvents": ["onContext:jay.signedIn"]
+          "completionEvents": [
+            "onContext:jay.signedIn"
+          ]
         },
         {
           "id": "github",
           "title": "Sign in to GitHub",
           "description": "The PRs tab shows the PRs waiting on you, using the GitHub CLI's sign-in.\n[Sign In to GitHub](command:roost.githubSignIn)",
-          "media": { "markdown": "media/walkthrough/github.md" },
+          "media": {
+            "markdown": "media/walkthrough/github.md"
+          },
           "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed",
-          "completionEvents": ["onContext:kestrel.signedIn"]
+          "completionEvents": [
+            "onContext:kestrel.signedIn"
+          ]
         },
         {
           "id": "parts",
           "title": "Choose your parts",
           "description": "Switch off any part you don't use; the rest carries on.\n[Open Roost Settings](command:roost.openSettings)",
-          "media": { "markdown": "media/walkthrough/parts.md" },
-          "completionEvents": ["onCommand:roost.openSettings"]
+          "media": {
+            "markdown": "media/walkthrough/parts.md"
+          },
+          "completionEvents": [
+            "onCommand:roost.openSettings"
+          ]
         }
       ]
     }

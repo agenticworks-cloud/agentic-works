@@ -29,7 +29,6 @@ Run it without `sudo`: it asks for your password when it needs it, after listing
 - installs the GitHub CLI and offers one `gh auth login`, for the PRs panel;
 - sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
   and trims the activity-bar icons on a VS Code that has never been started;
-- asks whether to turn on codebase search in Claude and Codex tabs (Enter is yes);
 - opens VS Code, where Roost's first start opens its Get started walkthrough (again any time: Roost: Get Started).
 
 It prints a ✓ / – / ✗ checklist and is safe to run again; a second run changes nothing that is in place. Running
@@ -41,7 +40,7 @@ the newest installer is also how Roost is updated.
 | `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions github settings icons open` |
 | `--yes` | answer yes to uninstalling the standalone four (needed with no terminal); never answers the GitHub sign-in |
 | `--no-open` | don't open VS Code at the end |
-| `--no-codebase-search` | leave codebase search in Claude and Codex tabs off, without asking (it asks otherwise; Enter is yes) |
+| `--codebase-search` | turn codebase search on in Claude and Codex tabs (off otherwise; the Get started walkthrough offers it) |
 | `--teams-app <clientId>:<tenant>` | sign Teams in with your company's own Microsoft app: its Application (client) ID, then the Directory (tenant) ID or domain, from your IT team (written to `teams.signIn.clientId` and `teams.signIn.tenant` only when neither is set) |
 | `--help` | the options |
 

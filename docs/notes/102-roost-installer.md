@@ -28,7 +28,8 @@ installer on top; C3's installer is rebuilt that way, as a layer that runs this 
   desktop where VS Code runs on the machine.
 - Sign-ins (Claude, Codex, Teams, Jira) and per-part questions: each part signs itself in inside Roost, with its own
   UI, and all parts are on (switched in Roost: Settings). *(my call, Sean: "do as you wish")* The exceptions are
-  GitHub, below, and one question at the look, codebase search (step 5). *(Sean)*
+  GitHub, below. Codebase search was asked here in 0.2.0–0.3.3; it is now off unless `--codebase-search`, and
+  Roost's walkthrough offers it (note 101) *(Sean, 2026-11-24)*.
 - Anything company-specific: gateways, MCP servers, company apps.
 - The Marketplace: Roost is not published there yet. *(Sean: GitHub for now)*
 - A graphical installer (`.pkg`, `.deb`): a `.sh` is fine on both systems. *(Sean)*
@@ -107,12 +108,11 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    - `"agents.firstStart.openClaudeTab": true` — one Claude tab beside the walkthrough on VS Code's first start; the
      Agents part sets it back to false, so it happens once *(Sean, after the first installer run, 2026-11-24: "no tab in
      the main editor section")*;
-   - `"agents.codebaseIndex.enabled": true` — the agents' `codebase_search` tool, when the user answers yes to
-     "Turn on codebase search in Claude and Codex tabs (search the workspace by keywords)? [Y/n]", asked just before
-     this step. Enter, no terminal, or no answer is yes; `n` or `--no-codebase-search` leaves the key out (its
-     default is off); `--skip settings` asks nothing. *(Sean: a choice, default on)* When it is added, the step says
-     search by meaning is one command away, **Agents: Install Codebase Search by Meaning**, which the installer does
-     not run (a model download, inside VS Code). *(my call)*
+   - `"agents.codebaseIndex.enabled": true` — the agents' `codebase_search` tool, only with `--codebase-search`.
+     Otherwise it stays off (its default) and the walkthrough's "Search your code (optional)" step offers it
+     *(Sean, 2026-11-24: "by default turn it off and decide during walk through"; 0.2.0–0.3.3 asked here, default
+     yes; `--no-codebase-search` is still accepted and does nothing)*. When it is added, the step says search by
+     meaning is one command away, **Agents: Install Codebase Search by Meaning**, which the installer does not run.
    - `"teams.signIn.clientId"` and `"teams.signIn.tenant"` — a company's own Microsoft app for the Teams sign-in
      (note 101, *Follow-ups*, "a company's own Microsoft app"), only with `--teams-app <clientId>:<tenant>`. Both
      are added only when neither is set, so a client id never meets another app's tenant. The installer checks the
@@ -130,7 +130,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    Get started walkthrough (note 101, *First start*).
 
 Flags: `--dry-run` (print what would be done), `--skip <step>`, `--yes` (answer the standalone-four question with
-Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--no-codebase-search` (codebase search off, not asked), `--teams-app <clientId>:<tenant>` (the Teams sign-in's company app, step 5; a malformed value is a usage error, exit 2), `--help`. Exit status 0 when no
+Uninstall; needed with no terminal), `--no-open` (do not open VS Code at the end), `--codebase-search` (codebase search on; off otherwise), `--teams-app <clientId>:<tenant>` (the Teams sign-in's company app, step 5; a malformed value is a usage error, exit 2), `--help`. Exit status 0 when no
 step failed, else 1. *(my call)*
 
 **OpenSSL 3 on Fedora.** Fedora 45 ships OpenSSL 4, and VS Code's rpm does not depend on `libssl.so.3`, which its
@@ -280,8 +280,6 @@ copy with one byte changed has not been tried by hand.
 
 ## Parked
 
-- The codebase-search question is asked on every run, even when settings.json already has the key (which is then
-  kept): the shell does not read settings.json itself.
 - The sudo keep-alive loop survives a SIGKILL of the installer and keeps sudo's timestamp fresh every 50 s until
   logout; every catchable exit kills it. Fix: `kill -0 $$` in the loop's condition.
 - The `release-publish-check` test picks up the user's global git config (commit signing, hooks), so it can fail on

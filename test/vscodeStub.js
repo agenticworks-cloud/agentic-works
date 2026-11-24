@@ -46,6 +46,7 @@ function install() {
         (ui.terminals = ui.terminals || []).push(t);
         return t;
       },
+      showInformationMessage: (m) => { (ui.infos = ui.infos || []).push(m); return Promise.resolve(undefined); },
       showErrorMessage: (m, ...items) => { ui.errors.push({ message: m, items }); return Promise.resolve(ui.errorChoice); },
       registerWebviewPanelSerializer: (viewType, z) => {
         if (ui.serializers[viewType]) throw new Error(`A serializer for '${viewType}' is already registered`);
