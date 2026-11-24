@@ -1,9 +1,14 @@
 # Connect Jira and Confluence
 
-1. **Jira: Site URL**: your Atlassian site, for example `https://yourcompany.atlassian.net`.
-2. **Jira: Sign In**: asks for your site, your Atlassian email and an
-   [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) (create one there, then paste it).
-   It checks them with Jira before keeping them; the token goes in VS Code's secret storage.
+**Connect Jira** opens the **Jira and Confluence** view in the activity bar, with a sign-in form:
 
-This step is ticked once Jira is signed in. The **Jira and Confluence** view in the activity bar then lists your
-tickets; **Jira: Open Ticket** and **Jira: Open Confluence Page** open one by key or link.
+1. **Site URL**: your Atlassian site, for example `https://yourcompany.atlassian.net` (filled in when `jira.site` is set).
+2. **Atlassian account email**: the email you sign in to Atlassian with.
+3. **API token**: **Create one** opens Atlassian's
+   [API tokens page](https://id.atlassian.com/manage-profile/security/api-tokens); create a token there, then paste it.
+
+**Sign in** checks them with Jira before keeping them; the token goes in VS Code's secret storage. If Jira says no,
+the form says why, just under it.
+
+This step is ticked once Jira is signed in. The view then lists your tickets; **Jira: Open Ticket** and **Jira: Open
+Confluence Page** open one by key or link.

@@ -168,38 +168,137 @@ function tokenFile(home, token = JWT({ sub: 'x' })) {
   return f;
 }
 
-test('signed out shows Sign In; signIn stores secrets only after myself succeeds', async () => {
+/** Submits the sidebar's sign-in form; resolves with the host's signInResult for it. */
+async function submitForm(h, site, email, token) {
+  const n = h.view.webview.posted.length;
+  h.view.webview._receive({ type: 'signInForm', site, email, token });
+  for (let i = 0; i < 100; i++) {
+    const r = h.view.webview.posted.slice(n).find((m) => m.type === 'signInResult');
+    if (r) return r;
+    await settle(5);
+  }
+  throw new Error('no signInResult');
+}
+
+test('signed out shows the form; a form sign-in stores secrets only after myself succeeds', async () => {
   const h = start({ signedOut: true, config: { 'jira.site': SITE } });
   await settle();
-  assert.strictEqual(lastState(h.view).signedIn, false);
+  let st = lastState(h.view);
+  assert.strictEqual(st.signedIn, false);
+  assert.strictEqual(st.signInForm, true, 'no token file: the form');
+  assert.strictEqual(st.site, SITE, 'the site is prefilled from jira.site');
   assert.strictEqual(h.fetch.calls.length, 0, 'no requests while signed out');
 
   h.world.reject = true;
-  ui.inputs.push(SITE + '/', 'ann@example.com', 'bad-token');
-  await ui.commands['jay.signIn']();
-  assert.strictEqual(ui.inputOptions[0].value, SITE, 'the site is prefilled from jira.site');
-  assert.strictEqual(ui.inputOptions[2].password, true);
+  let r = await submitForm(h, SITE + '/', 'ann@example.com', 'bad-token');
+  assert.deepStrictEqual(r, { type: 'signInResult', ok: false, error: "Couldn't sign in: the email or API token was rejected" });
   assert.strictEqual(h.secrets.m.size, 0, 'nothing stored when myself fails');
-  assert.ok(ui.out.some((l) => /^error: /.test(l)) && !ui.out.some((l) => l.includes('bad-token')), 'an error, never the token');
+  assert.ok(!ui.out.some((l) => /^error: /.test(l)), 'the error goes to the form, not a notification');
 
   h.world.reject = false;
   ui.config['jira.site'] = undefined;
   const before = h.fetch.calls.length;
-  ui.inputs.push(SITE, 'ann@example.com', 'tok-good');
-  await ui.commands['jay.signIn']();
+  r = await submitForm(h, ' ' + SITE + ' ', ' ann@example.com ', ' tok-good ');
+  assert.deepStrictEqual(r, { type: 'signInResult', ok: true, error: null });
   await settle();
   const myself = h.fetch.calls.slice(before).filter((c) => c.url.endsWith('/myself')).length;
   assert.strictEqual(myself, 2, 'one check before storing, one for the session: writing jira.site does not restart again');
   assert.strictEqual(h.secrets.m.get('jay.email'), 'ann@example.com');
   assert.strictEqual(h.secrets.m.get('jay.apiToken'), 'tok-good');
   assert.strictEqual(ui.config['jira.site'], SITE);
-  const st = lastState(h.view);
+  st = lastState(h.view);
   assert.strictEqual(st.signedIn, true);
   assert.strictEqual(st.account, 'Signed in as ann@example.com (API token)');
   assert.deepStrictEqual(keysOf(st), ['DEMO-1']);
   const last = h.fetch.calls.at(-1);
   assert.ok(last.url.startsWith(SITE + '/rest/api/3/'));
   assert.strictEqual(last.auth, 'Basic ' + Buffer.from('ann@example.com:tok-good').toString('base64'));
+  const page = JSON.stringify(h.view.webview.posted);
+  assert.ok(!page.includes('tok-good') && !page.includes('bad-token'), 'the token is never sent to the page');
+  assert.ok(!ui.out.some((l) => l.includes('tok-good') || l.includes('bad-token')), 'nor logged');
+});
+
+test('the form: a bad site shape or a missing field is an inline error, and nothing is asked of Jira', async () => {
+  const h = start({ signedOut: true });
+  await settle();
+  for (const site of ['http://example.atlassian.net', 'example.atlassian.net', 'https://example.atlassian.net/jira', 'https://exa mple.net']) {
+    const r = await submitForm(h, site, 'ann@example.com', 'tok-x');
+    assert.deepStrictEqual(r, { type: 'signInResult', ok: false, error: 'The site URL must look like https://yourcompany.atlassian.net' }, site);
+  }
+  let r = await submitForm(h, SITE, '', 'tok-x');
+  assert.strictEqual(r.error, 'Fill in the site URL, email and API token.');
+  r = await submitForm(h, SITE, 'ann@example.com', 42);
+  assert.strictEqual(r.error, 'Fill in the site URL, email and API token.', 'a token that is not a string');
+  assert.strictEqual(h.fetch.calls.length, 0);
+  assert.strictEqual(h.secrets.m.size, 0);
+  assert.ok(!ui.out.some((l) => /^error: /.test(l)));
+});
+
+test('the form: Jira unreachable is an inline error; the Create one link opens the API token page', async () => {
+  const h = start({ signedOut: true });
+  await settle();
+  h.world.fail = (p) => { if (p === '/rest/api/3/myself') throw new TypeError('fetch failed'); };
+  const r = await submitForm(h, SITE, 'ann@example.com', 'tok-x');
+  assert.deepStrictEqual(r, { type: 'signInResult', ok: false, error: "Couldn't sign in: couldn't reach the site" });
+  assert.strictEqual(lastState(h.view).signedIn, false);
+  ui.opened.length = 0;
+  h.view.webview._receive({ type: 'openTokenPage', url: 'https://evil.example' });
+  await settle(5);
+  assert.deepStrictEqual(ui.opened, ['https://id.atlassian.com/manage-profile/security/api-tokens'], 'always that page, whatever the message says');
+});
+
+test('Jira: Sign In opens no input box: it reveals the Jira view and focuses the form', async () => {
+  const h = start({ signedOut: true });
+  await settle();
+  h.view.webview._receive({ type: 'ready' });
+  const n = h.view.webview.posted.length;
+  await ui.commands['jay.signIn']();
+  assert.strictEqual(ui.inputOptions.length, 0, 'no input box');
+  assert.ok(ui.executed.some((c) => c[0] === 'workbench.view.extension.jay'), 'the Jira view is revealed');
+  assert.deepStrictEqual(h.view.webview.posted.slice(n).filter((m) => m.type === 'focusSignIn'), [{ type: 'focusSignIn' }]);
+
+  // signed in: the form opens above the tree, to sign in again; Cancel closes it
+  const g = start();
+  await settle();
+  assert.strictEqual(lastState(g.view).formOpen, false);
+  await ui.commands['jay.signIn']();
+  assert.strictEqual(lastState(g.view).formOpen, true);
+  assert.strictEqual(lastState(g.view).signedIn, true);
+  g.view.webview._receive({ type: 'signInCancel' });
+  assert.strictEqual(lastState(g.view).formOpen, false);
+  await ui.commands['jay.signIn']();
+  const r = await submitForm(g, SITE, 'ann@example.com', 'tok-two');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(lastState(g.view).formOpen, false, 'a sign-in closes it');
+});
+
+test('Jira: Sign In before the page is ready focuses the form once it is', async () => {
+  const h = start({ signedOut: true });
+  await settle();
+  await ui.commands['jay.signIn']();
+  assert.ok(!h.view.webview.posted.some((m) => m.type === 'focusSignIn'), 'not sent to a page that is not up');
+  h.view.webview._receive({ type: 'ready' });
+  assert.strictEqual(h.view.webview.posted.at(-1).type, 'focusSignIn', 'after the state');
+  h.view.webview._receive({ type: 'ready' });
+  assert.strictEqual(h.view.webview.posted.filter((m) => m.type === 'focusSignIn').length, 1, 'once');
+});
+
+test('with a token file, Sign In tries the file again as before, no form', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'jay-tf-'));
+  const h = start({ home, signedOut: true, config: { 'jira.signIn.tokenFile': '~/creds.json' } });
+  await settle();
+  assert.strictEqual(lastState(h.view).signInForm, false, 'the Sign In button, not the form');
+  await ui.commands['jay.signIn']();
+  assert.ok(ui.out.some((l) => /^error: jay couldn't sign in: /.test(l)), 'a missing file: a notification, as before');
+  assert.ok(!ui.executed.some((c) => c[0] === 'workbench.view.extension.jay'));
+  assert.strictEqual(ui.inputOptions.length, 0);
+  h.view.webview._receive({ type: 'signInForm', site: SITE, email: 'ann@example.com', token: 'tok-x' });
+  await settle();
+  assert.strictEqual(h.secrets.m.size, 0, 'the form is ignored while a token file is set');
+  tokenFile(home);
+  h.view.webview._receive({ type: 'signIn' });
+  await settle();
+  assert.strictEqual(lastState(h.view).signedIn, true, "the page's Sign In button retries the file");
 });
 
 test('the account line shows the email Jira reports, else the sign-in email, else the name', async () => {
@@ -505,8 +604,7 @@ test('jay.signedIn is true once signed in, false after Sign Out, a lost sign-in 
   h = start({ signedOut: true, config: { 'jira.site': SITE } });
   await settle();
   assert.deepStrictEqual(signedInKey(), [false], 'never signed in: false, sent once');
-  ui.inputs.push(SITE, 'ann@example.com', 'tok-good');
-  await ui.commands['jay.signIn']();
+  await submitForm(h, SITE, 'ann@example.com', 'tok-good');
   await settle();
   assert.strictEqual(signedInKey().at(-1), true, 'Sign In');
   ext.deactivate();
@@ -661,15 +759,12 @@ test('Sign In clears the signed-out flag only on success; setMode reloads in ful
   await ui.commands['jay.signOut']();
   assert.strictEqual(h.gs.get('jay.signedOut'), true);
   h.world.reject = true;
-  ui.inputs.push(SITE, 'ann@example.com', 'bad');
-  await ui.commands['jay.signIn']();
+  await submitForm(h, SITE, 'ann@example.com', 'bad');
   assert.strictEqual(h.gs.get('jay.signedOut'), true, 'still signed out after a failed sign-in');
-  ui.inputs.push(undefined);
-  await ui.commands['jay.signIn']();
-  assert.strictEqual(h.gs.get('jay.signedOut'), true, 'still signed out after a cancelled sign-in');
+  await submitForm(h, 'not a site', 'ann@example.com', 'good');
+  assert.strictEqual(h.gs.get('jay.signedOut'), true, 'still signed out after a bad site');
   h.world.reject = false;
-  ui.inputs.push(SITE, 'ann@example.com', 'good');
-  await ui.commands['jay.signIn']();
+  await submitForm(h, SITE, 'ann@example.com', 'good');
   assert.strictEqual(h.gs.get('jay.signedOut'), undefined);
 });
 

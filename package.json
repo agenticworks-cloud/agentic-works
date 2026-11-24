@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -847,7 +847,7 @@
           {
             "id": "jira",
             "title": "Connect Jira and Confluence",
-            "description": "Set your Atlassian site, then sign in.\n[Set Site URL](command:jay.siteUrl)\n[Sign In to Jira](command:jay.signIn)",
+            "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:jay.signIn)",
             "media": {
               "markdown": "media/walkthrough/jira.md"
             },
