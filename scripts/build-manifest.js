@@ -57,6 +57,8 @@ const NO_PATHS = new Set(['configuration', 'configurationDefaults']);
 // Contribution points this script knows how to merge, gate and rewrite. A part contributing another one
 // fails the build, so adding it here is a decision (does it need a `when`? does it carry paths?).
 const KNOWN_POINTS = new Set([...NO_PATHS, 'commands', 'keybindings', 'menus', 'views', 'viewsContainers']);
+// Contribution points only roost.contributes.json may use: a walkthrough is Roost's, across the parts.
+const ROOST_ONLY = new Set(['walkthroughs']);
 // Fields the script generates; roost.json setting them would be overwritten silently.
 const GENERATED = ['main', 'activationEvents', 'contributes', 'dependencies', 'extensionPack'];
 
@@ -174,7 +176,7 @@ function buildManifest(root) {
   if (fs.existsSync(ownFile)) {
     const own = readJson(ownFile);
     for (const k of Object.keys(own)) {
-      if (!KNOWN_POINTS.has(k) || NO_PATHS.has(k)) throw new Error(`roost.contributes.json contributes ${k}, which build-manifest.js does not merge`);
+      if (!(KNOWN_POINTS.has(k) || ROOST_ONLY.has(k)) || NO_PATHS.has(k)) throw new Error(`roost.contributes.json contributes ${k}, which build-manifest.js does not merge`);
     }
     for (const c of own.commands || []) claim('command', c.command, 'roost');
     merge(contributes, own, 'roost.contributes.json contributes');

@@ -225,27 +225,28 @@ test('real tree builds', () => {
   }
   // Every view and menu entry carries its part's switch; every icon path exists.
   const switches = parts.map((p) => `config.roost.${p.id}.enabled && !roost.${p.id}.failed`);
-  // (roost.openSettings is Roost's own, in no part's switch: asserted in its own test)
-  const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()].filter((e) => e.command !== 'roost.openSettings');
+  // (roost.* commands are Roost's own, in no part's switch: roost.openSettings is asserted in its own test)
+  const own = (command) => /^roost\./.test(command || '');
+  const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()].filter((e) => !own(e.command));
   for (const e of entries) assert.ok(switches.some((s) => e.when.startsWith(s)), JSON.stringify(e));
   // Every command of a part is gated in the Command Palette by that part's switch.
   // (a command's part is the one whose package.json contributes it: command ids kept the parts' old names)
   const owner = Object.fromEntries(parts.flatMap((p) => (JSON.parse(fs.readFileSync(path.join(p.dir, 'package.json'), 'utf8')).contributes.commands || []).map((c) => [c.command, p.id])));
-  for (const { command } of m.contributes.commands.filter((c) => c.command !== 'roost.openSettings')) {
+  for (const { command } of m.contributes.commands.filter((c) => !own(c.command))) {
     const id = owner[command];
     const want = `config.roost.${id}.enabled && !roost.${id}.failed`;
     const entries = m.contributes.menus.commandPalette.filter((e) => e.command === command);
     assert.ok(entries.length && entries.every((e) => e.when.startsWith(want)), `${command} gated by ${want}`);
   }
   for (const k of m.contributes.keybindings) assert.ok(switches.some((s) => k.when.startsWith(s)), JSON.stringify(k));
-  // Every path in contributes points into a part and exists on disk.
+  // Every path in contributes points into a part, or Roost's own media/ for its walkthrough, and exists on disk.
   const pathKeys = new Set(['icon', 'path', 'image', 'markdown', 'svg', 'light', 'dark']);
   const walk = (v) => {
     if (Array.isArray(v)) return v.forEach(walk);
     if (v === null || typeof v !== 'object') return;
     for (const [k, x] of Object.entries(v)) {
       if (pathKeys.has(k) && typeof x === 'string' && !x.startsWith('$(')) {
-        assert.ok(x.startsWith('parts/'), `${k}: ${x} is inside a part`);
+        assert.ok(x.startsWith('parts/') || x.startsWith('media/walkthrough/'), `${k}: ${x} is inside a part or Roost's walkthrough`);
         assert.ok(fs.existsSync(path.join(root, x)), `${x} exists`);
       } else walk(x);
     }
@@ -278,6 +279,29 @@ test('roost.contributes.json merges without a part switch and may not clash with
   assert.throws(() => buildManifest(clash), /duplicate command id a\.x/);
   const odd = fixture((t) => (t['roost.contributes.json'] = { grammars: [] }));
   assert.throws(() => buildManifest(odd), /roost\.contributes\.json.*grammars/);
+});
+
+test('the Get started walkthrough: Roost\'s own, each part\'s step shown only while it is on, every page and button real', () => {
+  const m = buildManifest(root);
+  const [w] = m.contributes.walkthroughs;
+  assert.strictEqual(m.contributes.walkthroughs.length, 1);
+  assert.strictEqual(w.id, 'roost.getStarted');
+  const when = Object.fromEntries(w.steps.map((s) => [s.id, s.when]));
+  assert.deepStrictEqual(when, {
+    agents: 'config.roost.agents.enabled', teams: 'config.roost.teams.enabled', jira: 'config.roost.jira.enabled',
+    github: 'config.roost.pullRequests.enabled', parts: undefined,
+  });
+  const commands = new Set(m.contributes.commands.map((c) => c.command));
+  for (const step of w.steps) {
+    assert.ok(fs.existsSync(path.join(root, step.media.markdown)), `${step.id}: ${step.media.markdown} exists`);
+    const buttons = [...step.description.matchAll(/\(command:([\w.]+)\)/g)].map((x) => x[1]);
+    assert.ok(buttons.length > 0, `${step.id} has a button`);
+    for (const id of [...buttons, ...step.completionEvents.map((e) => e.replace(/^onCommand:/, ''))]) {
+      assert.ok(commands.has(id), `${step.id}: ${id} is a contributed command`);
+    }
+  }
+  const partWalkthrough = fixture((t) => { t['parts/a/package.json'].contributes.walkthroughs = []; });
+  assert.throws(() => buildManifest(partWalkthrough), /parts\/a contributes walkthroughs/, 'a part may not contribute one');
 });
 
 // The parts' settings and palette titles were renamed (2026-11-23): perch.* → agents.*, chirp.* → teams.*, jay.* →

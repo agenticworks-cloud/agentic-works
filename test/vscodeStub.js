@@ -36,6 +36,11 @@ function install() {
     ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     window: {
       createOutputChannel: (name) => ({ name, appendLine: (l) => ui.out.push(l), show() { ui.shown++; }, dispose() {} }),
+      createTerminal: (opts) => {
+        const t = { ...opts, sent: [], shown: false, show() { t.shown = true; }, sendText(x) { t.sent.push(x); }, dispose() {} };
+        (ui.terminals = ui.terminals || []).push(t);
+        return t;
+      },
       showErrorMessage: (m, ...items) => { ui.errors.push({ message: m, items }); return Promise.resolve(ui.errorChoice); },
       registerWebviewPanelSerializer: (viewType, z) => {
         if (ui.serializers[viewType]) throw new Error(`A serializer for '${viewType}' is already registered`);

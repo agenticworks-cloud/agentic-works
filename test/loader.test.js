@@ -525,6 +525,8 @@ function firstStartSetup(config) {
   env.store = store;
   env.opened = [];
   env.ui.commands['workbench.view.extension.kestrel'] = () => { env.opened.push(1); };
+  env.walkthroughs = [];
+  env.ui.commands['workbench.action.openWalkthrough'] = (...a) => { env.walkthroughs.push(a); };
   return env;
 }
 async function activateFirst(env) {
@@ -540,9 +542,10 @@ test('first start: PRs on opens the PRs tab once and records it', async () => {
   assert.strictEqual(env.store.get('roost.firstStart.done'), true);
   await env.extension.deactivate();
   env.base.subscriptions.splice(0).forEach((d) => d.dispose());
-  env.ui.commands = { 'workbench.view.extension.kestrel': env.ui.commands['workbench.view.extension.kestrel'] };
+  env.ui.commands = { 'workbench.view.extension.kestrel': env.ui.commands['workbench.view.extension.kestrel'], 'workbench.action.openWalkthrough': env.ui.commands['workbench.action.openWalkthrough'] };
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 1, 'a second activation does not open it');
+  assert.strictEqual(env.walkthroughs.length, 1, 'nor the walkthrough');
   await env.extension.deactivate();
 });
 
@@ -550,6 +553,7 @@ test('first start: PRs off opens nothing and still records', async () => {
   const env = firstStartSetup({ 'roost.pullRequests.enabled': false });
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 0);
+  assert.deepStrictEqual(env.walkthroughs, [['seanahn.roost#roost.getStarted', false]], 'the walkthrough still opens');
   assert.strictEqual(env.store.get('roost.firstStart.done'), true);
   await env.extension.deactivate();
 });
@@ -561,6 +565,30 @@ test('first start: a failing command is logged and still recorded', async () => 
   assert.ok(env.ui.out.some((l) => l.includes('PRs tab') && l.includes('no such view')));
   assert.strictEqual(env.store.get('roost.firstStart.done'), true);
   await env.extension.deactivate();
+});
+
+test('first start: a walkthrough that fails to open is logged and still recorded', async () => {
+  const env = firstStartSetup({});
+  env.ui.commands['workbench.action.openWalkthrough'] = () => { throw new Error('no walkthrough'); };
+  await activateFirst(env);
+  assert.strictEqual(env.opened.length, 1, 'the PRs tab opened first');
+  assert.ok(env.ui.out.some((l) => l.includes('walkthrough') && l.includes('no walkthrough')));
+  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  await env.extension.deactivate();
+});
+
+test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh auth login in a terminal', async () => {
+  const { ui, extension, base } = setup({});
+  await activate(extension, base);
+  const opened = [];
+  ui.commands['workbench.action.openWalkthrough'] = (...a) => opened.push(a);
+  await ui.vscode.commands.executeCommand('roost.getStarted');
+  assert.deepStrictEqual(opened, [['seanahn.roost#roost.getStarted', false]]);
+  await ui.vscode.commands.executeCommand('roost.githubSignIn');
+  assert.strictEqual(ui.terminals.length, 1);
+  assert.ok(ui.terminals[0].shown);
+  assert.deepStrictEqual(ui.terminals[0].sent, ['gh auth login --hostname github.com']);
+  await extension.deactivate();
 });
 
 test('first start: does not hold up activation or the parts', async () => {

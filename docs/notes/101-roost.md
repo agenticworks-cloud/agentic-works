@@ -180,6 +180,24 @@ awaited by `activate`, and has no setting. Whatever happens (PRs off or failed, 
 logged to the Roost output channel) `roost.firstStart.done` is then recorded in the base context's `globalState`,
 so it never happens again. The Agents part's own `agents.firstStart.openClaudeTab` (was `perch.…`) stays separate, for installers.
 
+After the PRs tab, the same first start opens Roost's walkthrough, **Get started with Roost**
+(`workbench.action.openWalkthrough`, `seanahn.roost#roost.getStarted`); a failure is logged like the PRs tab's. The
+walkthrough is Roost's own (`contributes.walkthroughs` in roost.contributes.json, the one contribution point only
+Roost may use), so it also sits on VS Code's Welcome page, and **Roost: Get Started** opens it again. Its steps, each
+shown only while its part is switched on (`when: config.roost.<id>.enabled`), have a button and a short page
+(media/walkthrough/*.md):
+
+| Step | Button | Done when |
+|---|---|---|
+| Talk to Claude | Agents: New Claude Tab | a Claude, gateway or Codex tab is opened from it or the palette |
+| Sign in to Teams | Teams: Sign In | that command runs |
+| Connect Jira and Confluence | Jira: Site URL, then Jira: Sign In | Jira: Sign In runs |
+| Sign in to GitHub | Roost: Sign In to GitHub | that command runs: it opens a terminal running `gh auth login` (the PRs part reads gh's logins) |
+| Choose your parts | Roost: Settings | that command runs |
+
+"Done" follows VS Code's own completion events (`onCommand:`), so a step is ticked when its command runs, not when
+the sign-in succeeds; a part's own view shows whether it did. The step for Choose your parts has no `when`.
+
 ### Links between parts, for now
 
 The existing links keep working unchanged, because the commands and files keep their names. Where a part calls
