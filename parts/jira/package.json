@@ -74,6 +74,10 @@
         "title": "Jira: Open Ticket"
       },
       {
+        "command": "jay.signInWith",
+        "title": "Jira: Sign In With"
+      },
+      {
         "command": "jay.projectKeys",
         "title": "Jira: Project Keys"
       },
@@ -98,6 +102,10 @@
         },
         {
           "command": "jay.openTicket",
+          "when": "false"
+        },
+        {
+          "command": "jay.signInWith",
           "when": "false"
         },
         {

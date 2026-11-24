@@ -391,12 +391,21 @@ function activate(context, deps = {}) {
     return null;
   }
 
+  /**
+   * The form's sign-in, answering what is wrong: the sidebar form's submit and the jay.signInWith command share it.
+   * @returns null once signed in, else the message (never containing the token)
+   */
+  async function signInFromForm(m) {
+    if (userCfg('signIn.tokenFile', '')) return 'Jira signs in with its token file (jira.signIn.tokenFile).';
+    if (signingIn) return 'A sign-in is already being checked.';
+    signingIn = true;
+    try { return (await signInWith(m)) || null; } catch (e) { log(e); return "Couldn't sign in: unknown error"; } finally { signingIn = false; }
+  }
+
   /** The sidebar form's submit: the answer goes back to the form, never with the token. */
   async function submitSignIn(m) {
     if (signingIn || userCfg('signIn.tokenFile', '')) return;
-    signingIn = true;
-    let error;
-    try { error = await signInWith(m); } catch (e) { log(e); error = "Couldn't sign in: unknown error"; } finally { signingIn = false; }
+    const error = await signInFromForm(m);
     sidebar.reply({ type: 'signInResult', ok: !error, error: error || null });
   }
 
@@ -614,6 +623,8 @@ function activate(context, deps = {}) {
     secrets.onDidChange((e) => { if (e && (e.key === 'jay.email' || e.key === 'jay.apiToken')) signedOutElsewhere(); }),
     vscode.commands.registerCommand('jay.refresh', () => refresh()),
     vscode.commands.registerCommand('jay.signIn', () => signIn()),
+    // for the Get started page in Roost: the form's sign-in as a command; the answer is null or the message, never the token
+    vscode.commands.registerCommand('jay.signInWith', (m) => signInFromForm(m || {})),
     vscode.commands.registerCommand('jay.signOut', () => signOut()),
     vscode.commands.registerCommand('jay.focusSearch', () => sidebar.focusSearch()),
     // after jay saw the Atlassian page fail and routed clicks to its own view: Sean signed in again there (design 101)

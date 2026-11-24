@@ -1662,6 +1662,23 @@ test('jay.openTicket: invalid or missing key, or signed out, returns false and o
   assert.strictEqual(ui.panels.length, 0);
 });
 
+test('jay.signInWith: the sidebar form\'s sign-in for another page; the token never in the answer', async () => {
+  const h = start({ signedOut: true });
+  await settle();
+  h.world.reject = true;
+  assert.strictEqual(await ui.commands['jay.signInWith']({ site: SITE, email: 'ann@example.com', token: 'tok-bad' }), "Couldn't sign in: the email or API token was rejected");
+  assert.strictEqual(h.secrets.m.size, 0);
+  assert.strictEqual(await ui.commands['jay.signInWith']({ site: 'example.atlassian.net', email: 'a', token: 't' }), 'The site URL must look like https://yourcompany.atlassian.net');
+  h.world.reject = false;
+  assert.strictEqual(await ui.commands['jay.signInWith']({ site: SITE, email: ' ann@example.com ', token: ' tok-good ' }), null);
+  assert.strictEqual(h.secrets.m.get('jay.apiToken'), 'tok-good');
+  assert.ok(!ui.out.some((l) => l.includes('tok-good') || l.includes('tok-bad')));
+});
+test('jay.signInWith with a token file: says so, signs nothing in', async () => {
+  const h = start({ signedOut: true, config: { 'jira.signIn.tokenFile': '~/creds.json' } });
+  assert.strictEqual(await ui.commands['jay.signInWith']({ site: SITE, email: 'a@example.com', token: 't' }), 'Jira signs in with its token file (jira.signIn.tokenFile).');
+  assert.strictEqual(h.secrets.m.size, 0);
+});
 test('jay.projectKeys returns the loaded project keys; [] when signed out', async () => {
   start();
   await settle();
