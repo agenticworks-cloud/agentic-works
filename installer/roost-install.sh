@@ -489,7 +489,7 @@ ensure_path() {  # `code` on PATH for this run and, through one marked block in 
   step_begin "$label"
   profile=$(shell_profile)
   short=${profile#"$HOME"/}
-  if [ -f "$profile" ] && grep -qF "$PATH_MARK" "$profile"; then
+  if [ -f "$profile" ] && grep -qxF "$PATH_MARK" "$profile"; then
     step_end already "$short"
     return 0
   fi
@@ -787,21 +787,27 @@ ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and co
 
 # ---- Claude Code's command-line tool, for a terminal ---------------------------------------------------------
 
-profile_block_add() {  # $1 = profile, $2 = a line: into Roost's marked block (made when there is none); false on failure
-  local profile=$1 line=$2 text="" row n last=0 i=0 done_=0
-  if [ ! -f "$profile" ] || ! grep -qF "$PATH_MARK" "$profile"; then
+profile_block_add() {  # $1 = profile, $2 = a line: into Roost's PATH block (made when there is none); false on failure
+  # The block is the one whose marker is a whole line "# added by roost-install": the Homebrew block's marker
+  # ("...: Homebrew") is another block, and the line never goes into it.
+  local profile=$1 line=$2 text="" row start=0 end=0 i=0 n=0
+  if [ -f "$profile" ]; then
+    while IFS= read -r row || [ -n "$row" ]; do
+      i=$((i + 1))
+      if [ "$start" = 0 ]; then
+        [ "$row" = "$PATH_MARK" ] && start=$i
+      elif [ "$end" = 0 ] && [ "$row" = "$PATH_END" ]; then
+        end=$i
+      fi
+    done < "$profile"
+  fi
+  if [ "$start" = 0 ] || [ "$end" = 0 ]; then
     printf '\n%s\n%s\n%s\n' "$PATH_MARK" "$line" "$PATH_END" >> "$profile"
     return
   fi
-  while IFS= read -r row || [ -n "$row" ]; do  # the last end marker is where the line goes
-    i=$((i + 1))
-    [ "$row" = "$PATH_END" ] && last=$i
-  done < "$profile"
-  [ "$last" != 0 ] || { printf '%s\n%s\n%s\n' "$PATH_MARK" "$line" "$PATH_END" >> "$profile"; return; }
-  n=0
   while IFS= read -r row || [ -n "$row" ]; do
     n=$((n + 1))
-    if [ "$n" = "$last" ] && [ "$done_" = 0 ]; then text="$text$line"$'\n'; done_=1; fi
+    [ "$n" = "$end" ] && text="$text$line"$'\n'
     text="$text$row"$'\n'
   done < "$profile"
   printf '%s' "$text" > "$profile"  # in place: the file's mode and any symlink stay

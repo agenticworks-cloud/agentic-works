@@ -622,6 +622,40 @@ class TestPath(_Installer):
         text = (self.home / ".zprofile").read_text()
         self.assertIn(f'eval "$({self.tmp}/stubs/brew shellenv)"', text)
 
+    HOMEBREW_BLOCK = ('# added by roost-install: Homebrew\n[ -x /opt/homebrew/bin/brew ] && '
+                      'eval "$(/opt/homebrew/bin/brew shellenv)"\n# end roost-install\n')
+
+    def test_homebrew_block_alone_does_not_count_as_the_path_block(self) -> None:
+        code = self.mac_app()
+        (self.home / ".zprofile").write_text(self.HOMEBREW_BLOCK)
+        rc, out = self.run_sourced(self.env("macos", ("brew",), SHELL="/bin/zsh"), self.PROBE, str(code))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("code on the PATH (.zprofile) (already)", out)
+        text = (self.home / ".zprofile").read_text()
+        self.assertTrue(text.startswith(self.HOMEBREW_BLOCK), text)
+        self.assertEqual(text.splitlines().count("# added by roost-install"), 1, text)
+        self.assertIn(str(code.parent), text.split(self.HOMEBREW_BLOCK, 1)[1])
+
+    def test_local_bin_goes_in_the_path_block_not_the_homebrew_block(self) -> None:
+        path_block = '# added by roost-install\nexport PATH="/opt/code/bin:$PATH"\n# end roost-install\n'
+        for name, text in (("homebrew first", self.HOMEBREW_BLOCK + path_block),
+                           ("homebrew last", path_block + self.HOMEBREW_BLOCK)):
+            with self.subTest(name):
+                (self.home / ".profile").write_text(text)
+                env = self.env("ubuntu", tuple(n for n in ALL_PRESENT if n != "claude"),
+                               CURL_BODY='mkdir -p "$HOME/.local/bin"; : > "$HOME/.local/bin/claude"')
+                rc, out = self.run_pipe(env)
+                self.assertEqual(rc, 0, out)
+                got = (self.home / ".profile").read_text()
+                lines = got.splitlines()
+                local = next(i for i, line in enumerate(lines) if "/.local/bin" in line)
+                start = lines.index("# added by roost-install")
+                self.assertEqual(lines[start + 1], 'export PATH="/opt/code/bin:$PATH"', lines)
+                self.assertEqual(local, start + 2, lines)
+                self.assertEqual(lines[local + 1], "# end roost-install", lines)
+                self.assertEqual(len([l for l in lines if "/.local/bin" in l]), 1, got)
+                (self.home / ".local" / "bin" / "claude").unlink()
+
     def test_code_on_the_path_leaves_the_profile_alone(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
         self.assertEqual(rc, 0, out)
