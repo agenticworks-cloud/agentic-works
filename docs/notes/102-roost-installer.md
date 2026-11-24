@@ -28,8 +28,8 @@ first. *(Sean)*
 - Linux servers reached over Remote-SSH (headless, no desktop VS Code): the next iteration. *(Sean)* Linux here means a
   desktop where VS Code runs on the machine.
 - Sign-ins (Claude, Codex, Teams, Jira) and per-part questions: each part signs itself in inside Roost, with its own
-  UI, and all parts are on (switched in Roost: Settings). *(my call, Sean: "do as you wish")* The exceptions are
-  GitHub, below. Codebase search was asked here in 0.2.0–0.3.3; it is now off unless `--codebase-search`, and
+  UI, and all parts are on (switched in Roost: Settings). *(my call, Sean: "do as you wish")* GitHub too since
+  0.4.3: the installer installs `gh` and Roost's walkthrough signs it in (step 4b). Codebase search was asked here in 0.2.0–0.3.3; it is now off unless `--codebase-search`, and
   Roost's walkthrough offers it (note 101) *(Sean, 2026-11-24)*.
 - Anything company-specific: gateways, MCP servers, company apps.
 - The Marketplace: Roost is not published there yet. *(Sean: GitHub for now)*
@@ -74,7 +74,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    and agent sessions stay; only the extensions go. *(my call)* Their `perch.*`, `chirp.*`, `jay.*` and `kestrel.*`
    settings are copied to Roost's `agents.*`, `teams.*`, `jira.*` and `pullRequests.*` by each part on its first
    start (note 101, *Renamed parts and settings*); the installer writes no part settings itself. **Stop** skips steps 4–7 (Roost, GitHub, the look,
-   the icons, opening VS Code) and exits 1 — GitHub too, since its question is for Roost's PRs panel; a VS Code installed in step 2 stays, which is harmless. With no terminal to
+   the icons, opening VS Code) and exits 1 — GitHub too, since gh is for Roost's PRs panel; a VS Code installed in step 2 stays, which is harmless. With no terminal to
    ask on (a pipe, a layer), the run stops the same way unless `--yes` was given, which answers Uninstall. If an
    uninstall fails, Roost is not installed (a clash is worse than no Roost) and the run says which one is left.
 4. **Roost.** If the same version is installed: `✓ (already)`. An older one: upgrade, then say "Reload any open VS
@@ -125,11 +125,11 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
 4b. **GitHub, for the PRs panel.** kestrel reads pull requests through the GitHub CLI and cannot sign in by itself, so:
    install `gh` if missing (Homebrew; GitHub's apt repository on Ubuntu/Debian; on RHEL/Rocky GitHub's rpm
    repository, added and then `dnf install gh` without `--repo gh-cli`, which GitHub's page gives but which hides
-   the system repositories that gh's `git` comes from; on Fedora, Fedora's own `gh`), then, if `gh auth
-   status` fails, ask "Sign in to GitHub now, so Roost can show your pull requests? [Y/n]" and run `gh auth login
-   --web` on Y; after a sign-in, the line under it says `gh auth login` may have set git's credential helper in
-   `~/.gitconfig`. No terminal, or `n`: `– GitHub: run \`gh auth login\` to see your pull requests`. `--yes` does not
-   answer this one (a browser sign-in is never automatic). *(my call)*
+   the system repositories that gh's `git` comes from; on Fedora, Fedora's own `gh`). No sign-in question
+   *(since 0.4.3; Sean, 2026-11-24: "gh auth login, why can't we put this as the first step of the walkthrough?")*:
+   signed in, the line under ✓ says `signed in as <login>`; not signed in, it says `sign in from Roost's
+   walkthrough in VS Code (Sign in to GitHub)`, and the walkthrough's GitHub step runs the sign-in (note 101).
+   Before 0.4.3 this step asked "Sign in to GitHub now…? [Y/n]" and ran `gh auth login --web`.
 5. **The look** (note 101, *Follow-ups*), in the user settings file, each key only if not already set; a settings
    file with comments is never rewritten (the lines are printed instead):
    - `"chat.disableAIFeatures": true` — VS Code's built-in Copilot off; Roost's tabs take its place;
@@ -237,7 +237,7 @@ A fresh Mac:
    |                    |-- download roost-x.vsix ---------------------->  |                      |
    |                    |<-- file; SHA-256 matches  |                      |                      |
    |                    |-- --install-extension roost, claude-code, chatgpt, perch-audio ------>  |
-   |                    |-- gh missing: install it; "Sign in to GitHub now…?" [Y] gh auth login --web  |
+   |                    |-- gh missing: install it (signed in later, in the walkthrough)        |
    |                    |-- settings: 4 keys (none set before)             |                      |
    |                    |-- state.vscdb absent: write the icon layout      |                      |
    |<-- ✓ checklist (platform, VS Code, PATH, Roost, companions, GitHub, settings, icons); Done: 8 ✓ 0 – 0 ✗
@@ -304,7 +304,8 @@ Built: branch feat/installer; the plan's last commit: 8985c57.
 | rockylinux:9 | 7 ✓ 1 – 0 ✗, exit 0 | `✓ (already)` but GitHub, exit 0 |
 | fedora:latest (45) | 7 ✓ 1 – 0 ✗, exit 0 | `✓ (already)` but GitHub, exit 0 |
 
-The one `–` is `GitHub: run \`gh auth login\``, expected with no terminal. Afterwards every profile held
+The one `–` is `GitHub: run \`gh auth login\``, expected with no terminal (since 0.4.3 GitHub is ✓
+instead, with a line saying to sign in from the walkthrough). Afterwards every profile held
 seanahn.roost, anthropic.claude-code, openai.chatgpt and seanahn.perch-audio, settings.json the four keys, and
 state.vscdb the layout. The runs found three faults, fixed before these results: gh on Rocky (`--repo gh-cli`),
 OpenSSL 3 on Fedora 45, and Rocky 8's Python 3.6. The helper's tests also run in `python:3.6-slim`.

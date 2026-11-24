@@ -26,7 +26,7 @@ Run it without `sudo`: it asks for your password when it needs it, after listing
   the PATH;
 - offers to uninstall the standalone Perch, chirp, jay and kestrel extensions, which would clash with Roost;
 - installs Roost (checked against its SHA-256) and its companions, Claude Code, ChatGPT and perch-audio;
-- installs the GitHub CLI and offers one `gh auth login`, for the PRs panel;
+- installs the GitHub CLI, for the PRs panel (you sign in to GitHub from the walkthrough, not the terminal);
 - sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
   and trims the activity-bar icons on a VS Code that has never been started;
 - opens VS Code, where Roost's first start opens its Get started walkthrough (again any time: Roost: Get Started).
@@ -38,7 +38,7 @@ the newest installer is also how Roost is updated.
 |---|---|
 | `--dry-run` | print each command instead of running it |
 | `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions claude git github homebrew settings icons open` |
-| `--yes` | answer yes to uninstalling the standalone four (needed with no terminal); never answers the GitHub sign-in |
+| `--yes` | answer yes to uninstalling the standalone four (needed with no terminal) |
 | `--no-open` | don't open VS Code at the end |
 | `--codebase-search` | turn codebase search on in Claude and Codex tabs (off otherwise; the Get started walkthrough offers it) |
 | `--teams-app <clientId>:<tenant>` | sign Teams in with your company's own Microsoft app: its Application (client) ID, then the Directory (tenant) ID or domain, from your IT team (written to `teams.signIn.clientId` and `teams.signIn.tenant` only when neither is set) |

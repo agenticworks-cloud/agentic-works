@@ -92,15 +92,11 @@ STUB_EXTRA = {
     "sudo": '[ "$*" = "-n -v" ] && printf \'keepalive-ppid %s\\n\' "$PPID" >> "$STUB_LOG"\n' + INSTALLS,
     "brew": INSTALLS,
 }
-# gh: signed in while $GH_AUTH_FILE exists; `gh auth login` creates it, logging the line it reads from stdin.
+# gh: signed in while $GH_AUTH_FILE exists (the installer never runs `gh auth login`; the tests check it isn't).
 GH = r"""#!/bin/sh
 printf '%s\n' "gh $*" >> "$STUB_LOG"
 case "$1 $2" in
   "auth status") [ -f "$GH_AUTH_FILE" ]; exit $? ;;
-  "auth login")
-    line=""; read -r line; printf 'gh-stdin %s\n' "$line" >> "$STUB_LOG"
-    [ -n "${GH_LOGIN_FAIL:-}" ] && exit 1
-    : > "$GH_AUTH_FILE"; exit 0 ;;
   "api user") echo octocat; exit 0 ;;
 esac
 exit 0
@@ -1107,7 +1103,7 @@ class TestCompanions(_Installer):
 
 
 class TestGitHub(_Installer):
-    """ensure_github: gh for kestrel's PRs panel, and one optional sign-in that --yes never answers."""
+    """ensure_github: gh for kestrel's PRs panel; never a sign-in (Roost's walkthrough signs in)."""
 
     def test_gh_installed_when_missing(self) -> None:
         no_gh = tuple(name for name in ALL_PRESENT if name != "gh")
@@ -1134,7 +1130,7 @@ class TestGitHub(_Installer):
                 self.assertTrue(all(i >= 0 for i in indexes) and indexes == sorted(indexes), (want, out))
                 for text in never:
                     self.assertNotIn(text, "\n".join(lines[github:]))
-                self.assertIn("gh auth login --web", out)
+                self.assertNotIn("gh auth login", out)
 
         # For real: gh goes in, and is signed in already.
         self.log.write_text("")
@@ -1171,42 +1167,29 @@ class TestGitHub(_Installer):
         self.assertEqual(self.logged("gh auth login"), [])
         self.assertNotIn("credential helper", out)  # this run signed nothing in
 
-    def test_gh_sign_in_on_yes(self) -> None:
+    def test_gh_not_signed_in_no_question(self) -> None:
+        """Not signed in: no question and no `gh auth login`, with a terminal or with --yes and none."""
         self.gh_auth.unlink()
-        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("", "for-gh")))
-        self.assertEqual(rc, 0, out)
-        self.assertIn("      Sign in to GitHub now, so Roost can show your pull requests? [Y/n]", out)
-        self.assertEqual(len(self.logged("gh auth login --web")), 1, self.stub_log())
-        self.assertEqual(self.logged("gh-stdin"), ["gh-stdin for-gh"])  # gh read the terminal
-        self.assertIn("  ✓ GitHub (signed in as octocat)\n"
-                      "      `gh auth login` may have set git's credential helper in ~/.gitconfig\n", out)
-
-        # n: no sign-in, a note instead.
-        self.gh_auth.unlink()
-        self.log.write_text("")
-        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("n")))
-        self.assertEqual(rc, 0, out)
-        self.assertIn("  – GitHub: run `gh auth login` to see your pull requests", out)
-        self.assertEqual(self.logged("gh auth login"), [])
-        self.assertNotIn("credential helper", out)
-
-        # A sign-in that doesn't finish is ✗.
-        self.log.write_text("")
-        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("y"), GH_LOGIN_FAIL="1"))
-        self.assertEqual(rc, 1, out)
-        self.assertIn("  ✗ GitHub: ", out)
-
-    def test_gh_no_terminal_skips_sign_in(self) -> None:
-        self.gh_auth.unlink()
-        for args in ((), ("--yes",)):
+        tty = self.tty("y", "y")
+        no_tty = str(self.tmp / "no-tty")
+        for args, env in (((), {"ROOST_INSTALL_TTY": tty}), (("--yes",), {"ROOST_INSTALL_TTY": no_tty})):
             with self.subTest(args=args):
                 self.log.write_text("")
-                env = self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=str(self.tmp / "no-tty"))
-                rc, out = self.run_pipe(env, *args)
+                rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, **env), *args)
                 self.assertEqual(rc, 0, out)
-                self.assertNotIn("Sign in to GitHub", out)
-                self.assertIn("  – GitHub: run `gh auth login` to see your pull requests", out)
+                self.assertIn("  ✓ GitHub (already)\n"
+                              "      sign in from Roost's walkthrough in VS Code (Sign in to GitHub)\n", out)
+                self.assertNotIn("[Y/n]", out.split("… GitHub")[-1])
                 self.assertEqual(self.logged("gh auth login"), [])
+                self.assertNotIn("credential helper", out)
+
+        # gh installed by this run, not signed in: the line says what was installed, then where to sign in.
+        self.log.write_text("")
+        rc, out = self.run_pipe(self.env("fedora", tuple(n for n in ALL_PRESENT if n != "gh")))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ GitHub (installed gh)\n"
+                      "      sign in from Roost's walkthrough in VS Code (Sign in to GitHub)\n", out)
+        self.assertEqual(self.logged("gh auth login"), [])
 
 
 class TestClaudeCLI(_Installer):

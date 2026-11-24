@@ -6,9 +6,9 @@
 # macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora. Installs VS Code if it
 # is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay and kestrel (after asking),
 # which Roost replaces; installs this release's Roost .vsix (SHA-256 checked), its companion extensions and the
-# GitHub CLI, offering one GitHub sign-in; sets VS Code's look and its activity-bar icons (on a VS Code never
-# started), then opens VS Code. It prints a checklist, one line per step. Each step checks first, so a
-# rerun only fills in what is missing. A failed step is reported and the run goes on; the exit status is 1 when
+# GitHub CLI (signed in from Roost's walkthrough, not here); sets VS Code's look and its activity-bar icons (on a
+# VS Code never started), then opens VS Code. It prints a checklist, one line per step. Each step checks first, so
+# a rerun only fills in what is missing. A failed step is reported and the run goes on; the exit status is 1 when
 # any step failed. Design: docs/notes/102-roost-installer.md.
 #
 # Runs under macOS's /bin/bash 3.2: no associative arrays, mapfile, ${x,,}, |& or [[ -v ]].
@@ -629,12 +629,6 @@ ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = n
   esac
 }
 
-on_terminal() {  # $* = argv, run with the terminal (fd 3) as stdin and output on screen: a browser sign-in
-  printf '$ %s\n' "$*" >> "$LOG"
-  spinner_stop
-  if [ "$TTY_OPEN" = 1 ]; then "$@" <&3; else "$@" < /dev/null; fi
-}
-
 check_standalone() {  # the standalone four would clash with Roost (the same command ids): uninstall them, or stop
   local installed id found="" failed="" names rc
   skipped standalone "Standalone extensions" && return 0
@@ -996,8 +990,8 @@ gh_signed_in() {
   gh auth status < /dev/null >> "$LOG" 2>&1
 }
 
-ensure_github() {  # gh, and one optional browser sign-in (never answered by --yes)
-  local installed="" user rc
+ensure_github() {  # gh, for kestrel's PRs panel; the sign-in is Roost's walkthrough's, never the terminal's
+  local installed="" user
   [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
   skipped github "GitHub" && return 0
   step_begin "GitHub"
@@ -1014,41 +1008,24 @@ ensure_github() {  # gh, and one optional browser sign-in (never answered by --y
       step_end failed "the install didn't give a 'gh' command; see $LOG"
       return 0
     fi
-    installed="installed gh; "
+    installed="installed gh"
     [ "$GH_REPO_ADDED" = 0 ] || installed="added GitHub's package repository, $installed"
   fi
   if [ "$DRY_RUN" = 1 ]; then
-    if have gh && gh_signed_in; then
-      step_end already
-    else
-      run gh auth login --web --hostname github.com --git-protocol https
-      step_end done "dry run"
-    fi
+    if [ -n "$installed" ]; then step_end done "$installed; dry run"; else step_end already; fi
     return 0
   fi
   if gh_signed_in; then
     user=$(github_user)
     if [ -n "$installed" ]; then
-      step_end done "${installed}signed in${user:+ as $user}"
+      step_end done "$installed; signed in${user:+ as $user}"
     else
       step_end already
       [ -z "$user" ] || step_say "signed in as $user"
     fi
-    return 0
-  fi
-  ask_yn "Sign in to GitHub now, so Roost can show your pull requests? [Y/n]"
-  rc=$?
-  if [ "$rc" != 0 ]; then
-    step_end skipped "${installed}run \`gh auth login\` to see your pull requests"
-    return 0
-  fi
-  on_terminal gh auth login --web --hostname github.com --git-protocol https
-  if gh_signed_in; then
-    user=$(github_user)
-    step_end done "${installed}signed in${user:+ as $user}"
-    step_say "\`gh auth login\` may have set git's credential helper in ~/.gitconfig"
   else
-    step_end failed "${installed}gh auth login didn't finish; run \`gh auth login\` to see your pull requests"
+    if [ -n "$installed" ]; then step_end done "$installed"; else step_end already; fi
+    step_say "sign in from Roost's walkthrough in VS Code (Sign in to GitHub)"
   fi
 }
 
@@ -1310,7 +1287,7 @@ Options:
   --dry-run      print each command instead of running it
   --skip <step>  leave a step out; repeatable. Steps: $STEP_NAMES
   --yes          answer yes when asked to uninstall the standalone extensions Roost replaces (needed with no
-                 terminal); never answers the GitHub sign-in
+                 terminal)
   --no-open      don't open VS Code at the end
   --codebase-search
                  turn codebase search on in Claude and Codex tabs (off otherwise; Roost's walkthrough offers it)
