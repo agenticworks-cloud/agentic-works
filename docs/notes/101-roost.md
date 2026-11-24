@@ -192,7 +192,7 @@ shown only while its part is switched on and started (`when: config.roost.<id>.e
 
 | Step | Button | Done when |
 |---|---|---|
-| Talk to Claude or Codex | Go to the Claude Tab (Agents: Open; the tab first start opened, else a picker), New Codex Tab | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: a tab is already open, so no New Claude Tab button; either agent works, and the page says how each signs in)* |
+| Talk to Claude or Codex | Go to Your Agent Tab (Agents: Open; the tab first start opened, else a picker), New Codex Tab | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: a tab is already open, so no New Claude Tab button; either agent works, and the page says how each signs in)* |
 | Use an LLM gateway (optional) | Set Up a Gateway (Agents: Set Up a Gateway…, a form in an editor tab that writes the gateway file), or Not Now (`roost.gatewayNotNow`, hidden from the palette) | a gateway is saved and usable (`perch.gatewayReady`, which Agents sets at start and on save), or Not Now runs *(Sean, 2026-11-24)*. The agents step has no gateway button, since a walkthrough's text cannot depend on a context key: its page names Agents: New Claude Tab on the Gateway, and the form offers that button once saved |
 | Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
 | Sign in to Teams | Teams: Sign In | Teams is signed in (`chirp.signedIn`) |

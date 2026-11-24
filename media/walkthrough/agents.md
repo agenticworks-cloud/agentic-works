@@ -6,7 +6,7 @@ machine. Type a message at the bottom of it and press Enter; this step is ticked
 Either agent works the same way. A Claude tab is a real Claude Code session, a Codex tab a real Codex session, in an
 editor tab: it reads and edits your workspace, runs commands when you allow it, and keeps its history across reloads.
 
-- **Go to the Claude Tab** takes you to the tab that is open. **New Codex Tab** opens a Codex one.
+- **Go to Your Agent Tab** takes you to the tab that is open. **New Codex Tab** opens a Codex one.
 - More tabs: **New Claude tab** or **New Codex tab** in the **Perch** view, or **Agents: New Claude Tab** and
   **Agents: New Codex Tab** in the Command Palette. With a gateway set up (the next step),
   **Agents: New Claude Tab on the Gateway** opens a Claude tab on it.

@@ -369,7 +369,7 @@
       },
       {
         "command": "roost.goToClaude",
-        "title": "Roost: Go to the Claude Tab"
+        "title": "Roost: Go to Your Agent Tab"
       }
     ],
     "menus": {
@@ -826,7 +826,7 @@
           {
             "id": "agents",
             "title": "Talk to Claude or Codex",
-            "description": "Your first tab is open beside this page: type a message there. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[Go to the Claude Tab](command:roost.goToClaude)\n[New Codex Tab](command:perch.newCodex)",
+            "description": "Your first tab is open beside this page: type a message there. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[Go to Your Agent Tab](command:roost.goToClaude)\n[New Codex Tab](command:perch.newCodex)",
             "media": {
               "markdown": "media/walkthrough/agents.md"
             },
