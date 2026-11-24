@@ -1965,6 +1965,23 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       asked.length = 0;
       assert.strictEqual(await resolveGatewayTarget(o, { fetch: globalThis.fetch }), OTHER, 'the file\'s address');
       assert.deepStrictEqual(asked, [], 'no probe');
+      // the form, with the file on the user's own gateway: its key is not offered, and a save with no key sends nothing
+      fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://own.example.net\nexport ANTHROPIC_AUTH_TOKEN=t\n');
+      q.fire({ type: 'ready' });
+      assert.deepStrictEqual([qlast().type, qlast().state.tokenSet], ['state', false], 'another gateway\'s key: the page asks for one');
+      asked.length = 0;
+      const k2 = q.got.length;
+      q.fire({ type: 'save', baseUrl: '', token: '', models: {} });
+      await until(() => q.got.length > k2);
+      assert.deepStrictEqual([qlast(), asked], [{ type: 'error', text: 'A key is needed.' }, []], 'no fetch to the company\'s addresses with another gateway\'s key');
+      assert.strictEqual(require('../src/gateway').readGateway(file).vars.ANTHROPIC_AUTH_TOKEN, 't', 'the file is left as it was');
+      // on one of the company's addresses (written another way): its key is kept, and checked
+      fs.writeFileSync(file, `export ANTHROPIC_BASE_URL=${PUBLIC_ODD}\nexport ANTHROPIC_AUTH_TOKEN=sk-good\n`);
+      q.fire({ type: 'ready' });
+      assert.strictEqual(qlast().state.tokenSet, true, 'the company\'s own key: kept');
+      q.fire({ type: 'save', baseUrl: '', token: '', models: {} });
+      await until(() => qlast().type === 'saved');
+      assert.strictEqual(require('../src/gateway').readGateway(file).vars.ANTHROPIC_BASE_URL, PUBLIC);
       c.perch.dispose();
     } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
   }
@@ -2089,7 +2106,8 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert(!m.ui.traces.some((l) => /sk-ant-1|sk-bad/.test(l)), 'nor the output channel');
       assert.strictEqual(fs.existsSync(settingsPath), false, 'terminal box off: settings.json untouched');
       p.fire({ type: 'ready' });
-      assert.deepStrictEqual([last().state.connection, last().state.connected, last().state.apiKeySet], ['apiKey', true, true]);
+      const st = p.got[p.got.length - 2].state;
+      assert.deepStrictEqual([st.connection, st.connected, st.apiKeySet, last()], ['apiKey', true, true, { type: 'saved', way: 'apiKey', terminalNote: '' }], 'the state, then Saved again');
       // a new Claude tab runs on the key: in its process's environment, never its arguments
       const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
       const s = m.commands['perch.newClaude']();
@@ -2207,6 +2225,55 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert(!JSON.stringify(JSON.parse(fs.readFileSync(settingsPath, 'utf8'))).includes('sk-good'), 'the key itself is not in settings.json');
       const s = m.commands['perch.newClaude']();
       assert.deepStrictEqual([s.gateway, s.own], [true, ''], 'new Claude tabs on the gateway');
+      m.perch.dispose();
+    } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
+  // ---- Connect Claude's conflicts survive its page being hidden (the gateway form in front), and are asked again when the file changed
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-connect-hide-'));
+    const realFetch = globalThis.fetch, realHome = process.env.HOME;
+    try {
+      process.env.HOME = dir;
+      const file = path.join(dir, 'gateway-env'), company = path.join(dir, 'company.json'), keyFile = path.join(dir, 'keys', 'token');
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json');
+      const PUBLIC = 'https://public.example.com/llm-api';
+      fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', gateway: { name: 'Example Gateway', baseUrls: [PUBLIC], keyPage: 'https://ai.example.com/keys', env: { ANTHROPIC_MODEL: 'router-auto' }, keyFiles: [keyFile], terminal: true } }));
+      fs.mkdirSync(claudeDir); fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_MODEL: 'mine' } }));
+      globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ data: [{ id: 'router-auto' }] }), json: async () => ({ data: [{ id: 'router-auto' }] }) });
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath } }); await flush();
+      m.commands['perch.connectClaude']();
+      const p = m.ui.panels.filter((x) => x.viewType === 'perch.connectClaude' && !x.disposed)[0], last = () => p.got[p.got.length - 1];
+      p.fire({ type: 'ready' });
+      p.fire({ type: 'gateway' });
+      const form = m.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0];
+      assert.strictEqual(form.viewColumn, 2, 'the gateway form opens beside the panel');
+      // the panel hidden: VS Code delivers nothing to its page
+      const deliver = p.webview.postMessage; let hidden = true;
+      p.webview.postMessage = (msg) => (hidden ? Promise.resolve(false) : deliver(msg));
+      const n = p.got.length;
+      form.fire({ type: 'save', baseUrl: '', token: 'sk-good', models: {} });
+      await until(() => m.globalState._dump()['perch.claude.connection'] === 'gateway' && m.perch.connect.pending);
+      await flush();
+      assert.strictEqual(p.got.length, n, 'nothing reached the hidden page');
+      // shown again: a page made anew asks, and is shown the state, then the conflict
+      hidden = false;
+      p.fire({ type: 'ready' });
+      assert.deepStrictEqual(p.got.slice(n).map((x) => x.type), ['state', 'conflicts']);
+      assert.deepStrictEqual(last(), { type: 'conflicts', way: 'gateway', list: [{ key: 'env.ANTHROPIC_MODEL', from: 'mine', to: 'router-auto' }] });
+      // the user's value changed since: Replace writes nothing over it, and asks again with the value there now
+      fs.writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_MODEL: 'mine-too' } }));
+      const k = p.got.length;
+      p.fire({ type: 'replace', keys: ['env.ANTHROPIC_MODEL'] }); await until(() => p.got.length > k);
+      assert.deepStrictEqual(last(), { type: 'conflicts', way: 'gateway', list: [{ key: 'env.ANTHROPIC_MODEL', from: 'mine-too', to: 'router-auto' }] });
+      assert.strictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_MODEL, 'mine-too', 'not replaced unasked');
+      assert.strictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_BASE_URL, PUBLIC, 'the rest of the plan written');
+      p.fire({ type: 'replace', keys: ['env.ANTHROPIC_MODEL'] }); await until(() => last().type === 'saved');
+      assert.strictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env.ANTHROPIC_MODEL, 'router-auto', 'replaced once asked again');
+      // and Saved, with its note, is shown again to a page made anew
+      p.fire({ type: 'ready' });
+      assert.deepStrictEqual(p.got.slice(-2).map((x) => x.type), ['state', 'saved']);
       m.perch.dispose();
     } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
   }

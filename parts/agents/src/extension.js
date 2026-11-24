@@ -1526,8 +1526,13 @@ class PerchView {
   /** What the gateway form is shown: the file as formState has it, and the company's gateway, if any, with the address saved. */
   gatewayFormState(gw) {
     const cg = this.companyGateway();
-    return Object.assign(Gateway.formState(gw), { preset: cg ? { name: cg.name, keyPage: cg.keyPage, baseUrl: (gw && gw.vars.ANTHROPIC_BASE_URL) || '' } : null });
+    const st = Gateway.formState(gw);
+    // a key kept from another gateway is not offered to the company's: the page asks for one (the form's save refuses it too)
+    if (cg && !this.companyKeyKept(gw, cg)) st.tokenSet = false;
+    return Object.assign(st, { preset: cg ? { name: cg.name, keyPage: cg.keyPage, baseUrl: (gw && gw.vars.ANTHROPIC_BASE_URL) || '' } : null });
   }
+  /** Whether the gateway file's key may go to the company's gateway: only when the file is on one of the company's addresses. */
+  companyKeyKept(gw, cg) { return !!(gw && gw.vars && Gateway.isOneOf(gw.vars.ANTHROPIC_BASE_URL, cg.baseUrls)); }
 
   /** Where the gateway's file is, by the setting or the default. */
   gatewayPath() { return Gateway.gatewayFile(cfg('claude.gatewayEnv')); }
@@ -1582,9 +1587,9 @@ class PerchView {
    * shown the file's values but the token, of which only whether there is one; a save answers with the file read back,
    * or what is wrong, shown on the page. One such tab at a time. (Sean, 2026-11-24)
    */
-  setUpGateway() {
+  setUpGateway(column = vscode.ViewColumn.Active) {
     if (this.gatewayPanel) { this.gatewayPanel.reveal(); return this.gatewayPanel; }
-    const panel = vscode.window.createWebviewPanel(GATEWAY_PANEL_TYPE, 'Set Up a Gateway', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [] });
+    const panel = vscode.window.createWebviewPanel(GATEWAY_PANEL_TYPE, 'Set Up a Gateway', column, { enableScripts: true, localResourceRoots: [] });
     this.gatewayPanel = panel;
     panel.webview.html = getGatewayFormHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
     const post = (m) => { Promise.resolve(panel.webview.postMessage(m)).catch(() => { /* the page is gone */ }); };
@@ -1612,8 +1617,10 @@ class PerchView {
   async saveGatewayForm(msg, post) {
     const file = this.gatewayPath(), before = this.gateway();
     const typed = String(msg.token || '').trim();
-    const key = typed || Gateway.TOKEN_VARS.map((k) => before.vars[k]).find(Boolean) || '';
     const cg = this.companyGateway();
+    // the saved key is reused only for the gateway it was saved for: a company's gateway gets it only when the file is on one of its addresses
+    const keep = !cg || this.companyKeyKept(before, cg);
+    const key = typed || (keep && Gateway.TOKEN_VARS.map((k) => before.vars[k]).find(Boolean)) || '';
     let form, check = null;
     if (cg) {
       if (!key) { post({ type: 'error', text: 'A key is needed.' }); return; }
@@ -2064,14 +2071,22 @@ class PerchView {
     };
   }
 
-  /** Agents: Connect Claude…: the panel, in an editor tab, one at a time. */
+  /**
+   * Agents: Connect Claude…: the panel, in an editor tab, one at a time. A hidden panel's page is gone (VS Code delivers
+   * no message to it), so the host keeps the last conflicts or Saved it posted (ctx.last) and posts it again on `ready`:
+   * Replace and Keep, and the terminal note, survive the gateway form or any other tab in front of the panel.
+   */
   connectClaude() {
     if (this.connectPanel) { this.connectPanel.reveal(); return this.connectPanel; }
     const panel = vscode.window.createWebviewPanel(CONNECT_PANEL_TYPE, 'Connect Claude', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [] });
     this.connectPanel = panel;
-    const post = (m) => { Promise.resolve(panel.webview.postMessage(m)).catch(() => { /* the page is gone */ }); };
+    const post = (m) => {
+      if (m && (m.type === 'conflicts' || m.type === 'saved')) ctx.last = m;
+      else if (m && m.type === 'verdict') ctx.last = null;   // the page hides Saved and the conflicts for a verdict
+      Promise.resolve(panel.webview.postMessage(m)).catch(() => { /* the page is gone */ });
+    };
     const cg = this.companyGateway();
-    const ctx = this.connect = { panel, post, terminal: !!(cg && cg.terminal), pending: null };
+    const ctx = this.connect = { panel, post, terminal: !!(cg && cg.terminal), pending: null, last: null };
     panel.webview.html = getConnectClaudeHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
     // the gateway way is the gateway form's: its save, while this panel is open, is the choice
     const onSaved = (gw) => { this.connectSaved('gateway', { gw }).catch((e) => post({ type: 'verdict', way: 'gateway', text: connectErrorText(e), ok: false, canForce: false })); };
@@ -2088,9 +2103,14 @@ class PerchView {
     const post = ctx.post;
     const verdict = (way, text, ok = false, canForce = false) => post({ type: 'verdict', way, text, ok, canForce });
     switch (msg.type) {
-      case 'ready': post({ type: 'state', state: this.connectState() }); return;
+      case 'ready': {
+        const again = ctx.last;   // a page made anew: what it was last shown, after the state
+        post({ type: 'state', state: this.connectState() });
+        if (again) post(again);
+        return;
+      }
       case 'terminal': ctx.terminal = !!msg.on; return;
-      case 'gateway': this.setUpGateway(); return;
+      case 'gateway': this.setUpGateway(vscode.ViewColumn.Beside); return;   // beside: this panel stays in view
       case 'codex': await this.connectSaved('codex'); return;
       case 'subscription': {
         if (this.meter.meter.readCredentials()) { await this.connectSaved('subscription'); return; }
@@ -2193,6 +2213,13 @@ class PerchView {
     try {
       const r = TerminalClaude.writeSettings(file, plan, { replace });   // the whole plan: what it keeps stays in the record
       this.context.globalState.update(TerminalClaude.WRITTEN_KEY, r.written);
+      if (r.conflicts.length) {
+        // values changed in the file since the plan was made: not written, and asked about again
+        ctx.pending = { way, plan: { changes: [], conflicts: r.conflicts, kept: r.written } };
+        this.sendTabs();
+        ctx.post({ type: 'conflicts', way, list: r.conflicts.map((c) => ({ key: c.key, from: TerminalClaude.maskValue(c.key, c.from), to: TerminalClaude.maskValue(c.key, c.to) })) });
+        return;
+      }
     } catch (e) {
       this.trace(`terminal claude: ${file} not written: ${connectErrorText(e)}`);
       terminalNote = TerminalClaude.readSettings(file).ok ? "~/.claude/settings.json couldn't be written, so terminal claude is as it was." : NOT_PLAIN_JSON;

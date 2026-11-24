@@ -108,21 +108,32 @@ function writeJson(file, json) {
 }
 
 /**
- * Apply a plan: its changes, and the conflicts named in `replace`, to the file as it is now (re-read). Throws when the
- * file isn't a plain JSON object, which is then left as it is.
- * @returns {{ written: Record<string,string> }} the new record of what Roost wrote
+ * Apply a plan: its changes, and the conflicts named in `replace`, to the file as it is now (re-read). A change whose
+ * key no longer holds its `from` (the file changed since the plan was made) is not applied: it is returned as a
+ * conflict, with the value there now, for the user to be asked again; one that holds the wanted value already is
+ * left. Throws when the file isn't a plain JSON object, which is then left as it is.
+ * @returns {{ written: Record<string,string>, conflicts: {key:string, from:string|undefined, to:string|null}[] }}
+ *   the new record of what Roost wrote, and the changes held back
  */
 function writeSettings(file, plan, { replace = [] } = {}) {
   const r = readSettings(file);
   if (!r.ok) throw new Error(`settings not written: ${r.error}`);
-  const json = r.json, record = Object.assign({}, plan.kept);
+  const json = r.json, record = {}, conflicts = [];
+  for (const [k, v] of Object.entries(plan.kept || {})) if (getKey(json, k) === v) record[k] = v;   // still Roost's
   const apply = [...plan.changes, ...plan.conflicts.filter((c) => replace.includes(c.key))];
+  let wrote = false;
   for (const c of apply) {
+    const now = getKey(json, c.key);
+    if (now !== c.from) {
+      if (!(now === c.to || (c.to === null && now === undefined))) conflicts.push({ key: c.key, from: now, to: c.to });
+      continue;
+    }
     setKey(json, c.key, c.to);
+    wrote = true;
     if (c.to === null) delete record[c.key]; else record[c.key] = c.to;
   }
-  if (apply.length) writeJson(file, json);
-  return { written: record };
+  if (wrote) writeJson(file, json);
+  return { written: record, conflicts };
 }
 
 /** A value as the panel may show it: the first 4 characters of one whose key names a token, key or secret. */

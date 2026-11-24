@@ -77,6 +77,22 @@ assert.throws(() => T.desiredSettings('nope', {}), /nope/);
   T.writeSettings(f, p2, { replace: [] });
   assert.deepStrictEqual([read(f).model, read(f).apiKeyHelper], ['opus', "cat '/h/a'"]);
   assert(!fs.readdirSync(path.dirname(f)).some((n) => n !== 'settings.json'), 'no temp file left');
+  // a value changed between the plan and the write: not applied, and returned as a conflict, with the value there now
+  put(f, { env: { AWS_REGION: 'eu-west-1' }, apiKeyHelper: 'my-helper' });
+  const p3 = T.planSettings(read(f), T.desiredSettings('bedrock', { region: 'us-west-2' }), {});
+  assert.deepStrictEqual(p3.conflicts.map((c) => c.key), ['env.AWS_REGION']);
+  put(f, { env: { AWS_REGION: 'ap-south-1', CLAUDE_CODE_USE_BEDROCK: 'mine' }, apiKeyHelper: 'my-helper' });
+  r = T.writeSettings(f, p3, { replace: ['env.AWS_REGION'] });
+  assert.deepStrictEqual(read(f), { env: { AWS_REGION: 'ap-south-1', CLAUDE_CODE_USE_BEDROCK: 'mine' }, apiKeyHelper: 'my-helper' }, 'nothing written over a changed value');
+  assert.deepStrictEqual(r.conflicts, [{ key: 'env.CLAUDE_CODE_USE_BEDROCK', from: 'mine', to: '1' }, { key: 'env.AWS_REGION', from: 'ap-south-1', to: 'us-west-2' }], 'each changed key, to be asked again');
+  assert.deepStrictEqual(r.written, {}, 'and not recorded');
+  // asked again and replaced: written
+  r = T.writeSettings(f, { changes: [], conflicts: r.conflicts, kept: r.written }, { replace: ['env.AWS_REGION', 'env.CLAUDE_CODE_USE_BEDROCK'] });
+  assert.deepStrictEqual([read(f).env, r.conflicts], [{ AWS_REGION: 'us-west-2', CLAUDE_CODE_USE_BEDROCK: '1' }, []]);
+  // a change whose wanted value is there already: left, not a conflict
+  const p4 = T.planSettings({}, { 'env.X': 'y' }, {});
+  put(f, { env: { X: 'y' } });
+  assert.deepStrictEqual(T.writeSettings(f, p4).conflicts, []);
   // a fresh home: the file and its folder are made
   const h2 = home(), f2 = settingsIn(h2);
   T.writeSettings(f2, T.planSettings({}, T.desiredSettings('bedrock', { region: 'us-east-1' }), {}), { replace: [] });
