@@ -194,13 +194,14 @@ In order:
 
 | Step | Button | Done when |
 |---|---|---|
-| Connect Claude | Connect Claude (Agents: Connect Claude…, a panel of the ways Claude can run: the company's gateway or an LLM gateway, a Claude subscription, an Anthropic API key, AWS Bedrock, Codex only), or Not Now (`roost.connectClaudeNotNow`, hidden from the palette) | Claude is connected (`perch.claudeConnected`), or Not Now runs. It replaced 0.3's Use an LLM gateway (optional) step and its `roost.gatewayNotNow` *(0.4)* |
+| Sign in to GitHub, first (only with `roost.company`; step `githubFirst`) *(0.4.3)* | Roost: Sign In to GitHub | as the later Sign in to GitHub step, which a company file hides (`!roost.company`): a server's `install` downloads through this sign-in |
+| Connect Claude | Connect Claude (Agents: Connect Claude…, a panel of the ways Claude can run: the company's gateway only, else an LLM gateway, a Claude subscription, an Anthropic API key or AWS Bedrock; no Codex only since 0.4.3), or Not Now (`roost.connectClaudeNotNow`, hidden from the palette) | Claude is connected (`perch.claudeConnected`), or Not Now runs. It replaced 0.3's Use an LLM gateway (optional) step and its `roost.gatewayNotNow` *(0.4)* |
 | Talk to Claude or Codex | New Claude Tab, New Codex Tab (opened beside the walkthrough, 70/30) | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: Roost's installer no longer opens a tab on first start; the user opens the one they want here; either agent works, and the page says how each signs in)* |
 | Connect your tools (only with `roost.companyTools`) | Roost: Connect Your Tools (a panel, `roost.tools`, one row per MCP server in the company file, each signed in its own way and checked, then registered with Claude Code at user scope; with no servers the command says "Your company file lists no tools."), or Not Now (`roost.toolsNotNow`, hidden) | every row is connected (`roost.toolsConnected`, which Roost sets after each change of a row: its check passed and Claude Code was given it), or Not Now runs *(0.4)* |
 | Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
 | Sign in to Teams | Sign In to Teams (`roost.teamsSignIn`, hidden): with a company file and a tools row whose `doneWhen.file` is the expanded `teams.signIn.tokenFile`, the Connect Your Tools panel opens and runs that row's sign-in (unless it is connected already); else Teams: Sign In (`chirp.signIn`) | Teams is signed in (`chirp.signedIn`): chirp watches its token file, so a tools row's sign-in ticks it by itself |
 | Connect Jira and Confluence | Connect Jira (`roost.jiraSignIn`, hidden: the matching tools row for `jira.signIn.tokenFile` as Teams does, else Jira: Sign In, `jay.signIn`, which opens the Jira view, whose sign-in form asks for the site URL, email and API token, with a Create one link to Atlassian's API tokens page) | Jira is signed in (`jay.signedIn`) *(Sean, 2026-11-24: no input box at the top)* |
-| Sign in to GitHub | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
+| Sign in to GitHub (without a company file) | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
 | Choose your parts | Roost: Settings | that command runs |
 
 "Done" follows VS Code's own completion events. The Choose your parts step, and Search your code's two buttons, are
@@ -655,7 +656,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - **Plan:** `docs/superpowers/plans/2026-11-24-roost-0.4-company.md`, last at bb25a76.
     Built: branch `feat/roost-0.4`, merged directly, with no PR. The plan is deleted; this note is the record.
 
-- **GitHub first, tools installed from the walkthrough (design, for 0.4.3)** *(Sean, 2026-11-24: "gh auth login, why
+- **GitHub first, tools installed from the walkthrough (design, for 0.4.3; Built (0.4.3), below)** *(Sean, 2026-11-24: "gh auth login, why
   can't we put this as the first step of the walkthrough?"; "even codex, we can open a new codex tab and use the sub
   pill to configure")*. The terminal asks nothing but the Mac password; every sign-in is in VS Code.
   - **Installer:** no GitHub sign-in question; `gh` is still installed. The walkthrough's GitHub step signs in.
@@ -670,6 +671,37 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     file, then moved to `to`, mode 0755), then signs in. `gh` not signed in: the row says "Sign in to GitHub first",
     with that step's button. A platform with no asset: the row says so.
   - **A company installer** (c3works) then only installs Roost and writes the company file.
+  - **Built (0.4.3)**, with what differs from the design above *(my calls unless marked)*:
+    - *Installer.* `ensure_github` installs gh and asks nothing; `on_terminal` went with the question. Signed in, the
+      line under ✓ GitHub says `signed in as <login>`; not signed in, `sign in from Roost's walkthrough in VS Code
+      (Sign in to GitHub)`. `--yes` no longer mentions GitHub. Note 102, step 4b, has it.
+    - *Walkthrough.* The first copy is step `githubFirst`, `when` `roost.company && config.roost.pullRequests.enabled
+      && !roost.pullRequests.failed` (it needs the PRs part, as the other copy does); its text says the company's
+      tools may download through it. Both copies share `media/walkthrough/github.md`.
+    - *No Codex only at all* *(Sean, 2026-11-24)*: not only with a company gateway. Without a company file it did
+      nothing **Not Now** doesn't. The page and the walkthrough say instead: "Only using Codex? Click Not Now, then
+      open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock)." Gone with it: the
+      host's `codex` message, the terminal box's `offered` flag (always shown now) and `isConnected`'s `codex` case, so
+      a connection recorded as `codex` before 0.4.3 counts as none recorded (a gateway that is ready or a Claude that
+      can run). With a company gateway the footer line reads: "Using your own Claude subscription, an API key or
+      Bedrock, or Codex? Switch any tab's backend in its footer whenever you like; a Codex tab's footer offers ChatGPT
+      login, an OpenAI API key or Bedrock."
+    - *install.* Validated in `company.js` (both copies): `repo` matches `^[\w.-]+/[\w.-]+$`; `tag` defaults to
+      `latest` and may not start with `-`; `assets` keys other than the four platforms are ignored, and a name may
+      not hold `/` or start with `-`; `to` expands `~` and must then be absolute. Needed when `to`, or a stdio
+      `register.command` that is a path, is missing. Only a button downloads (Connect, or a tokenPage row's Check and
+      save or Connect); a check on opening the panel says "Not installed yet: Connect downloads it." Order: no asset
+      for `process.platform-process.arch` ("No download of <name> for this computer (<platform>)."), then
+      `gh auth status` (failing: "Sign in to GitHub first.", the row's `action: 'githubSignIn'`, whose **Sign In to
+      GitHub** button runs `roost.githubSignIn`), then `gh release download [<tag>] --repo --pattern <asset> --output
+      <tmp>` through the injected runner (argv, no shell, 5 min). `gh release download` with no tag downloads from
+      the latest release (its `--help`; `--pattern` is then required, and given), so no `gh release view` step. The
+      file is copied beside `to`, chmod 0755, renamed over it; the temp directory is removed. A failure is "The
+      download of <name> failed: <gh's last stderr line>", with `gh[pousr]_…` and `github_pat_…` cut to the prefix;
+      gh missing is said as such. Tests: `test/tools.test.js` with a fake runner (already there; downloaded, latest
+      and a tag; not signed in, then signed in; no asset; download fails; gh missing).
+    - *Not checked live:* a real `gh release download` of a private release, and the walkthrough's two GitHub steps
+      in a real VS Code.
 
 ## Left to the builder
 
