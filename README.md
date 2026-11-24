@@ -74,6 +74,64 @@ the new one is already set there; the old entries stay in your `settings.json`, 
 
 On its very first start Roost opens the PRs tab once, so the bottom panel shows it. After that it is up to you.
 
+## For a company's installer
+
+A company can set Roost up for its people by writing one file, `~/.config/roost/company.json` (the
+`ROOST_COMPANY_FILE` environment variable overrides the path). Roost reads it at start; an invalid file is noted in
+the Roost output channel and ignored. Fields:
+
+- `name`: the company's name.
+- `gateway` (optional): `name`, `baseUrls` (tried in order, so a VPN address can come first), `keyPage` (where a
+  person makes a key), `requiredModel`, `env`, `keyFiles` (other places the key is saved) and `terminal` (when true,
+  terminal `claude` is set up by default too).
+- `mcpServers` (optional): a list of `{ id, name, about, register, connect }`. `register` is what Claude Code is
+  given: `http` (a `url` and `headers`, with `${token}` standing for the token) or `stdio` (a `command`, `args` and
+  `env`). `connect` says how it is signed in: `kind` is `tokenPage` (a `page` to open, the token pasted), `command`
+  (a sign-in command run in a terminal; needs `doneWhen`), `mcpTool` (the server's own sign-in tool, `tool`, with
+  `args` and `complete`; stdio servers only) or `none`. `doneWhen` is `{ "file": ... }`, the file that appears once
+  signed in. `check` (a request, an `mcpTool` call or a `command`) must pass before a row counts as connected.
+
+```json
+{
+  "name": "Example Co",
+  "gateway": {
+    "name": "Example gateway",
+    "baseUrls": ["https://gateway.example.com", "https://gateway.vpn.example.com"],
+    "keyPage": "https://keys.example.com",
+    "requiredModel": "example-model",
+    "keyFiles": ["~/.config/example/key"],
+    "terminal": true
+  },
+  "mcpServers": [
+    {
+      "id": "wiki",
+      "name": "Wiki",
+      "about": "Search the company wiki.",
+      "register": { "type": "http", "url": "https://wiki.example.com/mcp", "headers": { "Authorization": "Bearer ${token}" } },
+      "connect": {
+        "kind": "tokenPage",
+        "page": "https://wiki.example.com/tokens",
+        "check": { "method": "GET", "url": "https://wiki.example.com/api/me" }
+      }
+    }
+  ]
+}
+```
+
+What Roost does with it:
+
+- **Connect Claude** offers the company's gateway as the recommended way (the other ways stay: a Claude
+  subscription, an Anthropic API key, AWS Bedrock, Codex only). With `gateway.terminal`, `claude` in the terminal
+  uses the same connection, and its address in `~/.claude/settings.json` follows whichever of `baseUrls` answers.
+- **Connect your tools** lists each MCP server, signs it in the way `connect` says, checks it, and registers it with
+  Claude Code.
+
+One sign-in can serve two uses: point `teams.signIn.tokenFile` or `jira.signIn.tokenFile` at the file the matching
+server's sign-in writes, and the Teams or Jira step ticks by itself after Connect your tools.
+
+A company installer runs Roost's installer (`roost-install.sh`) with `--no-open` and **never** `--yes`, which would
+answer the standalone-four uninstall for the user. It refuses a machine it wasn't meant for rather than migrating it.
+
 ## Build and install
 
 ```sh

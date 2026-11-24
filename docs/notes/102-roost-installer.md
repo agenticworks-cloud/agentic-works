@@ -101,7 +101,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    only when there is none) unless `ORIG_PATH` already holds it. A dry run prints the two commands. `--skip claude`
    leaves it out; `ROOST_INSTALL_CLAUDE_INSTALLER` (a test seam) replaces the URL. Skipped, with no line, when the
    standalone-four question was answered Stop, like the steps after Roost.
-4a. **git, for real** *(Sean, 2026-11-24; for 0.4)*. Claude Code, Codex and the PRs part expect a working `git`, and
+4a. **git, for real** *(Sean, 2026-11-24; built in 0.4.0)*. Claude Code, Codex and the PRs part expect a working `git`, and
    today it only arrives as a side effect (Apple's Command Line Tools through Homebrew's installer; a dependency of
    the `gh` package on RHEL/Fedora, and probably on Debian/Ubuntu). The installer checks that `git --version`
    actually runs (on macOS `/usr/bin/git` is a stub that opens Apple's install dialog until the Command Line Tools
@@ -114,7 +114,7 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    then run git --version` when it doesn't come. Lines: `✓ git (already)`, `✓ git (installed)`, `✗ git: couldn't be
    installed; see <log>`. A checklist line of its own, before GitHub; `ROOST_INSTALL_GIT` (a test seam) is the git
    path taken as found. Skipped, with no line, when the standalone-four question was answered Stop.
-   **Homebrew on the PATH** (macOS only, step name `homebrew`, after GitHub): when this run installed Homebrew or
+   **Homebrew on the PATH** *(built in 0.4.0)* (macOS only, step name `homebrew`, after GitHub): when this run installed Homebrew or
    anything through it, or Homebrew is there and `code`, `gh` or `git` resolves inside its bin directory, the login
    profile gets `# added by roost-install: Homebrew`, `[ -x <brew> ] && eval "$(<brew> shellenv)"`, `# end
    roost-install`, unless the profile already has a `brew shellenv` line or `ORIG_PATH` already holds the directory
@@ -210,12 +210,13 @@ safety, bash 3.2 compatibility for macOS and stub-based tests. *(Sean: build on 
   it is. The helper runs on Python 3.6 (stdlib only), so RHEL 8's `dnf install python3` is enough; and on RHEL with
   no `python3` command at all, the installer uses `/usr/libexec/platform-python` (dnf's own 3.6), which every RHEL 8
   has. No minimum version is checked.
-- **The C3 installer becomes a layer**: it downloads a pinned release's `roost-install.sh` and runs it with
-  `--yes --no-open`, checks its exit status, then runs its own steps (gateway, MCP servers, sign-ins, token files)
-  and opens VS Code itself. That is a separate change in c3securitytools, after this one ships, and note 802 is
-  updated then. Since Roost ships through GitHub releases for now, the C3 installer switches when the first release
-  exists, not when Roost reaches the Marketplace (note 101's *Installers that set up the four today* is updated to
-  match). *(my call)*
+- **A company's installer becomes a layer**: it downloads a pinned release's `roost-install.sh` and runs it with
+  `--no-open`, and **never** `--yes` (notes 101 and 803: `--yes` would answer the standalone-four uninstall for the
+  user). A company installer refuses a machine it wasn't meant for rather than migrating it. It checks the layer's exit
+  status, then runs its own steps (the company file, MCP servers, sign-ins, token files) and opens VS Code itself.
+  That is a separate change in the company's own repo, after this one ships. Since Roost ships through GitHub
+  releases for now, a company installer switches when the first release exists, not when Roost reaches the
+  Marketplace (note 101's *Installers that set up the four today* is updated to match). *(my call)*
 
 ## Flows
 
