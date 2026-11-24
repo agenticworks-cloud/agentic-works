@@ -1,7 +1,7 @@
 'use strict';
 // Sign-in through the editor's own Microsoft account provider (design 201, "1. Built-in Microsoft sign-in"), with chirp's
 // app id passed in the provider's special VSCODE_CLIENT_ID / VSCODE_TENANT scopes. The editor keeps and refreshes the tokens.
-const { DEFAULT_TENANT, CHAT_SCOPES, CHANNEL_SCOPES, claims, accountOf, SignInNeeded, SignInCancelled, SignInFailed } = require('./auth');
+const { GRANTED_SCOPE, DEFAULT_TENANT, CHAT_SCOPES, CHANNEL_SCOPES, claims, accountOf, SignInNeeded, SignInCancelled, SignInFailed } = require('./auth');
 
 const SIGNED_OUT = 'chirp.editorAuth.signedOut';
 const CHANNELS = 'chirp.editorAuth.channels';
@@ -9,10 +9,12 @@ const CHANNELS = 'chirp.editorAuth.channels';
 // Microsoft's "the app needs approval" errors, if the editor passes them on (it may only show them in the browser)
 const CONSENT = /AADSTS65001|AADSTS90094/;
 
-function createEditorAuth({ authentication, clientId, tenant = DEFAULT_TENANT, state }) {
+function createEditorAuth({ authentication, clientId, tenant = DEFAULT_TENANT, state, granted = false }) {
   let token = null;
-  const scopes = (channels) => ['VSCODE_CLIENT_ID:' + clientId, 'VSCODE_TENANT:' + (tenant || DEFAULT_TENANT), ...CHAT_SCOPES, ...(channels ? CHANNEL_SCOPES : [])];
-  const channelsOn = () => !!state.get(CHANNELS);
+  // granted: a company's own app, asked for what it was approved for (GRANTED_SCOPE), channels included if it has them
+  const scopes = (channels) => ['VSCODE_CLIENT_ID:' + clientId, 'VSCODE_TENANT:' + (tenant || DEFAULT_TENANT),
+    ...(granted ? [GRANTED_SCOPE] : [...CHAT_SCOPES, ...(channels ? CHANNEL_SCOPES : [])])];
+  const channelsOn = () => granted || !!state.get(CHANNELS);
 
   async function signIn({ channels = false, newAccount = false, cancel } = {}) {
     let s;

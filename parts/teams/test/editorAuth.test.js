@@ -124,9 +124,11 @@ test('declining the editor\'s prompt is a cancel, not a reason to fall back', as
 test('a company app: its id and tenant in the scopes, and its tokens only', async () => {
   const CO = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
   const authentication = fakeAuthentication(() => session(jwt({ appid: CO, oid: 'u1', tid: 't1' })));
-  const a = createEditorAuth({ authentication, clientId: CO, tenant: 'contoso.onmicrosoft.com', state: memento() });
-  await a.signIn({ channels: true });
-  assert.deepStrictEqual(authentication.calls[0].scopes, [`VSCODE_CLIENT_ID:${CO}`, 'VSCODE_TENANT:contoso.onmicrosoft.com', ...CHAT_SCOPES, ...CHANNEL_SCOPES]);
+  const a = createEditorAuth({ authentication, clientId: CO, tenant: 'contoso.onmicrosoft.com', state: memento(), granted: true });
+  await a.signIn({ channels: false });
+  assert.deepStrictEqual(authentication.calls[0].scopes, [`VSCODE_CLIENT_ID:${CO}`, 'VSCODE_TENANT:contoso.onmicrosoft.com', 'https://graph.microsoft.com/.default'],
+    'what the company approved, nothing listed by chirp');
+  assert.strictEqual(a.hasChannels(), true, 'channels are tried; a 403 turns them off');
   const wrong = createEditorAuth({ authentication: fakeAuthentication(() => session(MINE)), clientId: CO, tenant: 'contoso.onmicrosoft.com', state: memento() });
   await assert.rejects(wrong.signIn({}), (e) => e instanceof SignInFailed && e.kind === 'unusable', "chirp's own app's token is not the company's");
 });

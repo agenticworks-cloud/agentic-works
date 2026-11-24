@@ -85,8 +85,8 @@ function activate(context, deps = {}) {
     const { clientId, tenant } = app;
     auth = createAuth({
       method: cfg('signIn.method') || 'auto', tokenFile, preferCode: app.company,
-      makeEditor: () => (vscode.authentication && vscode.authentication.getSession ? createEditorAuth({ authentication: vscode.authentication, clientId, tenant, state: context.globalState }) : null),
-      makeDeviceCode: () => createDeviceCodeAuth(Object.assign({ secrets, fetch: fetchFn, clientId, tenant, onCode: showCode }, deps.sleep ? { sleep: deps.sleep } : {})),
+      makeEditor: () => (vscode.authentication && vscode.authentication.getSession ? createEditorAuth({ authentication: vscode.authentication, clientId, tenant, state: context.globalState, granted: app.company }) : null),
+      makeDeviceCode: () => createDeviceCodeAuth(Object.assign({ secrets, fetch: fetchFn, clientId, tenant, granted: app.company, onCode: showCode }, deps.sleep ? { sleep: deps.sleep } : {})),
       makeTokenFile: () => createTokenFileAuth({ file: tokenFile, fetch: fetchFn }),
       onNote: (text) => setStatus({ kind: 'note', text }),
     });
@@ -224,7 +224,9 @@ function activate(context, deps = {}) {
     stopWatching();
     s.signIn = null;
     if (s.status && s.status.kind === 'signin') s.status = null;
-    s.channels = methodNow() === 'tokenFile' ? (s.channels === 'forbidden' ? 'forbidden' : 'enabled') : (auth.hasChannels() ? 'enabled' : 'off');
+    // a token file or a company app carries whatever it was granted: channels are tried, and a 403 turns them off
+    const granted = methodNow() === 'tokenFile' || app.company;
+    s.channels = granted ? (s.channels === 'forbidden' ? 'forbidden' : 'enabled') : (auth.hasChannels() ? 'enabled' : 'off');
     sidebar.update({ signIn: null, account: accountRow(), channels: s.channels, status: s.status || s.throttle });
     for (const p of pollers) p.start();
   }

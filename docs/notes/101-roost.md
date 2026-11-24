@@ -457,6 +457,11 @@ What was asked:
 
 What was found (2026-11-23):
 
+  - **0.3.3, from Sean's first-time run with C3's app ("agent-connect"):** listing chirp's scopes stopped at "Need
+    admin approval" over one the app lacks (`User.ReadBasic.All`; it has `User.Read.All`), since the tenant lets no
+    user consent. With a company app chirp now asks for `https://graph.microsoft.com/.default` (plus
+    `offline_access` for the sign-in code): exactly what the app was approved for, never a consent prompt. Channels
+    are then tried, as with a token file, and a 403 turns them off.
 - **History:** after the filter-repo import every source commit of a part's file is in Roost's log of it
   (commit counts 194 / 35 / 21 / 42 for Perch, chirp, jay, kestrel; identical trees and blobs); `make test`'s
   import test checks it against the imported commits.

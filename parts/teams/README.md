@@ -55,6 +55,11 @@ them to your user settings and signs in again; so does changing either in
 Settings. A value that is neither an ID nor a domain is ignored, with a
 note above the lists. The settings are not used with a token file.
 
+With a company app, chirp asks for exactly what your admins approved for it
+(Microsoft's `.default` permission set) rather than its own list, so it never
+asks for a permission the app lacks. Channels are tried, and switched off if
+the app has no channel permissions.
+
 With a company app, `auto` uses a sign-in code first, which only needs the
 app to **allow public client flows**; if it doesn't, chirp tries the
 editor's sign-in, which needs the app to accept VS Code's redirect. An

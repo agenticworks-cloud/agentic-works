@@ -1093,6 +1093,9 @@ test('a company app: auto signs in with a code, at the tenant, with its client i
     assert.strictEqual(c.clientId, CO_APP);
   }
   assert.strictEqual(JSON.parse(h.secrets.m.get('chirp.deviceCode.tokens')).client_id, CO_APP, 'the tokens say whose they are');
+  assert.strictEqual(calls.find((c) => c.path === 'login:devicecode').scope, 'https://graph.microsoft.com/.default offline_access',
+    'what the company approved, nothing listed by chirp');
+  assert.strictEqual(lastState(view).channels, 'enabled', 'channels are tried; a 403 turns them off');
   await ui.commands['chirp.copyAdminLink']();
   assert.strictEqual(ui.copied.at(-1), `https://login.microsoftonline.com/${CO_TENANT}/adminconsent?client_id=${CO_APP}`);
   ui.session = () => undefined;
@@ -1107,7 +1110,7 @@ test('a company app through the editor: its id and tenant in the scopes', async 
   await ui.commands['chirp.signIn'](); await settle();
   assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'editor' });
   const asked = ui.sessions.find((c) => c.options && c.options.createIfNone);
-  assert.deepStrictEqual(asked.scopes.slice(0, 2), [`VSCODE_CLIENT_ID:${CO_APP}`, `VSCODE_TENANT:${CO_TENANT}`]);
+  assert.deepStrictEqual(asked.scopes, [`VSCODE_CLIENT_ID:${CO_APP}`, `VSCODE_TENANT:${CO_TENANT}`, 'https://graph.microsoft.com/.default']);
   assert.deepStrictEqual(loginCalls(h), []);
   ui.session = () => undefined;
 });

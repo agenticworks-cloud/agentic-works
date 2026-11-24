@@ -1,7 +1,7 @@
 'use strict';
 // Device-code sign-in (design 201, "2. Device-code sign-in"): chirp shows a code, the user enters it at microsoft.com, and
 // chirp keeps the tokens in the editor's secret storage and refreshes them itself.
-const { DEFAULT_TENANT, authorityFor, CHAT_SCOPES, CHANNEL_SCOPES, graphScope, claims, accountOf, SignInNeeded, Offline, SignInCancelled, SignInFailed } = require('./auth');
+const { GRANTED_SCOPE, DEFAULT_TENANT, authorityFor, CHAT_SCOPES, CHANNEL_SCOPES, graphScope, claims, accountOf, SignInNeeded, Offline, SignInCancelled, SignInFailed } = require('./auth');
 
 const KEY = 'chirp.deviceCode.tokens';
 const REFRESH_MARGIN_S = 60;
@@ -29,7 +29,7 @@ function errorKind(data) {
 /** The app a stored sign-in belongs to: recorded since 0.3, else read from its access token. */
 const ownerOf = (t) => String(t.client_id || ((claims(t.access_token) || {}).appid) || '').toLowerCase() || null;
 
-function createDeviceCodeAuth({ secrets, fetch, clientId, tenant = DEFAULT_TENANT, onCode = () => {}, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+function createDeviceCodeAuth({ secrets, fetch, clientId, tenant = DEFAULT_TENANT, granted = false, onCode = () => {}, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   let cached;            // undefined: not read yet; null: none stored
   let inflight = null;
   secrets.onDidChange((e) => { if (!e || e.key === KEY) cached = undefined; });   // another window signed in, refreshed or out
@@ -58,7 +58,8 @@ function createDeviceCodeAuth({ secrets, fetch, clientId, tenant = DEFAULT_TENAN
   });
 
   async function signIn({ channels = false, cancel } = {}) {
-    const scope = CHAT_SCOPES.concat(channels ? CHANNEL_SCOPES : []).map(graphScope).join(' ');
+    // granted: a company's own app, asked for what it was approved for (channels too, if it has them)
+    const scope = granted ? `${GRANTED_SCOPE} offline_access` : CHAT_SCOPES.concat(channels ? CHANNEL_SCOPES : []).map(graphScope).join(' ');
     let start;
     try { start = await post('devicecode', { client_id: clientId, scope }); } catch (_) { throw new Offline(); }
     if (!start.ok) { const k = errorKind(start.data); throw failed(k, start.data.error_description); }
@@ -121,7 +122,7 @@ function createDeviceCodeAuth({ secrets, fetch, clientId, tenant = DEFAULT_TENAN
     method: 'deviceCode', signIn, accessToken, refresh,
     tenantId: () => (cached && cached.tenant_id) || null,
     account: () => (cached && cached.access_token ? accountOf(cached.access_token, cached.tenant_id) : null),
-    hasChannels: () => !!(cached && cached.channels),
+    hasChannels: () => granted || !!(cached && cached.channels),
     async signOut() { await secrets.delete(KEY); cached = null; },
   };
 }

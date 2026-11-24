@@ -50,6 +50,10 @@ function signInApp({ clientId = '', tenant = '' } = {}, defaultClientId = CHIRP_
   return { clientId: useId, tenant: useTenant, company: useId !== defaultClientId, notes };
 }
 
+// A company's own app asks for what its admins already approved, all of it, and nothing more: Microsoft's `.default`
+// scope never asks for consent. Listing chirp's own scopes stopped a company app at "Need admin approval" over one it
+// lacked (User.ReadBasic.All, where it had User.Read.All), in a tenant that lets no user consent.
+const GRANTED_SCOPE = 'https://graph.microsoft.com/.default';
 const graphScope = (name) => (name === 'offline_access' ? name : 'https://graph.microsoft.com/' + name);
 
 /** What a token says about itself. The signature is not checked: chirp only reads its own tokens. */
@@ -145,4 +149,4 @@ function createAuth({ method = 'auto', tokenFile = '', preferCode = false, makeE
   };
 }
 
-module.exports = { CHIRP_CLIENT_ID, DEFAULT_TENANT, createAuth, FALLBACK_NOTE, CODE_FALLBACK_NOTE, AUTHORITY, authorityFor, adminConsentLink, signInApp, clientIdProblem, tenantProblem, CHAT_SCOPES, CHANNEL_SCOPES, graphScope, claims, accountOf, createTokenFileAuth, SignInNeeded, Offline, SignInCancelled, SignInFailed };
+module.exports = { GRANTED_SCOPE, CHIRP_CLIENT_ID, DEFAULT_TENANT, createAuth, FALLBACK_NOTE, CODE_FALLBACK_NOTE, AUTHORITY, authorityFor, adminConsentLink, signInApp, clientIdProblem, tenantProblem, CHAT_SCOPES, CHANNEL_SCOPES, graphScope, claims, accountOf, createTokenFileAuth, SignInNeeded, Offline, SignInCancelled, SignInFailed };
