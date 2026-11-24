@@ -156,7 +156,7 @@ files. Required keys are marked **required**.
 }
 ```
 
-What Roost does with it (the design and what was built: [note 101](docs/notes/101-roost.md), the 0.4 bullets under Follow-ups):
+What Roost does with it (the design and what was built: [note 101](docs/notes/101-roost.md), the 0.4 and 0.5 bullets under Follow-ups):
 
 - **Sign in to GitHub** is the Get started page's first step (without a company file it comes later), since a server's
   `install` downloads through that sign-in.

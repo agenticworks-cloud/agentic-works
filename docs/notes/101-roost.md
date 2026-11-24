@@ -183,14 +183,30 @@ awaited by `activate`, and has no setting. Whatever happens (PRs off or failed, 
 logged to the Roost output channel) `roost.firstStart.done` is then recorded in the base context's `globalState`,
 so it never happens again. The Agents part's own `agents.firstStart.openClaudeTab` (was `perch.…`) stays separate, for installers. It opens the one tab of the agent that can answer *(Sean, 2026-11-24)*: a Claude tab on the gateway when the gateway file is usable (a base URL and a token), else a Claude tab when Claude is signed in (a login or an API key), else a Codex tab when Codex is (its `auth.json`, or an API key), else a Claude tab, which offers the sign-in; placed as before, beside the walkthrough, 70/30. The setting keeps its name (Agents' note 203).
 
-After the PRs tab, the same first start opens Roost's walkthrough, **Get started with Roost**
-(`workbench.action.openWalkthrough`, `seanahn.roost#roost.getStarted`); a failure is logged like the PRs tab's. The
-walkthrough is Roost's own (`contributes.walkthroughs` in roost.contributes.json, the one contribution point only
+After the PRs tab, the same first start opens Roost's **Get started** page *(0.5.0; it replaced opening the
+walkthrough)*, a webview editor tab (`roost.getStarted`) in `src/getStarted.js`; a failure is logged like the PRs tab's.
+**Roost: Get Started** opens it again. Each step's controls are in the page, and no step opens another panel. A step shows
+while its part is on and not failed; the first not-done step is open, the others closed with their tick, and a step once
+done stays done (globalState `roost.getStarted.done`). The order and each step's signal:
+
+| Step | Shown | Done when |
+|---|---|---|
+| Sign in to GitHub | with a company file first, else fifth; Pull Requests on | `kestrel.signedIn` |
+| Connect Claude (the company's `steps.gateway` name with a gateway) | Agents on | `perch.gatewayReady` or `perch.claudeConnected`, or Not Now |
+| Talk to Claude or Codex | Agents on | `perch.messageSent` |
+| Connect your tools (`steps.tools`) | company file lists `mcpServers` | `roost.toolsConnected`, or Not Now |
+| Sign in to Teams | Teams on | `chirp.signedIn` |
+| Connect Jira and Confluence | Jira on | `jay.signedIn` |
+| Search your code (optional) | Agents on | the codebase search choice, or Not Now |
+| Choose your parts | always | a switch, Done or All settings |
+
+With a company file the order is GitHub, Claude, Talk, tools, Teams, Jira, code, parts; without one it is Claude, Talk,
+Teams, Jira, GitHub, code, parts. VS Code's walkthrough is kept as the fallback on the Welcome page. It is Roost's own (`contributes.walkthroughs` in roost.contributes.json, the one contribution point only
 Roost may use), so it also sits on VS Code's Welcome page, and **Roost: Get Started** opens it again. Its steps, each
 shown only while its part is switched on and started (`when: config.roost.<id>.enabled && !roost.<id>.failed`; Connect
 your tools only with a company file that lists MCP servers, `when: roost.companyTools`), have a button and a short
 page (media/walkthrough/*.md). Their text is static: whatever depends on the company file is in a panel, not a step.
-In order:
+In order (the walkthrough's steps, which the page above replaces at first start):
 
 | Step | Button | Done when |
 |---|---|---|
@@ -703,7 +719,7 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     - *Not checked live:* a real `gh release download` of a private release, and the walkthrough's two GitHub steps
       in a real VS Code.
 
-- **A Get started page of Roost's own, everything in place (design, for 0.5)** *(Sean, 2026-11-24, on the first run of a
+- **A Get started page of Roost's own, everything in place — Built (0.5.0)** *(Sean, 2026-11-24, on the first run of a
   company's installer: "can we change the wording to Get Started with <the company>? and, instead of Connect Claude,
   Connect <the company's> Gateway, and do not open another form. do the whole thing in place"; the names are left out,
   as the guard test asks)*. VS Code's walkthrough can't do either: its text is
@@ -778,6 +794,38 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     - *A part that isn't running.* A request whose command isn't there says "<part title> isn't running." in its step;
       a reply that comes after the page closed is dropped.
     - *Shared rows.* Connect Your Tools' rows are one script (`src/toolsRows.js`) used by both of Roost's pages.
+
+  - **Built (0.5.0), rulings made during the build and the final fixes** *(my calls unless marked; each: the ruling,
+    why, and the cost if wrong; plan: docs/superpowers/plans/2026-11-24-roost-0.5-get-started.md, last at 9934915)*:
+    - *Context keys are watched by wrapping `vscode.commands.executeCommand`.* It is the same pattern as wrapping
+      `vscode.window` for `trackSerializers` (shipped and live since 0.1), and the parts load inside Roost's extension,
+      so they share its `vscode` object. If wrong: the Get started steps don't tick live. **To verify on the first live
+      0.5 run.**
+    - *Not Now, and Replace/Keep Mine, show in both modes.* The walkthrough's Not Now exists either way, and terminal
+      settings conflicts happen with a company gateway too. If wrong: an extra button.
+    - *The just-typed gateway token is held in page memory until the next reply* (never in the DOM, never sent back by the
+      host), so Save anyway works; the secrets rule is about host to page. If wrong: brief extra exposure inside the
+      webview.
+    - *The final whole-branch review runs before Task 9*, because closing deletes the plan the reviewer needs (as in
+      0.4). If wrong: nothing.
+    - *Final fixes:*
+      - Claude's login shows a waiting line, "Signing in to Claude in the terminal…", from the moment the request is out
+        until it ends (a counter dropped in a `finally`, so an error clears it).
+      - Teams shows a note, "Teams isn't signed in. Try again, or see the Teams view for why.", when `chirp.signIn`
+        resolves but `chirp.signedIn` isn't true; the note clears on the next try and once signed in.
+      - The page's held gateway token is always cleared (on any verdict, error or "isn't running" answer), except where
+        Save anyway still needs it.
+      - A key or token goes only to a part that is running (`running(id)`: Roost's part state is `on`, set when activate
+        has finished); otherwise the answer is "<part> isn't running." and no command is called.
+      - A later error after a good gateway save keeps `gatewaySaved` in `perch.connectClaude.request`'s replies.
+      - `ROOST_TEST_HARNESS_STRICT_GH` replaces the old test guard name (`ROOST_TEST`) for the gh guard in
+        `src/extension.js`, the Makefile, `test/vscodeStub.js` and `test/realParts.test.js`.
+    - *Known limits:* a second Sign In to Teams while one is going gets a wrong not-signed-in note until
+      `chirp.signedIn` arrives; the interim verdict from Agents ("this panel notes it when you are done") can still reach
+      the page for a moment.
+  - **Built (0.5.0), not checked live.** Everything above was run by the offline tests only (`make test`): the page in
+    a real VS Code; whether Roost watching the parts' context keys works in a real extension host (the ruling to verify
+    on the first live run); a real gateway, or a real sign-in (GitHub, Teams, Jira, Claude) through the page.
 
 ## Left to the builder
 
