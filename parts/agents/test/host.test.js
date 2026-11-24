@@ -2231,6 +2231,15 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const saved = await req({ type: 'gatewaySave', baseUrl: 'https://gw.example.com', token: 'sk-g', models: {}, force: false });
       assert.deepStrictEqual(saved.map((r) => r.type), ['gatewaySaved', 'state', 'saved']);
       assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'gateway');
+      // a later step failing after a good save: the error is said, and gatewaySaved is kept
+      const realSaved = m.perch.connectSaved;
+      m.perch.connectSaved = async () => { throw new Error('the settings could not be written'); };
+      const failedLater = await req({ type: 'gatewaySave', baseUrl: 'https://gw.example.com', token: 'sk-g', models: {}, force: false });
+      m.perch.connectSaved = realSaved;
+      assert.deepStrictEqual(failedLater.map((r) => r.type), ['gatewaySaved', 'verdict']);
+      assert.deepStrictEqual([failedLater[1].way, failedLater[1].ok], ['gateway', false]);
+      assert.strictEqual(failedLater[1].text, 'Something went wrong there. Try again.');
+      assert(!JSON.stringify(failedLater).includes('sk-g'), 'no key in the replies');
       assert.deepStrictEqual(await req({ type: 'gateway' }), [], 'no form opened');
       assert.deepStrictEqual(await req({ type: 'newTab' }), [], 'no tab button here');
       assert.strictEqual(m.ui.panels.length, before, 'no panel opened by any request');

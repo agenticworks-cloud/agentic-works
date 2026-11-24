@@ -2222,7 +2222,8 @@ class PerchView {
         if (gw) await this.connectSaved('gateway', { gw }, ctx, post);
       } else await this.connectMessage(msg, ctx, post);
     } catch (e) {
-      return [{ type: 'verdict', way: gatewayMsg ? 'gateway' : String(msg.type || ''), text: connectErrorText(e), ok: false, canForce: false }];
+      // the replies so far are kept: a gateway saved before a later step failed is still said (gatewaySaved)
+      return replies.concat([{ type: 'verdict', way: gatewayMsg ? 'gateway' : String(msg.type || ''), text: connectErrorText(e), ok: false, canForce: false }]);
     }
     return replies;
   }
