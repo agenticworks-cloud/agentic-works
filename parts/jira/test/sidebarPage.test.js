@@ -169,6 +169,87 @@ test('signed out shows error and Sign In', () => {
   assert.strictEqual(p.d.querySelector('.tree .row'), null);
 });
 
+const formState = (o) => state(Object.assign({ signedIn: false, error: 'Sign in to Jira', groups: [], signInForm: true, formOpen: false, site: 'https://example.atlassian.net' }, o));
+const fld = (p, id) => p.d.getElementById('signin-' + id);
+const fillIn = (p, id, v) => { const i = fld(p, id); i.value = v; i.dispatchEvent(new p.w.Event('input', { bubbles: true })); };
+
+test('signed out without a token file: the form, labelled, site prefilled, in place of the Sign In button', () => {
+  const p = page(); p.send(formState());
+  const f = p.d.querySelector('form.signin-form');
+  assert.ok(!f.hidden); assert.ok(p.d.querySelector('button.signin').hidden);
+  assert.strictEqual(fld(p, 'site').value, 'https://example.atlassian.net');
+  assert.strictEqual(fld(p, 'site').placeholder, 'https://yourcompany.atlassian.net');
+  assert.strictEqual(fld(p, 'token').type, 'password');
+  for (const [id, label] of [['site', 'Site URL'], ['email', 'Atlassian account email'], ['token', 'API token']]) {
+    assert.strictEqual(p.d.querySelector(`label[for="signin-${id}"]`).textContent, label);
+  }
+  assert.ok(p.d.querySelector('.signin-cancel').hidden, 'no Cancel while signed out');
+  assert.strictEqual(p.d.querySelector('.tree .row'), null);
+  // no site set: empty, and what Sean typed survives a state update
+  const q = page(); q.send(formState({ site: '' }));
+  assert.strictEqual(fld(q, 'site').value, '');
+  fillIn(q, 'site', 'https://mine.atlassian.net'); q.send(formState({ site: '' }));
+  assert.strictEqual(fld(q, 'site').value, 'https://mine.atlassian.net');
+});
+
+test('the form: Enter submits once, the button is busy until the answer, errors show inline, success clears the token', () => {
+  const p = page(); p.send(formState());
+  fillIn(p, 'email', 'ann@example.com'); fillIn(p, 'token', 'tok-1');
+  fld(p, 'email').dispatchEvent(new p.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  assert.deepStrictEqual(p.posted.at(-1), { type: 'signInForm', site: 'https://example.atlassian.net', email: 'ann@example.com', token: 'tok-1' });
+  const btn = p.d.querySelector('.signin-submit');
+  assert.ok(btn.disabled); assert.strictEqual(btn.textContent, 'Checking…');
+  assert.strictEqual(p.d.querySelector('form.signin-form').getAttribute('aria-busy'), 'true');
+  const n = p.posted.length;
+  p.d.querySelector('form.signin-form').dispatchEvent(new p.w.Event('submit', { cancelable: true }));
+  assert.strictEqual(p.posted.length, n, 'no second submit while busy');
+  p.send({ type: 'signInResult', ok: false, error: "Couldn't sign in: the email or API token was rejected" });
+  const err = p.d.querySelector('.signin-error');
+  assert.ok(!err.hidden); assert.strictEqual(err.textContent, "Couldn't sign in: the email or API token was rejected");
+  assert.strictEqual(err.getAttribute('role'), 'alert');
+  assert.strictEqual(fld(p, 'token').getAttribute('aria-describedby'), 'signin-error');
+  assert.ok(!btn.disabled); assert.strictEqual(btn.textContent, 'Sign in');
+  assert.strictEqual(fld(p, 'token').value, 'tok-1', 'kept to fix and retry');
+  btn.click();
+  assert.strictEqual(p.posted.at(-1).type, 'signInForm');
+  assert.ok(err.hidden, 'a new try clears the error');
+  p.send({ type: 'signInResult', ok: true, error: null });
+  assert.strictEqual(fld(p, 'token').value, '');
+  p.send(state());
+  assert.ok(p.d.querySelector('form.signin-form').hidden, 'signed in: the tree, no form');
+  assert.deepStrictEqual(keys(p), ['DEMO-1', 'DEMO-2', 'DEMO-3', 'DEMO-4', 'DEMO-5']);
+});
+
+test('the form: Create one asks the host to open the API token page; focusSignIn focuses the first empty field', () => {
+  const p = page(); p.send(formState());
+  const a = p.d.querySelector('a.create-token');
+  assert.strictEqual(a.textContent, 'Create one');
+  assert.strictEqual(a.href, 'https://id.atlassian.com/manage-profile/security/api-tokens');
+  const ev = new p.w.MouseEvent('click', { bubbles: true, cancelable: true });
+  a.dispatchEvent(ev);
+  assert.ok(ev.defaultPrevented);
+  assert.deepStrictEqual(p.posted.at(-1), { type: 'openTokenPage' });
+  p.send({ type: 'focusSignIn' });
+  assert.strictEqual(p.d.activeElement, fld(p, 'email'), 'the site is filled in: the email');
+  fillIn(p, 'email', 'ann@example.com'); fillIn(p, 'token', 't');
+  p.send({ type: 'focusSignIn' });
+  assert.strictEqual(p.d.activeElement, p.d.querySelector('.signin-submit'), 'all filled: the Sign in button');
+});
+
+test('with a token file: the Sign In button, no form; while signed in the form shows only when asked, with Cancel', () => {
+  const p = page(); p.send(formState({ signInForm: false }));
+  assert.ok(p.d.querySelector('form.signin-form').hidden);
+  p.d.querySelector('button.signin').click();
+  assert.deepStrictEqual(p.posted.pop(), { type: 'signIn' });
+  const q = page(); q.send(state({ signInForm: true, formOpen: false }));
+  assert.ok(q.d.querySelector('form.signin-form').hidden);
+  q.send(state({ signInForm: true, formOpen: true }));
+  assert.ok(!q.d.querySelector('form.signin-form').hidden);
+  assert.ok(q.d.querySelector('button.signin').hidden);
+  q.d.querySelector('.signin-cancel').click();
+  assert.deepStrictEqual(q.posted.pop(), { type: 'signInCancel' });
+});
+
 test('no project chosen asks to pick one; note shows', () => {
   const p = page(); p.send(state({ project: null, groups: [], note: 'Offline, retrying' }));
   assert.ok(p.d.querySelector('.tree').textContent.includes('Pick a project'));
@@ -807,6 +888,9 @@ test('the CSS styles the switch, the space list and the Confluence rows like the
 test('signed out on the Confluence side shows Sign In and no Confluence controls', () => {
   const p = page(); p.send(cstate({}, { signedIn: false }));
   assert.ok(!p.d.querySelector('button.signin').hidden);
+  p.send(cstate({}, { signedIn: false, signInForm: true }));
+  assert.ok(p.d.querySelector('button.signin').hidden);
+  assert.ok(!p.d.querySelector('form.signin-form').hidden, 'the form on the Confluence side too');
   assert.ok(p.d.querySelector('.conf-controls').hidden);
   assert.strictEqual(ctree(p).querySelector('.row'), null);
 });

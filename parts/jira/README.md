@@ -30,11 +30,15 @@ jay works with Jira Cloud only. There are three ways to sign in:
 
 | Way | How | When to use it |
 | --- | --- | --- |
-| **An API token** | Run **Jira: Sign In**. It asks for your site (for example `https://example.atlassian.net`), your email and an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens). | The usual way. The email and token go in the editor's secret storage; the site goes in `jira.site`. |
+| **An API token** | Fill in the sign-in form in the Jira view (signed out, it shows where the tickets go; **Jira: Sign In** opens the view and focuses it): your site URL (for example `https://example.atlassian.net`, prefilled from `jira.site`), your Atlassian account email and an [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) (**Create one** opens that page). **Sign in** checks them with Jira first; a bad site or a rejected token is said under the form. | The usual way. The email and token go in the editor's secret storage; the site goes in `jira.site`. |
 | **An OAuth token file** | Set `jira.signIn.tokenFile` to a credentials JSON file another login tool writes, with `access_token`, `cloud_id` and `jira_url`. Optionally set `jira.signIn.refreshCommand` (for example `your-login --refresh`). | If another tool already signs you in to Jira with OAuth. jay runs the command when the token is about to expire, then re-reads the file. |
 | **A jira-mcp wrapper or env file** | Set `jira.signIn.tokenFile` to a file with `JIRA_URL`, `JIRA_USERNAME` and `JIRA_API_TOKEN` lines, such as the wrapper script you start a Jira MCP server with. | If you already have that file. jay reads the three lines; `export` and quotes are fine. |
 
-- When `jira.signIn.tokenFile` is set, it wins over an API token.
+- When `jira.signIn.tokenFile` is set, it wins over an API token: the
+  view shows a **Sign In** button instead of the form, and it (or **Jira:
+  Sign In**) tries the token file again.
+- Signed in, **Jira: Sign In** opens the form above the tree, to sign in
+  again with another site or account; **Cancel** closes it.
 - jay reads a token file, re-reading it when it changes. It never runs
   it and never writes it.
 - **Jira: Sign Out** deletes the API token from secret storage and the

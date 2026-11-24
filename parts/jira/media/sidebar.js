@@ -16,6 +16,66 @@
   signin.addEventListener('click', () => post({ type: 'signIn' }));
   const note = el('div', 'note'); note.hidden = true;
 
+  // the sign-in form (an API token; with a token file the Sign In button above is shown instead). The token stays in its
+  // field: the host answers with signInResult, never with the token.
+  const form = el('form', 'signin-form'); form.hidden = true; form.noValidate = true; form.setAttribute('aria-label', 'Sign in to Jira');
+  const field = (id, label, type, placeholder, autocomplete) => {
+    const wrap = el('div', 'field');
+    const l = el('label', '', label); l.htmlFor = id;
+    const i = el('input'); i.id = id; i.name = id; i.type = type; i.placeholder = placeholder; i.autocomplete = autocomplete; i.spellcheck = false;
+    wrap.append(l, i);
+    return { wrap, label: l, input: i };
+  };
+  const siteF = field('signin-site', 'Site URL', 'url', 'https://yourcompany.atlassian.net', 'url');
+  const emailF = field('signin-email', 'Atlassian account email', 'email', 'you@yourcompany.com', 'email');
+  const tokenF = field('signin-token', 'API token', 'password', 'Paste your API token', 'off');
+  const TOKEN_PAGE = 'https://id.atlassian.com/manage-profile/security/api-tokens';
+  const create = el('a', 'create-token', 'Create one'); create.href = TOKEN_PAGE;
+  create.addEventListener('click', (e) => { e.preventDefault(); post({ type: 'openTokenPage' }); });   // a webview link doesn't open by itself
+  tokenF.label.after(d.createTextNode(' '), create);
+  const formError = el('div', 'signin-error'); formError.hidden = true; formError.id = 'signin-error'; formError.setAttribute('role', 'alert');
+  const submitBtn = el('button', 'primary signin-submit', 'Sign in'); submitBtn.type = 'submit';
+  const cancelBtn = el('button', 'signin-cancel', 'Cancel'); cancelBtn.type = 'button'; cancelBtn.hidden = true;
+  cancelBtn.addEventListener('click', () => post({ type: 'signInCancel' }));
+  const buttons = el('div', 'buttons'); buttons.append(submitBtn, cancelBtn);
+  form.append(siteF.wrap, emailF.wrap, tokenF.wrap, formError, buttons);
+  const inputs = [siteF.input, emailF.input, tokenF.input];
+  let busy = false, siteTouched = false;
+  function setBusy(b) {
+    busy = b;
+    submitBtn.disabled = b; submitBtn.textContent = b ? 'Checking…' : 'Sign in';
+    form.setAttribute('aria-busy', String(b));
+  }
+  function showFormError(t) {
+    formError.hidden = !t; formError.textContent = t || '';
+    for (const i of inputs) { if (t) i.setAttribute('aria-describedby', 'signin-error'); else i.removeAttribute('aria-describedby'); }
+  }
+  function submit() {
+    if (busy) return;
+    showFormError(null); setBusy(true);
+    post({ type: 'signInForm', site: siteF.input.value, email: emailF.input.value, token: tokenF.input.value });
+  }
+  form.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
+  for (const i of inputs) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+  siteF.input.addEventListener('input', () => { siteTouched = true; });
+  function signInResult(m) {
+    setBusy(false);
+    if (m.ok) { tokenF.input.value = ''; siteTouched = false; showFormError(null); }
+    else showFormError(String(m.error || "Couldn't sign in"));
+  }
+  function focusSignIn() {
+    if (form.hidden) return;
+    (inputs.find((i) => !i.value.trim()) || submitBtn).focus();
+  }
+  // shown with no token file: while signed out, or above the tree once Jira: Sign In asked for it (then with Cancel)
+  function renderSignIn(out) {
+    const withForm = !!state.signInForm;
+    signin.hidden = !out || withForm;
+    form.hidden = !withForm || !(out || state.formOpen);
+    cancelBtn.hidden = out;
+    if (!siteTouched && d.activeElement !== siteF.input) siteF.input.value = state.site || '';
+  }
+
   const controls = el('div', 'controls');
   const PICK_MAX = 50;
   // a type-to-filter combobox (input + listbox), Recent first; typed text lives in the input, which a refresh never overwrites while it is open.
@@ -102,7 +162,7 @@
   controls.append(searchBox, projectBox.el, quarterSel, periodNote);
 
   const tree = el('div', 'tree'); tree.setAttribute('role', 'tree');
-  d.body.append(account, error, signin, note, controls, tree);
+  d.body.append(account, error, signin, form, note, controls, tree);
 
   // site-wide search (Jira's and Confluence's): asked after 3+ chars and a 400 ms pause; only the answer to the latest request is shown
   const SEARCH_MIN = 3, SEARCH_MS = 400;
@@ -229,7 +289,7 @@
       account.replaceChildren(d.createTextNode(state.account + ' · '), el('span', 'mode-current', label(cur)), d.createTextNode(' | '), link);
     }
     error.hidden = !state.error; error.textContent = state.error || '';
-    signin.hidden = !out;
+    renderSignIn(out);
     note.hidden = !state.note; note.textContent = state.note || '';
     controls.hidden = out; tree.hidden = out;
     if (out) { tree.replaceChildren(); return; }
@@ -296,6 +356,8 @@
     if (m.type === 'state') { state = m; paint(); }
     else if (m.type === 'searchResults') jiraSearch.answer(m);
     else if (m.type === 'confSearchResults') confSearch.answer(m);
+    else if (m.type === 'signInResult') signInResult(m);
+    else if (m.type === 'focusSignIn') focusSignIn();
     else if (m.type === 'focusSearch') (shownSide === 'confluence' ? confSearchBox : searchBox).focus();
   });
   // ---- the Confluence side (notes/102 "The sidebar"): the switch, then account, search, space box, Mentions, My pages and the page tree
@@ -366,7 +428,7 @@
     const c = conf(), out = !state.signedIn;
     account.hidden = out || !c.account; account.textContent = out ? '' : c.account || '';
     error.hidden = !state.error; error.textContent = state.error || '';
-    signin.hidden = !out;
+    renderSignIn(out);
     note.hidden = !c.note; note.textContent = c.note || '';
     controls.hidden = true; tree.hidden = true;
     confControls.hidden = out; confTree.hidden = out;

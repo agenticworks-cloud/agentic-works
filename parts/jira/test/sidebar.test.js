@@ -80,3 +80,21 @@ test('setTitle sets the view title, also when set before the view resolves', () 
   s.setTitle('Jira');
   assert.strictEqual(view.title, 'Jira');
 });
+
+test('focusSignIn: shows the view and posts focusSignIn once the page is ready, not before', () => {
+  const { s, view } = boot();
+  const shown = []; view.show = (p) => shown.push(p);
+  s.focusSignIn();
+  assert.ok(!view.webview.posted.some((m) => m.type === 'focusSignIn'));
+  view.webview._receive({ type: 'ready' });
+  assert.deepStrictEqual(view.webview.posted.slice(-2).map((m) => m.type), ['state', 'focusSignIn']);
+  s.focusSignIn();
+  assert.strictEqual(view.webview.posted.at(-1).type, 'focusSignIn', 'ready: at once');
+  assert.deepStrictEqual(shown, [false, false]);
+  const s2 = new Sidebar(vscode.Uri.file('/ext'));
+  s2.focusSignIn();   // before the view resolves
+  vscode.window.registerWebviewViewProvider('jay.sidebar', s2);
+  const v2 = ui.resolveSidebar();
+  v2.webview._receive({ type: 'ready' });
+  assert.strictEqual(v2.webview.posted.at(-1).type, 'focusSignIn');
+});

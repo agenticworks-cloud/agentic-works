@@ -11,10 +11,13 @@ class Sidebar {
     this.handlers = [];
     this.badge = 0;
     this.title = null;
+    this.ready = false;
+    this.focusPending = false;   // Jira: Sign In ran before the page was ready: its focus is sent once it is
   }
 
   resolveWebviewView(view) {
     this.view = view;
+    this.ready = false;   // until the page posts ready
     const media = vscode.Uri.joinPath(this.extensionUri, 'media');
     view.webview.options = { enableScripts: true, localResourceRoots: [media] };
     const nonce = crypto.randomBytes(16).toString('base64');
@@ -26,7 +29,7 @@ class Sidebar {
 <link rel="stylesheet" href="${css}"></head><body><script nonce="${nonce}" src="${js}"></script></body></html>`;
     view.webview.onDidReceiveMessage((m) => {
       if (!m || typeof m !== 'object') return;
-      if (m.type === 'ready') this.post();
+      if (m.type === 'ready') { this.ready = true; this.post(); if (this.focusPending) { this.focusPending = false; view.webview.postMessage({ type: 'focusSignIn' }); } }
       else for (const fn of this.handlers) fn(m);
     });
     this.applyBadge();
@@ -69,6 +72,14 @@ class Sidebar {
     if (!this.view) return;
     if (this.view.show) this.view.show(false);
     this.view.webview.postMessage({ type: 'focusSearch' });
+  }
+
+  /** Focuses the sign-in form's first empty field; before the page is up, once it says it is ready. */
+  focusSignIn() {
+    if (!this.view) { this.focusPending = true; return; }
+    if (this.view.show) this.view.show(false);
+    if (this.ready) this.view.webview.postMessage({ type: 'focusSignIn' });
+    else this.focusPending = true;
   }
 }
 

@@ -41,6 +41,7 @@ const DEFAULT_COLUMNS = ['key', 'summary', 'status'];
 const FILE_CHECK_MS = 30000;   // how often a token file that jay is signed out because of is stat'ed, whatever the watcher says
 const realTimers = { set: setTimeout, clear: clearTimeout };
 const SEARCH_FAILED = 'Jira search failed';
+const TOKEN_PAGE = 'https://id.atlassian.com/manage-profile/security/api-tokens';   // the form's "Create one" link
 const NOT_SIGNED_IN = { ok: false, kind: 'failed', message: 'Not signed in' };
 
 function signInText(reason, kind, file) {
@@ -99,6 +100,7 @@ function activate(context, deps = {}) {
   // jay.lastSession's projects are this sign-in's
   const s = { gen: 0, auth: null, api: null, writer: null, me: null, session: null, projects: [], projectsStale: false, account: null,
     projectsLoad: null, projectsLoaded: false, fingerprint: null, trusted: null, remembered: false,
+    formOpen: false,   // Jira: Sign In while signed in: the form shows above the tree until a sign-in or Cancel
     running: false, starting: false, error: null, notes: {}, view: null, fresh: false, mineKeys: new Set(), mineOkAt: null, events: null, cleared: false,
     conf: null };   // conf: this sign-in's Confluence (confluenceSide.js), or null
   const note = () => { for (const k of NOTE_POLLS) { const n = s.notes[k]; if (n && (n.offline || n.throttle)) return n.offline || n.throttle; } return null; };
@@ -176,6 +178,8 @@ function activate(context, deps = {}) {
       projects: s.projects, project: c.project, recentProjects: recentProjects(), quarters: c.choices, quarter: c.id, periodKind: c.kind, periodNote: c.note,
       mode: c.mode, groups: tree.groups, events, columns: columns(), loading: !!(s.running && c.project && !c.period), treeLoading,
       ...conf.state(account),
+      // the sign-in form: with no token file; shown while signed out, or above the tree once Jira: Sign In asked for it
+      signInForm: !userCfg('signIn.tokenFile', ''), formOpen: !!s.formOpen, site: userCfg('site', ''),
     });
     sidebar.setBadge((s.events && s.me ? s.events.badge() : 0) + conf.badge());
   }
@@ -350,34 +354,58 @@ function activate(context, deps = {}) {
     watcher.onDidChange(changed); watcher.onDidCreate(changed);
   }
 
-  /** Checks a sign-in with myself(); on success clears the signed-out flag. */
+  /** Checks a sign-in with myself(); on success clears the signed-out flag. Returns null, or why it failed (never the token). */
   async function check(auth) {
     try { await createApi(createHttp({ auth, fetch: fetchFn }), auth).myself(); }
-    catch (e) { vscode.window.showErrorMessage(`jay couldn't sign in: ${signInFailure(e)}`); return false; }
+    catch (e) { return signInFailure(e); }
     await store.update(SIGNED_OUT, undefined);
-    return true;
+    return null;
+  }
+
+  /** Signs in with a token file: its sign-in is tried again, errors as a notification (the sidebar shows a button, not the form). */
+  async function signInTokenFile() {
+    const why = await check(await buildAuth());
+    if (why) { vscode.window.showErrorMessage(`jay couldn't sign in: ${why}`); return; }
+    await restart();
   }
 
   let pendingSite = null;   // the jira.site value Sign In is writing: its settings change needn't restart again
-  async function signIn() {
-    if (userCfg('signIn.tokenFile', '')) {   // the token file wins; Sign In just tries it again
-      if (await check(await buildAuth())) await restart();
-      return;
-    }
-    const ask = (o) => vscode.window.showInputBox(Object.assign({ ignoreFocusOut: true }, o));
-    const site = await ask({ prompt: 'Your Jira Cloud site', value: userCfg('site', ''), placeHolder: 'https://example.atlassian.net' });
-    if (!site) return;
-    const email = await ask({ prompt: 'Your Atlassian account email' });
-    if (!email) return;
-    const token = await ask({ prompt: 'An Atlassian API token (id.atlassian.com → Security → API tokens)', password: true });
-    if (!token) return;
-    const url = site.trim().replace(/\/+$/, '');
-    if (!/^https:\/\/[^/\s]+$/i.test(url)) { vscode.window.showErrorMessage('jay: the site must look like https://example.atlassian.net'); return; }
-    if (!(await check(createApiTokenAuth({ site: url, email: email.trim(), token: token.trim() })))) return;
-    await secrets.store('jay.email', email.trim());
-    await secrets.store('jay.apiToken', token.trim());
+  let signingIn = false;    // a form sign-in is being checked: a second submit waits for it
+  /**
+   * Signs in with an API token: the sidebar form's submit, and any other caller. Checks the site's shape, then the email and
+   * token with Jira, and only then stores them and restarts.
+   * @returns null on success, else the message for the form (never containing the token)
+   */
+  async function signInWith({ site, email, token }) {
+    const str = (v) => (typeof v === 'string' ? v.trim() : '');
+    const url = str(site).replace(/\/+$/, ''); const mail = str(email); const tok = str(token);
+    if (!url || !mail || !tok) return 'Fill in the site URL, email and API token.';
+    if (!/^https:\/\/[^/\s]+$/i.test(url)) return 'The site URL must look like https://yourcompany.atlassian.net';
+    const why = await check(createApiTokenAuth({ site: url, email: mail, token: tok }));
+    if (why) return `Couldn't sign in: ${why.split(tok).join('…')}`;
+    await secrets.store('jay.email', mail);
+    await secrets.store('jay.apiToken', tok);
     if (userCfg('site', '') !== url) { pendingSite = url; await vscode.workspace.getConfiguration('jira').update('site', url, true); }
+    s.formOpen = false;
     await restart();
+    return null;
+  }
+
+  /** The sidebar form's submit: the answer goes back to the form, never with the token. */
+  async function submitSignIn(m) {
+    if (signingIn || userCfg('signIn.tokenFile', '')) return;
+    signingIn = true;
+    let error;
+    try { error = await signInWith(m); } catch (e) { log(e); error = "Couldn't sign in: unknown error"; } finally { signingIn = false; }
+    sidebar.reply({ type: 'signInResult', ok: !error, error: error || null });
+  }
+
+  /** Jira: Sign In. A token file: tries it again, as before. Otherwise the form in the Jira view, its first empty field focused. */
+  async function signIn() {
+    if (userCfg('signIn.tokenFile', '')) return signInTokenFile();
+    if (s.running || s.starting) { s.formOpen = true; render(); }   // signed in: the form opens above the tree, to sign in again
+    await Promise.resolve(vscode.commands.executeCommand('workbench.view.extension.jay')).catch(() => { /* no such view container */ });
+    sidebar.focusSignIn();
   }
 
   /** This window's part of a sign-out: stop, close the tabs, forget what is in memory, delete the ~/.jay files. */
@@ -532,7 +560,10 @@ function activate(context, deps = {}) {
 
   sidebar.onMessage((m) => {
     if (conf.message(m)) return;
-    if (m.type === 'signIn') { signIn().catch(log); return; }
+    if (m.type === 'signIn') { (userCfg('signIn.tokenFile', '') ? signInTokenFile() : signIn()).catch(log); return; }
+    if (m.type === 'signInForm') { submitSignIn(m); return; }
+    if (m.type === 'signInCancel') { s.formOpen = false; render(); return; }
+    if (m.type === 'openTokenPage') { Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(TOKEN_PAGE))).catch(log); return; }
     if (m.type === 'open') {
       const key = typeof m.key === 'string' ? m.key.trim().toUpperCase() : '';
       if (KEY_RE.test(key) && s.running) atlassian.open(key).catch(log);
