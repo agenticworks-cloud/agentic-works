@@ -1149,34 +1149,86 @@ test('changing the company app signs in again; the other app\'s tokens are not u
   assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'deviceCode' }, 'and are still there for chirp\'s own');
 });
 
-test('Teams: Use a Company Microsoft App asks for both IDs, writes them for the user and signs in', async () => {
-  ui.focused = true; ui.updates.length = 0; ui.inputBoxes.length = 0;
-  const h = start(chatWorld(), { method: 'auto' }); const view = ui.resolveSidebar(); await settle();
-  ui.inputs = [` ${CO_APP} `, CO_TENANT];
+// Teams: Use a Company Microsoft App…: a form in the Teams view, not input boxes (Sean, 2026-11-24)
+const appForms = (view) => view.webview.posted.filter((m) => m.type === 'openAppForm');
+const formResults = (view) => view.webview.posted.filter((m) => m.type === 'appFormResult');
+
+test('Use a Company Microsoft App reveals the Teams view and opens the form; no input box', async () => {
+  ui.focused = true; ui.inputBoxes.length = 0;
+  start(chatWorld(), { method: 'deviceCode' }); const view = ui.resolveSidebar(); await settle();
+  let shown = 0; view.show = () => { shown++; };
+  ui.executed.length = 0;
   await ui.commands['chirp.useCompanyApp'](); await settle();
-  assert.deepStrictEqual(ui.updates, [['teams.signIn.clientId', CO_APP, 1], ['teams.signIn.tenant', CO_TENANT, 1]], 'at the user level');
-  assert.deepStrictEqual(ui.inputBoxes.map((o) => o.title), ['Teams: Use a Company Microsoft App (1 of 2)', 'Teams: Use a Company Microsoft App (2 of 2)']);
-  assert.ok(ui.inputBoxes[0].validateInput('nope'), 'the first box refuses what is not an ID');
-  assert.strictEqual(ui.inputBoxes[0].validateInput(CO_APP), null);
-  assert.ok(ui.inputBoxes[1].validateInput('not a tenant'));
-  assert.strictEqual(ui.inputBoxes[1].validateInput('4a2b8c1d-0e3f-4a5b-9c6d-7e8f9a0b1c2d'), null, 'a tenant ID');
-  assert.strictEqual(ui.inputBoxes[1].validateInput(CO_TENANT), null, 'or a domain');
+  assert.ok(ui.executed.some((x) => x[0] === 'workbench.view.extension.chirp'), 'the Teams view is revealed');
+  assert.strictEqual(appForms(view).length, 1, 'the form opens');
+  assert.strictEqual(shown, 1, 'and the view takes the focus');
+  assert.deepStrictEqual(ui.inputBoxes, []);
+});
+
+test('the form is prefilled from the settings, and the company app in use is named', async () => {
+  ui.focused = true;
+  start(chatWorld(), { method: 'deviceCode', clientId: CO_APP.toUpperCase(), tenant: CO_TENANT }); const view = ui.resolveSidebar(); await settle();
+  assert.deepStrictEqual(lastState(view).appSettings, { clientId: CO_APP.toUpperCase(), tenant: CO_TENANT }, 'as written');
+  assert.strictEqual(lastState(view).companyApp, CO_APP);
+  const h = start(chatWorld(), { method: 'deviceCode' }); const v2 = ui.resolveSidebar(); await settle();
+  assert.deepStrictEqual(lastState(v2).appSettings, { clientId: '', tenant: '' });
+  assert.strictEqual(lastState(v2).companyApp, null, "chirp's own app");
+  h.api.dispose();
+});
+
+test('Save and sign in with valid IDs writes both settings for the user and signs in once', async () => {
+  ui.focused = true; ui.updates.length = 0;
+  const h = start(chatWorld(), { method: 'auto' }); const view = ui.resolveSidebar(); await settle();
+  view.webview._receive({ type: 'useCompanyApp', clientId: ` ${CO_APP} `, tenant: CO_TENANT }); await settle();
+  assert.deepStrictEqual(ui.updates, [['teams.signIn.clientId', CO_APP, 1], ['teams.signIn.tenant', CO_TENANT, 1]], 'at the user level, trimmed');
+  assert.deepStrictEqual(formResults(view)[0], { type: 'appFormResult', ok: true }, 'the form closes');
   assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'deviceCode' }, 'signed in, with a code');
   assert.ok(loginCalls(h).length && loginCalls(h).every((c) => c.clientId === CO_APP && c.url.includes(`/${CO_TENANT}/`)));
   assert.strictEqual(loginCalls(h).filter((c) => c.path === 'login:devicecode').length, 1, 'one sign-in, not one per setting');
+  assert.strictEqual(lastState(view).companyApp, CO_APP);
 });
 
-test('Use a Company Microsoft App: Escape at either box changes nothing', async () => {
+test('Save and sign in with wrong or missing IDs: what is wrong, by field, and nothing written', async () => {
   ui.focused = true;
-  for (const answers of [[undefined], [CO_APP, undefined]]) {
+  const h = start(chatWorld(), { method: 'auto' }); const view = ui.resolveSidebar(); await settle();
+  for (const [clientId, tenant, want] of [
+    ['nope', 'not a tenant', { clientId: /looks like 01234567-/, tenant: /a domain, like contoso\.onmicrosoft\.com/ }],
+    ['', '', { clientId: /Enter the Application \(client\) ID/, tenant: /Enter the Directory \(tenant\) ID or domain/ }],
+    [CO_APP, 'x', { tenant: /Directory \(tenant\) ID looks like/ }],
+    ['nope', '4a2b8c1d-0e3f-4a5b-9c6d-7e8f9a0b1c2d', { clientId: /looks like/ }],
+  ]) {
     ui.updates.length = 0;
-    const h = start(chatWorld(), { method: 'auto' }); ui.resolveSidebar(); await settle();
-    ui.inputs = answers.slice();
-    await ui.commands['chirp.useCompanyApp'](); await settle();
-    assert.deepStrictEqual(ui.updates, []);
-    assert.deepStrictEqual(loginCalls(h), [], 'no sign-in');
-    h.api.dispose();
+    view.webview._receive({ type: 'useCompanyApp', clientId, tenant }); await settle();
+    const r = formResults(view).at(-1);
+    assert.strictEqual(r.ok, false);
+    assert.deepStrictEqual(Object.keys(r.errors).sort(), Object.keys(want).sort(), `${clientId} / ${tenant}`);
+    for (const k of Object.keys(want)) assert.match(r.errors[k], want[k]);
+    assert.deepStrictEqual(ui.updates, [], 'nothing written');
   }
+  assert.deepStrictEqual(loginCalls(h), [], 'no sign-in');
+});
+
+test('a settings write that fails goes back to the form', async () => {
+  ui.focused = true; ui.updates.length = 0;
+  const vscode = require('vscode');
+  const h = start(chatWorld(), { method: 'auto' }); const view = ui.resolveSidebar(); await settle();
+  const real = vscode.workspace.getConfiguration;
+  vscode.workspace.getConfiguration = (sec) => Object.assign({}, real(sec), { update: async () => { throw new Error('settings.json is read-only'); } });
+  try {
+    view.webview._receive({ type: 'useCompanyApp', clientId: CO_APP, tenant: CO_TENANT }); await settle();
+  } finally { vscode.workspace.getConfiguration = real; }
+  assert.deepStrictEqual(formResults(view).at(-1), { type: 'appFormResult', ok: false, errors: { save: "Couldn't save the settings: settings.json is read-only" } });
+  assert.deepStrictEqual(loginCalls(h), []);
+});
+
+test('signed in, Use a Company Microsoft App says to sign out first, and opens no form', async () => {
+  ui.focused = true; ui.infos.length = 0;
+  start(chatWorld(), { method: 'deviceCode' }); const view = ui.resolveSidebar(); await settle();
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.ok(lastState(view).account);
+  await ui.commands['chirp.useCompanyApp'](); await settle();
+  assert.ok(ui.infos.includes('Sign out first to change the app Teams signs in with.'));
+  assert.deepStrictEqual(appForms(view), []);
 });
 
 test('the approval hint: not before a sign-in, after one that ends cancelled or expired, gone once signed in', async () => {
@@ -1215,10 +1267,14 @@ test('the approval hint: a consent error shows it; a personal account does not',
   }
 });
 
-test('the hint\'s buttons run their commands', async () => {
+test('a Teams view that loads after the command still opens the form, after its state', async () => {
   ui.focused = true;
-  start(chatWorld(), { method: 'deviceCode' }); const view = ui.resolveSidebar(); await settle();
-  ui.executed.length = 0; ui.inputs = [undefined];
-  view.webview._receive({ type: 'useCompanyApp' }); await settle();
-  assert.deepStrictEqual(ui.executed.map((x) => x[0]), ['chirp.useCompanyApp']);
+  start(chatWorld(), { method: 'deviceCode' }); await settle();
+  await ui.commands['chirp.useCompanyApp'](); await settle();
+  const view = ui.resolveSidebar();
+  assert.deepStrictEqual(appForms(view), [], 'not before the page is ready');
+  view.webview._receive({ type: 'ready' }); await settle();
+  const types = view.webview.posted.map((m) => m.type);
+  assert.strictEqual(types.filter((t) => t === 'openAppForm').length, 1);
+  assert.ok(types.indexOf('state') < types.indexOf('openAppForm'), 'the prefill arrives first');
 });

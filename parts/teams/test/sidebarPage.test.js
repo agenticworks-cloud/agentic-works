@@ -149,10 +149,111 @@ test('signed out after a sign-in that ended without one: the approval hint, and 
   assert.ok(btn(p, 'Sign in to Microsoft'), 'signing in again stays first');
   click(p, btn(p, 'Copy admin link'));
   assert.deepStrictEqual(p.posted.at(-1), { type: 'copyAdminLink' });
+  const before = p.posted.length;
   click(p, btn(p, 'Use a company app…'));
-  assert.deepStrictEqual(p.posted.at(-1), { type: 'useCompanyApp' });
+  assert.strictEqual(p.posted.length, before, 'opens the form here: nothing posted');
+  assert.strictEqual(p.d.querySelector('.app-form').hidden, false);
+  assert.strictEqual(p.d.activeElement, p.d.getElementById('chirp-app-client'));
   p.send(state({ signIn: { stage: 'waiting' }, account: null }));
   assert.strictEqual(p.d.querySelector('.signin .hint'), null, 'gone while signing in');
+});
+
+// ---- a company's own app: a form in the signed-out page (Sean, 2026-11-24: no input box at the top)
+const CO = '0a1b2d3d-4e5f-4a6b-8d7d-9e0f1a2b3d4d';
+const signedOut = (o) => state(Object.assign({ signIn: { stage: 'signedOut' }, account: null, appSettings: { clientId: '', tenant: '' }, companyApp: null }, o));
+const formOf = (p) => ({ form: p.d.querySelector('.app-form'), client: p.d.getElementById('chirp-app-client'), tenant: p.d.getElementById('chirp-app-tenant') });
+const type = (p, input, v) => { input.value = v; input.dispatchEvent(new p.w.Event('input', { bubbles: true })); };
+
+test("the company-app section: collapsed at first, opened by its heading, with labelled fields", () => {
+  const p = page();
+  p.send(signedOut());
+  const { form, client, tenant } = formOf(p);
+  const toggle = btn(p, "Use your company's app");
+  assert.ok(toggle, 'the section heading');
+  assert.strictEqual(form.hidden, true, 'collapsed by default');
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'false');
+  click(p, toggle);
+  assert.strictEqual(form.hidden, false);
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'true');
+  assert.strictEqual(p.d.querySelector('label[for="chirp-app-client"]').textContent, 'Application (client) ID');
+  assert.strictEqual(p.d.querySelector('label[for="chirp-app-tenant"]').textContent, 'Directory (tenant) ID or domain');
+  assert.match(tenant.placeholder, /contoso\.onmicrosoft\.com/);
+  assert.ok(form.textContent.includes('Your IT team provides both.'));
+  assert.ok(btn(p, 'Save and sign in'));
+  assert.strictEqual(p.d.activeElement, client);
+  p.send(state({ signIn: null, account: { username: 'sean@example.com', method: 'editor' } }));
+  assert.strictEqual(p.d.querySelector('.company').hidden, true, 'not while signed in');
+});
+
+test('the host opens the form prefilled and focused; typing survives an update', () => {
+  const p = page();
+  p.send(signedOut({ appSettings: { clientId: CO, tenant: 'contoso.onmicrosoft.com' } }));
+  p.send({ type: 'openAppForm' });
+  const { form, client, tenant } = formOf(p);
+  assert.strictEqual(form.hidden, false);
+  assert.strictEqual(client.value, CO);
+  assert.strictEqual(tenant.value, 'contoso.onmicrosoft.com');
+  assert.strictEqual(p.d.activeElement, client);
+  type(p, tenant, 'fabrikam.com'); tenant.focus();
+  p.send(signedOut({ appSettings: { clientId: CO, tenant: 'contoso.onmicrosoft.com' }, status: { kind: 'note', text: 'x' } }));
+  assert.strictEqual(tenant.value, 'fabrikam.com');
+  assert.strictEqual(p.d.activeElement, tenant, 'the focus stays');
+});
+
+test('Save and sign in, or Enter in a field, posts the two IDs; Cancel collapses', () => {
+  const p = page();
+  p.send(signedOut());
+  p.send({ type: 'openAppForm' });
+  const { form, client, tenant } = formOf(p);
+  type(p, client, CO); type(p, tenant, 'contoso.onmicrosoft.com');
+  click(p, btn(p, 'Save and sign in'));
+  assert.deepStrictEqual(p.posted.at(-1), { type: 'useCompanyApp', clientId: CO, tenant: 'contoso.onmicrosoft.com' });
+  p.posted.length = 0;
+  p.key('Enter', tenant);
+  assert.deepStrictEqual(p.posted, [{ type: 'useCompanyApp', clientId: CO, tenant: 'contoso.onmicrosoft.com' }], 'Enter submits, and opens no row');
+  p.posted.length = 0;
+  p.key('/', client);
+  assert.notStrictEqual(p.d.activeElement, p.d.querySelector('input.filter'), "a slash in a field is typed, not the filter's key");
+  click(p, btn(p, 'Cancel'));
+  assert.strictEqual(form.hidden, true);
+  assert.deepStrictEqual(p.posted, []);
+});
+
+test("the host's errors show by field, and a saved app closes the form", () => {
+  const p = page();
+  p.send(signedOut());
+  p.send({ type: 'openAppForm' });
+  const { form, client, tenant } = formOf(p);
+  p.send({ type: 'appFormResult', ok: false, errors: { tenant: 'A Directory (tenant) ID looks like …' } });
+  const tErr = p.d.getElementById('chirp-app-tenant-error');
+  assert.strictEqual(tErr.hidden, false);
+  assert.strictEqual(tErr.textContent, 'A Directory (tenant) ID looks like …');
+  assert.strictEqual(tenant.getAttribute('aria-invalid'), 'true');
+  assert.ok(tenant.getAttribute('aria-describedby').split(' ').includes(tErr.id), 'read with the field');
+  assert.strictEqual(p.d.getElementById('chirp-app-client-error').hidden, true);
+  assert.strictEqual(client.getAttribute('aria-invalid'), null);
+  assert.strictEqual(p.d.activeElement, tenant, 'the cursor goes to what is wrong');
+  p.send({ type: 'appFormResult', ok: false, errors: { save: "Couldn't save the settings: no" } });
+  assert.strictEqual(p.d.querySelector('.app-form .form-error').textContent, "Couldn't save the settings: no");
+  assert.strictEqual(tErr.hidden, true, 'the last answer replaces the one before');
+  p.send({ type: 'appFormResult', ok: true });
+  assert.strictEqual(form.hidden, true);
+  assert.strictEqual(p.d.querySelector('.app-form .form-error').hidden, true);
+});
+
+test('a company app already set: one line naming it, whose Change opens the form prefilled', () => {
+  const p = page();
+  p.send(signedOut({ companyApp: CO, appSettings: { clientId: CO, tenant: 'contoso.onmicrosoft.com' } }));
+  const line = p.d.querySelector('.company-line');
+  assert.strictEqual(line.hidden, false);
+  assert.strictEqual(line.textContent, "Signing in with your company's app (0a1b2d3d…) · Change");
+  assert.strictEqual(btn(p, "Use your company's app").hidden, true, 'the line replaces the heading');
+  click(p, btn(p, 'Change'));
+  const { form, client, tenant } = formOf(p);
+  assert.strictEqual(form.hidden, false);
+  assert.deepStrictEqual([client.value, tenant.value], [CO, 'contoso.onmicrosoft.com']);
+  p.send(signedOut());
+  assert.strictEqual(p.d.querySelector('.company-line').hidden, true, "chirp's own app: no line");
 });
 
 test('waiting: the message and Cancel', () => {

@@ -50,9 +50,15 @@ already approved. Two settings name it; your IT team provides both:
 | `teams.signIn.clientId` | the app's Application (client) ID, a GUID | chirp's own app |
 | `teams.signIn.tenant` | your Directory (tenant) ID, or a domain such as `contoso.onmicrosoft.com` | `organizations`, any work or school account |
 
-**Teams: Use a Company Microsoft App…** asks for both, checks them, writes
-them to your user settings and signs in again; so does changing either in
-Settings. A value that is neither an ID nor a domain is ignored, with a
+While signed out, the Teams view has a **Use your company's app** section
+(collapsed until you open it, or until **Teams: Use a Company Microsoft
+App…** or the hint's **Use a company app…** opens it): the Application
+(client) ID, the Directory (tenant) ID or domain, and **Save and sign in**
+(or Enter). chirp checks both, says inline what is wrong, writes them to
+your user settings and signs in again; so does changing either in
+Settings. With a company app set, the signed-out view says *Signing in
+with your company's app (0123abcd…)*, with **Change** to edit it. Signed
+in, the command says to sign out first. A value that is neither an ID nor a domain is ignored, with a
 note above the lists. The settings are not used with a token file.
 
 With a company app, chirp asks for exactly what your admins approved for it

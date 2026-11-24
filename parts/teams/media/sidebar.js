@@ -23,6 +23,12 @@
   const channelsNote = el('div', 'channels-note'); channelsNote.hidden = true;
   d.body.append(filter, account, status, signin, chatsHead, chats, teamsHead, channelsNote, teams);
   const button = (label, type, cls) => { const b = el('button', cls || '', label); b.addEventListener('click', () => vscode.postMessage({ type })); return b; };
+  const local = (label, fn, cls) => { const b = el('button', cls || '', label); b.addEventListener('click', fn); return b; };
+  // the signed-out page: the sign-in (or its wait, or its code), then the company-app section, built once so what is
+  // typed and where the focus is survive every update
+  const signinMain = el('div', 'signin-main');
+  const company = el('div', 'company'); company.hidden = true;
+  signin.append(signinMain, company);
   const METHOD = { editor: 'editor', deviceCode: 'sign-in code', tokenFile: 'token file' };
 
   /** Signing in: the button, the wait, or the code. While signed out the lists are hidden. */
@@ -32,18 +38,84 @@
     for (const x of [chatsHead, chats, teamsHead, teams, channelsNote]) if (out) x.hidden = true;
     if (!out) { chatsHead.hidden = false; chats.hidden = false; teamsHead.hidden = false; teams.hidden = false; }
     signin.hidden = !si;
-    if (!si) { signin.replaceChildren(); return; }
+    if (state.account) formOpen = false;
+    renderCompany(signedOutPage());
+    if (!si) { signinMain.replaceChildren(); return; }
     if (si.stage === 'signedOut') {
-      signin.replaceChildren(button('Sign in to Microsoft', 'signIn', 'primary'));
+      signinMain.replaceChildren(button('Sign in to Microsoft', 'signIn', 'primary'));
       // after a sign-in that ended without one: Microsoft may have said the app needs approval, which chirp can't see
       if (si.hint) {
         const hint = el('div', 'hint');
-        hint.append(el('div', null, 'If Microsoft said Need admin approval, your company has to approve the app first:'), button('Copy admin link', 'copyAdminLink'), button('Use a company app…', 'useCompanyApp'));
-        signin.append(hint);
+        hint.append(el('div', null, 'If Microsoft said Need admin approval, your company has to approve the app first:'), button('Copy admin link', 'copyAdminLink'), local('Use a company app…', openForm));
+        signinMain.append(hint);
       }
     }
-    else if (si.stage === 'waiting') signin.replaceChildren(el('div', 'wait', 'Waiting for sign-in in the browser…'), button('Cancel', 'cancelSignIn'));
-    else if (si.stage === 'code') signin.replaceChildren(el('div', 'code', si.userCode || ''), button('Copy code & open', 'copyCode', 'primary'), el('div', 'where', `Enter it at ${si.verificationUri || ''}`), button('Cancel', 'cancelSignIn'));
+    else if (si.stage === 'waiting') signinMain.replaceChildren(el('div', 'wait', 'Waiting for sign-in in the browser…'), button('Cancel', 'cancelSignIn'));
+    else if (si.stage === 'code') signinMain.replaceChildren(el('div', 'code', si.userCode || ''), button('Copy code & open', 'copyCode', 'primary'), el('div', 'where', `Enter it at ${si.verificationUri || ''}`), button('Cancel', 'cancelSignIn'));
+  }
+
+  // ---- a company's own app: the two IDs from IT (Sean, 2026-11-24: a form here, not input boxes at the top of the
+  // window). Collapsed unless opened; the host checks what is typed and sends back what is wrong, by field.
+  let formOpen = false;
+  const companyLine = el('div', 'company-line');
+  const companyText = el('span');
+  const changeLink = local('Change', () => openForm(), 'link');
+  changeLink.setAttribute('aria-label', "Change your company's app");
+  companyLine.append(companyText, d.createTextNode(' · '), changeLink);
+  const companyToggle = local("Use your company's app", () => (formOpen ? closeForm() : openForm()), 'link company-toggle');
+  const form = el('div', 'app-form'); form.id = 'chirp-app-form'; form.hidden = true;
+  form.setAttribute('role', 'group'); form.setAttribute('aria-label', "Use your company's app");
+  companyToggle.setAttribute('aria-controls', form.id);
+  function field(id, label, placeholder) {
+    const l = el('label', null, label); l.htmlFor = id;
+    const input = el('input', 'field'); input.type = 'text'; input.id = id; input.placeholder = placeholder;
+    input.spellcheck = false; input.autocomplete = 'off';
+    const err = el('div', 'field-error'); err.id = id + '-error'; err.hidden = true;
+    input.setAttribute('aria-describedby', err.id + ' chirp-app-note');
+    form.append(l, input, err);
+    return { input, err };
+  }
+  const fClient = field('chirp-app-client', 'Application (client) ID', '01234567-89ab-cdef-0123-456789abcdef');
+  const fTenant = field('chirp-app-tenant', 'Directory (tenant) ID or domain', 'e.g. contoso.onmicrosoft.com');
+  const formNote = el('div', 'note', 'Your IT team provides both.'); formNote.id = 'chirp-app-note';
+  const formError = el('div', 'form-error'); formError.hidden = true; formError.setAttribute('role', 'alert');
+  const actions = el('div', 'actions');
+  actions.append(local('Save and sign in', submit, 'primary'), local('Cancel', () => closeForm(), 'link'));
+  form.append(formNote, formError, actions);
+  company.append(companyLine, companyToggle, form);
+
+  const signedOutPage = () => !state.account && !!state.signIn && state.signIn.stage === 'signedOut';
+  function renderCompany(show) {
+    company.hidden = !show;
+    const id = state.companyApp;
+    companyLine.hidden = !id;
+    companyText.textContent = id ? `Signing in with your company's app (${String(id).slice(0, 8)}…)` : '';
+    companyToggle.hidden = !!id;   // set: the line's Change opens the form instead
+    companyToggle.setAttribute('aria-expanded', String(formOpen));
+    form.hidden = !formOpen;
+  }
+  function setErrors(errors) {
+    for (const [f, msg] of [[fClient, errors.clientId], [fTenant, errors.tenant]]) {
+      f.err.textContent = msg || ''; f.err.hidden = !msg;
+      if (msg) f.input.setAttribute('aria-invalid', 'true'); else f.input.removeAttribute('aria-invalid');
+    }
+    formError.textContent = errors.save || ''; formError.hidden = !errors.save;
+  }
+  /** Opens the form with the settings as they are, and puts the cursor in the first field. */
+  function openForm() {
+    const a = state.appSettings || {};
+    fClient.input.value = a.clientId || ''; fTenant.input.value = a.tenant || '';
+    setErrors({}); formOpen = true;
+    renderCompany(signedOutPage());
+    fClient.input.focus();
+  }
+  function closeForm() { formOpen = false; setErrors({}); renderCompany(signedOutPage()); }
+  function submit() { vscode.postMessage({ type: 'useCompanyApp', clientId: fClient.input.value, tenant: fTenant.input.value }); }
+  function formResult(m) {
+    if (m.ok) { closeForm(); return; }
+    const errors = m.errors || {};
+    setErrors(errors);
+    if (errors.clientId) fClient.input.focus(); else if (errors.tenant) fTenant.input.focus();
   }
   function renderAccount() {
     const a = state.account;
@@ -168,6 +240,12 @@
     selectedKey = keyOf(row); mark(); activate(row);
   });
   d.addEventListener('keydown', (e) => {
+    // in the company-app form: Enter saves, Escape cancels; the list's keys stay out of it
+    if (company.contains(e.target)) {
+      if (e.key === 'Enter' && (e.target === fClient.input || e.target === fTenant.input)) { e.preventDefault(); submit(); }
+      else if (e.key === 'Escape' && formOpen) { e.preventDefault(); closeForm(); (state.companyApp ? changeLink : companyToggle).focus(); }
+      return;
+    }
     const rows = allRows();
     if (e.key === 'Escape' && e.target === filter) { filter.value = ''; render(); return; }
     if (e.key === '/' && e.target !== filter) { e.preventDefault(); filter.focus(); return; }
@@ -183,6 +261,8 @@
     const m = e.data || {};
     if (m.type === 'state') { state = m; render(); }
     else if (m.type === 'focusFilter') filter.focus();
+    else if (m.type === 'openAppForm') openForm();
+    else if (m.type === 'appFormResult') formResult(m);
     else if (m.type === 'front' && m.ref) { selectedKey = refKey(m.ref); mark(); scroll(); }   // the chirp tab in front; a file in front changes nothing
   });
   vscode.postMessage({ type: 'ready' });
