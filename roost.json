@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": { "vscode": "^1.90.0" },
   "license": "MIT",
