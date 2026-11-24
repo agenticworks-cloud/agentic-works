@@ -199,7 +199,7 @@ test('no company file: Roost\'s words and order', async () => {
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
   assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code (optional)', 'Choose your parts']);
-  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '' }, { logins: [] }, { rowId: '' }, { rowId: '', site: '', form: true }]);
+  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '' }, { logins: [] }, { rowId: '', note: '' }, { rowId: '', site: '', form: true }]);
   await s.extension.deactivate();
 });
 
@@ -267,6 +267,63 @@ test('agents requests go to perch.connectClaude.request; a key never reaches the
   await s.extension.deactivate();
 });
 
+test('Claude\'s login: the step says it is waiting while the request is out, and not once the answer comes', async () => {
+  const s = await pageSetup(null);
+  let finish; const got = [];
+  s.ui.commands['perch.connectClaude.request'] = (m) => { got.push(m.type); return m.type === 'subscription' ? new Promise((r) => { finish = r; }) : Promise.resolve([]); };
+  const pending = s.page.receive({ type: 'agents', request: { type: 'subscription' } });
+  assert.deepStrictEqual(got, ['subscription']);
+  assert.strictEqual((await s.step('claude')).waiting, 'Signing in to Claude in the terminal…', 'as soon as the request is sent');
+  await s.page.receive({ type: 'agents', request: { type: 'ready' } });
+  assert.strictEqual((await s.step('claude')).waiting, 'Signing in to Claude in the terminal…', 'another request does not clear it');
+  finish([{ type: 'state', state: {} }, { type: 'saved', way: 'subscription', terminalNote: '' }]);
+  await pending;
+  const n = s.page.posted.length;
+  const lastTwo = s.page.posted.slice(n - 2);
+  assert.deepStrictEqual(lastTwo.map((m) => m.type), ['agents', 'state'], 'the answer, then the state without the waiting line');
+  assert.strictEqual(lastTwo[1].state.steps.find((x) => x.id === 'claude').waiting, '');
+  // an error answer clears it too
+  s.ui.commands['perch.connectClaude.request'] = async () => { throw new Error('gone'); };
+  await s.page.receive({ type: 'agents', request: { type: 'subscription' } });
+  assert.strictEqual((await s.step('claude')).waiting, '');
+  // another way waits for nothing
+  s.ui.commands['perch.connectClaude.request'] = async () => [];
+  const before = s.page.posted.filter((m) => m.type === 'state').length;
+  await s.page.receive({ type: 'agents', request: { type: 'apiKey', key: 'sk-ant-1' } });
+  assert.strictEqual(s.page.posted.filter((m) => m.type === 'state').length, before, 'no state posted for an API key');
+  await s.extension.deactivate();
+});
+
+test('a key or token is sent only to a part that is running: else "<part> isn\'t running." and no call', async () => {
+  const s = await pageSetup(null);
+  const calls = [];
+  s.ui.commands['perch.connectClaude.request'] = async (m) => { calls.push(['agents', m]); return []; };
+  s.ui.commands['jay.signInWith'] = async (m) => { calls.push(['jira', m]); return null; };
+  await setEnabled(s.ui, 'agents', false);
+  await setEnabled(s.ui, 'jira', false);
+  assert.deepStrictEqual([s.roost.state('agents'), s.roost.state('jira')], ['off', 'off']);
+  await s.page.receive({ type: 'agents', request: { type: 'apiKey', key: 'sk-ant-off' } });
+  assert.deepStrictEqual(s.page.posted.pop(), { type: 'agents', error: "Agents (Claude Code and Codex) isn't running." });
+  await s.page.receive({ type: 'jiraForm', site: 'example.atlassian.net', email: 'a@example.com', token: 'tok-off' });
+  assert.deepStrictEqual(s.page.posted.pop(), { type: 'jira', error: "Jira & Confluence isn't running." });
+  // still starting: switched on, its activate not done yet, so its commands may not be there
+  let started;
+  fake.parts.agents = { activate: () => new Promise((r) => { started = r; }) };
+  await setEnabled(s.ui, 'agents', true);
+  assert.strictEqual(s.roost.state('agents'), 'off', 'starting');
+  await s.page.receive({ type: 'agents', request: { type: 'apiKey', key: 'sk-ant-starting' } });
+  assert.deepStrictEqual(s.page.posted.pop(), { type: 'agents', error: "Agents (Claude Code and Codex) isn't running." });
+  assert.deepStrictEqual(calls, [], 'no command was called');
+  started();
+  for (let i = 0; i < 5; i++) await tick();
+  assert.strictEqual(s.roost.state('agents'), 'on');
+  await s.page.receive({ type: 'agents', request: { type: 'apiKey', key: 'sk-ant-on' } });
+  assert.deepStrictEqual(calls, [['agents', { type: 'apiKey', key: 'sk-ant-on' }]], 'running: the key goes to the command');
+  const said = JSON.stringify(s.page.posted) + s.ui.out.join('\n');
+  assert.ok(!['sk-ant-off', 'tok-off', 'sk-ant-starting', 'sk-ant-on'].some((k) => said.includes(k)), 'no key on the page or in the log');
+  await s.extension.deactivate();
+});
+
 test('a reply after the page closed is dropped quietly', async () => {
   const s = await pageSetup(null); let finish;
   s.ui.commands['perch.connectClaude.request'] = () => new Promise((r) => { finish = r; });
@@ -317,13 +374,34 @@ test('teamsSignIn with a company row signs that row in without opening Connect Y
   await s.extension.deactivate();
 
   s = await pageSetup(null);
-  const signIns = [];
-  s.ui.commands['chirp.signIn'] = () => { signIns.push('chirp'); };
-  await s.page.receive({ type: 'teamsSignIn' });
+  const signIns = []; let finish;
+  s.ui.commands['chirp.signIn'] = () => { signIns.push('chirp'); return new Promise((r) => { finish = r; }); };
+  const pending = s.page.receive({ type: 'teamsSignIn' });
   assert.deepStrictEqual(signIns, ['chirp']);
   assert.strictEqual((await s.step('teams')).waiting, 'Finish signing in in your browser.');
   await s.run('setContext', 'chirp.signedIn', true);
-  assert.deepStrictEqual([(await s.step('teams')).waiting, (await s.step('teams')).done], ['', true]);
+  finish(); await pending;
+  assert.deepStrictEqual([(await s.step('teams')).waiting, (await s.step('teams')).done, (await s.stateOf()).teams.note], ['', true, '']);
+  await s.extension.deactivate();
+});
+
+test('teamsSignIn that resolves without signing in (cancelled, failed, offline, admin approval): the waiting line goes and a note says so', async () => {
+  const s = await pageSetup(null);
+  let finish;
+  s.ui.commands['chirp.signIn'] = () => new Promise((r) => { finish = r; });
+  const pending = s.page.receive({ type: 'teamsSignIn' });
+  assert.deepStrictEqual([(await s.step('teams')).waiting, (await s.stateOf()).teams.note], ['Finish signing in in your browser.', '']);
+  finish(); await pending;
+  const NOTE = "Teams isn't signed in. Try again, or see the Teams view for why.";
+  assert.deepStrictEqual([(await s.step('teams')).waiting, (await s.step('teams')).done, (await s.stateOf()).teams.note], ['', false, NOTE]);
+  // trying again: the note goes while it waits; signed in later: no note
+  s.ui.commands['chirp.signIn'] = () => new Promise((r) => { finish = r; });
+  const again = s.page.receive({ type: 'teamsSignIn' });
+  assert.deepStrictEqual([(await s.step('teams')).waiting, (await s.stateOf()).teams.note], ['Finish signing in in your browser.', '']);
+  finish(); await again;
+  assert.strictEqual((await s.stateOf()).teams.note, NOTE);
+  await s.run('setContext', 'chirp.signedIn', true);
+  assert.deepStrictEqual([(await s.step('teams')).done, (await s.stateOf()).teams.note], [true, '']);
   await s.extension.deactivate();
 });
 

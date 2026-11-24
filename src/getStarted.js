@@ -23,6 +23,9 @@ const NOT_NOW = { claude: 'roost.connectClaudeNotNow', tools: 'roost.toolsNotNow
 const NEW_TAB = { claude: 'roost.newClaudeTab', codex: 'roost.newCodexTab' };
 const WAIT_TERMINAL = 'Finish signing in in the terminal.';
 const WAIT_BROWSER = 'Finish signing in in your browser.';
+const WAIT_CLAUDE = 'Signing in to Claude in the terminal…';
+// chirp.signIn resolved but chirp.signedIn isn't true: cancelled, failed, offline, or the admin-approval wall
+const TEAMS_NOT_SIGNED_IN = "Teams isn't signed in. Try again, or see the Teams view for why.";
 // a configuration change of these refreshes the page
 const WATCHED_SETTINGS = ['roost', 'agents.codebaseIndex.enabled', 'jira', 'teams.signIn.tokenFile'];
 
@@ -39,7 +42,9 @@ class GetStarted {
     this.log = log;
     this.panel = null;
     this.logins = [];
-    this.waiting = { github: false, teams: false };
+    // claude: how many subscription logins are out (perch.connectClaude.request answers only once one ends)
+    this.waiting = { github: false, teams: false, claude: 0 };
+    this.notes = { teams: '' };
     this.subs = [];
     if (roost.contexts) this.subs.push(roost.contexts.onChange(() => this.refresh()));
     this.subs.push(vscode.workspace.onDidChangeConfiguration((e) => {
@@ -87,6 +92,10 @@ class GetStarted {
 
   // a part is "on" while its switch is on and it has not failed
   on(id) { return this.roost.parts.has(id) && this.roost.isEnabled(id) && !this.roost.entry(id).failed; }
+
+  // a part has started (its commands are registered): a key or token is sent to its command only then, so it never
+  // leaves the extension host for a command that isn't there yet
+  running(id) { return this.roost.parts.has(id) && this.roost.state(id) === 'on'; }
 
   title(id, dflt) { return this.roost.parts.has(id) ? this.roost.entry(id).part.title : dflt; }
 
@@ -146,7 +155,8 @@ class GetStarted {
       claude: (c && c.steps.gateway) || 'Connect Claude',
       tools: (c && c.steps.tools) || 'Connect your tools',
     };
-    const waiting = { github: this.waiting.github ? WAIT_TERMINAL : '', teams: this.waiting.teams ? WAIT_BROWSER : '' };
+    const waiting = { github: this.waiting.github ? WAIT_TERMINAL : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
+      claude: this.waiting.claude > 0 ? WAIT_CLAUDE : '' };
     const steps = (c ? ORDER_COMPANY : ORDER_ROOST).filter((id) => this.shown(id))
       .map((id) => ({ id, name: names[id], done: !!done[id], waiting: waiting[id] || '' }));
     const jira = this.vscode.workspace.getConfiguration('jira');
@@ -156,7 +166,7 @@ class GetStarted {
       steps,
       claude: { companyGateway: (c && c.gateway && c.gateway.name) || '' },
       github: { logins: [...this.logins] },
-      teams: { rowId: this.rowFor('teams') },
+      teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams },
       jira: { rowId: this.rowFor('jira'), site: str(jira.get('site', '')), form: !(typeof jiraFile === 'string' && jiraFile) },
       parts: [...this.roost.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.roost.isEnabled(e.part.id) })),
     };
@@ -194,25 +204,35 @@ class GetStarted {
           if (this.roost.hasTools()) this.post({ type: 'rows', rows: this.roost.toolsNow().rows() }, panel);
           break;
         case 'agents': {
+          const notRunning = { type: 'agents', error: `${this.title('agents', 'Agents')} isn't running.` };
+          if (!this.running('agents')) { this.post(notRunning, panel); break; }
+          // Claude's login answers only once it ends: the step says it is waiting until then
+          const login = !!(m.request && m.request.type === 'subscription');
+          if (login) { this.waiting.claude++; this.refresh(); }
           let reply;
           try {
             const replies = await run('perch.connectClaude.request', m.request);
             reply = { type: 'agents', replies: Array.isArray(replies) ? replies : [] };
           } catch (err) {
             this.log(`Get started: agents: ${errorMessage(err)}`);
-            reply = { type: 'agents', error: `${this.title('agents', 'Agents')} isn't running.` };
+            reply = notRunning;
+          } finally {
+            if (login) this.waiting.claude--;
           }
           this.post(reply, panel);
+          if (login) this.refresh();
           break;
         }
         case 'jiraForm': {
+          const notRunning = { type: 'jira', error: `${this.title('jira', 'Jira')} isn't running.` };
+          if (!this.running('jira')) { this.post(notRunning, panel); break; }
           let reply;
           try {
             const error = await run('jay.signInWith', { site: str(m.site), email: str(m.email), token: str(m.token) });
             reply = { type: 'jira', error: typeof error === 'string' && error ? error : null };
           } catch (err) {
             this.log(`Get started: jiraForm: ${errorMessage(err)}`);
-            reply = { type: 'jira', error: `${this.title('jira', 'Jira')} isn't running.` };
+            reply = notRunning;
           }
           this.post(reply, panel);
           break;
@@ -269,11 +289,13 @@ class GetStarted {
   }
 
   // With a tools row for teams.signIn.tokenFile, that row signs in in the page; else Teams' own sign-in in the
-  // browser, and the step waits until chirp.signedIn
+  // browser, and the step waits until chirp.signedIn. chirp.signIn resolves quietly when the sign-in doesn't finish
+  // (cancelled, failed, offline, admin approval needed): then the waiting line goes and a short note says so.
   async teamsSignIn() {
     const viaRow = !!this.rowFor('teams');
     if (!viaRow) {
       this.waiting.teams = true;
+      this.notes.teams = '';
       this.refresh();
     }
     try {
@@ -283,6 +305,12 @@ class GetStarted {
       this.refresh();
       throw err;
     }
+    if (viaRow) return;
+    if (!(this.roost.contexts && this.roost.contexts.get('chirp.signedIn') === true)) {
+      this.waiting.teams = false;
+      this.notes.teams = TEAMS_NOT_SIGNED_IN;
+    }
+    this.refresh();
   }
 
   dispose() {

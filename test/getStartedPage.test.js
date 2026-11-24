@@ -126,9 +126,31 @@ for (const edit of [() => { baseUrl.value = 'https://other.example.com'; baseUrl
   assert.strictEqual(gwToken.value, '');
 }
 baseUrl.value = 'https://gw.example.com';
+// the held token goes with the next answer that is an error: Agents isn't running, a gateway verdict, a gateway error
+for (const answer of [{ type: 'agents', error: "Agents (Claude Code and Codex) isn't running." },
+  { type: 'agents', replies: [{ type: 'verdict', way: 'gateway', text: 'Something went wrong there. Try again.', ok: false, canForce: false }] },
+  { type: 'agents', replies: [{ type: 'gatewayError', text: 'The base URL must be an http:// or https:// address.' }] }]) {
+  gwToken.value = 't-3';
+  button(gwSection, 'Check and save').click(); out.pop();
+  host({ type: 'agents', replies: [{ type: 'gatewayVerdict', text: 'The gateway answered oddly.', canForce: true }] });
+  assert.ok(button(gwSection, 'Save anyway'));
+  host(answer);
+  assert.ok(!button(gwSection, 'Save anyway'), 'an error hides Save anyway');
+  // Save anyway offered again without a new check: no token is left to send
+  host({ type: 'agents', replies: [{ type: 'gatewayVerdict', text: 'The gateway answered oddly.', canForce: true }] });
+  button(gwSection, 'Save anyway').click();
+  assert.strictEqual(out.pop().request.token, '', 'the held token was cleared');
+}
+host({ type: 'agents', replies: [] });
 // subscription
 button(c, 'Log In').click();
 assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'subscription' } });
+// the host says the login is waiting at once (Claude's login answers only once it ends), and clears it with the answer
+host({ type: 'state', state: st({ steps: [S('claude', 'Connect Claude', false, 'Signing in to Claude in the terminal…'), S('agents', 'Talk to Claude or Codex'), S('tools', 'Connect your tools'), S('codebase', 'Search your code')] }) });
+assert.strictEqual(c.querySelector('.waiting').textContent, 'Signing in to Claude in the terminal…');
+assert.ok(shown(c.querySelector('.waiting')));
+host({ type: 'state', state: st({ steps: [S('claude', 'Connect Claude'), S('agents', 'Talk to Claude or Codex'), S('tools', 'Connect your tools'), S('codebase', 'Search your code')] }) });
+assert.ok(!shown(c.querySelector('.waiting')));
 // API key
 const apiKey = c.querySelector('input[name=apiKey]');
 assert.strictEqual(apiKey.type, 'password');
@@ -216,6 +238,14 @@ host({ type: 'state', state: st({ teams: { rowId: '' }, steps: [S('teams', 'Sign
 assert.strictEqual([...step('teams').querySelectorAll('.tool')].filter(shown).length, 0);
 button(step('teams'), 'Sign In to Teams').click();
 assert.deepStrictEqual(out.pop(), { type: 'teamsSignIn' });
+// a sign-in that didn't finish: the note in its step, gone with the next state that has none
+assert.ok(!shown(step('teams').querySelector('.note')));
+host({ type: 'state', state: st({ teams: { rowId: '', note: "Teams isn't signed in. Try again, or see the Teams view for why." }, steps: [S('teams', 'Sign in to Teams')] }) });
+assert.ok(shown(step('teams').querySelector('.note')));
+assert.strictEqual(step('teams').querySelector('.note').textContent, "Teams isn't signed in. Try again, or see the Teams view for why.");
+assert.ok(!shown(step('teams').querySelector('.waiting')));
+host({ type: 'state', state: st({ teams: { rowId: '' }, steps: [S('teams', 'Sign in to Teams', false, 'Finish signing in in your browser.')] }) });
+assert.ok(!shown(step('teams').querySelector('.note')));
 // jira: the form, prefilled site
 host({ type: 'state', state: st({ jira: { rowId: '', site: 'https://example.atlassian.net', form: true }, steps: [S('jira', 'Sign in to Jira')] }) });
 const j = step('jira');

@@ -6,7 +6,7 @@
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
 // Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting }], claude: { companyGateway },
-//   github: { logins }, teams: { rowId }, jira: { rowId, site, form }, parts: [{ id, title, on }] }; rows {rows} (the
+//   github: { logins }, teams: { rowId, note }, jira: { rowId, site, form }, parts: [{ id, title, on }] }; rows {rows} (the
 //   tools rows, src/toolsRows.js); agents {replies} (perch.connectClaude.request's replies) or agents {error}; jira
 //   {error} (null once signed in).
 // Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message); github; newTab {kind};
@@ -73,9 +73,16 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       v.tools = ToolsList(v.list, toolPost);
       v.signIn = button('Sign In to Teams', '', () => post({ type: 'teamsSignIn' }));
       v.signInRow = row(v.signIn);
-      v.body.append(v.list, v.signInRow);
+      v.note = el('p', 'muted note'); v.note.hidden = true;   // a sign-in that didn't finish
+      v.body.append(v.list, v.signInRow, v.note);
       v.rows = () => { const id = state && state.teams ? state.teams.rowId : ''; v.tools.show(id ? rows.filter((r) => r.id === id) : []); };
-      v.update = (s) => { v.signInRow.hidden = !!(s.teams && s.teams.rowId); v.rows(); };
+      v.update = (s) => {
+        const t = s.teams || {};
+        v.signInRow.hidden = !!t.rowId;
+        v.note.textContent = typeof t.note === 'string' ? t.note : '';
+        v.note.hidden = !v.note.textContent;
+        v.rows();
+      };
     },
 
     jira(v) {
@@ -146,7 +153,8 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     let connect = {}, gateway = {}, conflictKeys = [], held = '';   // held: the gateway token while Save anyway is offered
     const verdicts = [];
     const verdict = (way) => { const d = el('div', 'verdict'); d.dataset.way = way; verdicts.push(d); return d; };
-    const clearVerdicts = () => { for (const d of verdicts) { d.textContent = ''; d.className = 'verdict'; } v.gwForce.hidden = true; v.bdForce.hidden = true; };
+    // every reply clears the verdicts, and with them Save anyway and the token it would send
+    const clearVerdicts = () => { for (const d of verdicts) { d.textContent = ''; d.className = 'verdict'; } v.gwForce.hidden = true; v.bdForce.hidden = true; held = ''; };
     const way = (id, name, about) => {
       const s = el('section', 'way'); s.dataset.way = id;
       const h = el('h3'); const n = el('span', 'wayName', name); const inUse = el('span', 'inuse', 'in use'); inUse.hidden = true;
@@ -177,8 +185,8 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     v.baseUrl = input('text', 'baseUrl', 'https://llm-gateway.example.com');
     v.gwToken = input('password', 'gatewayToken', 'The gateway\'s token');
     const gwSave = (force) => {
-      clearVerdicts(); v.saved.hidden = true;
       const token = force ? held : v.gwToken.value.trim();
+      clearVerdicts(); v.saved.hidden = true;
       held = force ? '' : token;
       agents({ type: 'gatewaySave', baseUrl: v.baseUrl.value.trim(), token, models: {}, force: !!force });
       v.gwToken.value = '';
@@ -301,12 +309,14 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       } else if (m.type === 'gatewayState') setGateway(m.state);
       else if (m.type === 'gatewayError') { clearVerdicts(); held = ''; gatewayText(m.text, false); v.saved.hidden = true; }
       else if (m.type === 'gatewayVerdict') {
+        const keep = held;   // Save anyway is offered: the token checked is held for it
         clearVerdicts(); gatewayText(m.text, false); v.saved.hidden = true;
         v.gwForce.hidden = !m.canForce || !!companyName();
-        if (v.gwForce.hidden) held = '';
+        held = v.gwForce.hidden ? '' : keep;
       } else if (m.type === 'gatewaySaved') { clearVerdicts(); held = ''; setGateway(m.state); }
     };
-    v.agentsError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; };
+    // an error (Agents isn't running) drops Save anyway and the held token too
+    v.agentsError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; if (text) { held = ''; v.gwForce.hidden = true; } };
     v.update = () => show();
     v.onFirstOpen = () => { agents({ type: 'gatewayReady' }); agents({ type: 'ready' }); };
   }
