@@ -289,7 +289,7 @@ function collabInfo(a) {
   return out;
 }
 
-/** perch.messageSent: a message was sent from a tab in this window (Roost's walkthrough ticks "Talk to Claude" on it). */
+/** perch.messageSent: a message was sent from a tab in this window (Roost's walkthrough ticks "Talk to Claude or Codex" on it). */
 let sentOnce = false;
 function messageSent() {
   if (sentOnce) return;

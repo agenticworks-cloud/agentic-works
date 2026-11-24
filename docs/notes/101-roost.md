@@ -181,7 +181,7 @@ bar closed and, with the activity bar on top, the part icons are then hidden wit
 installer run, 2026-11-24)*. Opened first, the Perch view gave way to Explorer in that run, so it goes last. It runs after the parts have started, is not
 awaited by `activate`, and has no setting. Whatever happens (PRs off or failed, the command failing, which is
 logged to the Roost output channel) `roost.firstStart.done` is then recorded in the base context's `globalState`,
-so it never happens again. The Agents part's own `agents.firstStart.openClaudeTab` (was `perch.…`) stays separate, for installers.
+so it never happens again. The Agents part's own `agents.firstStart.openClaudeTab` (was `perch.…`) stays separate, for installers. It opens the one tab of the agent that can answer *(Sean, 2026-11-24)*: a Claude tab on the gateway when the gateway file is usable (a base URL and a token), else a Claude tab when Claude is signed in (a login or an API key), else a Codex tab when Codex is (its `auth.json`, or an API key), else a Claude tab, which offers the sign-in; placed as before, beside the walkthrough, 70/30. The setting keeps its name (Agents' note 203).
 
 After the PRs tab, the same first start opens Roost's walkthrough, **Get started with Roost**
 (`workbench.action.openWalkthrough`, `seanahn.roost#roost.getStarted`); a failure is logged like the PRs tab's. The
@@ -192,15 +192,17 @@ shown only while its part is switched on and started (`when: config.roost.<id>.e
 
 | Step | Button | Done when |
 |---|---|---|
-| Talk to Claude | Go to the Claude Tab (Agents: Open; the tab first start opened, else a picker) | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: a tab is already open, so no New Claude Tab button)* |
+| Talk to Claude or Codex | Go to the Claude Tab (Agents: Open; the tab first start opened, else a picker), New Codex Tab | a message is sent from any tab (`perch.messageSent`) *(Sean, 2026-11-24: a tab is already open, so no New Claude Tab button; either agent works, and the page says how each signs in)* |
+| Use an LLM gateway (optional) | Set Up a Gateway (Agents: Set Up a Gateway…, a form in an editor tab that writes the gateway file), or Not Now (`roost.gatewayNotNow`, hidden from the palette) | a gateway is saved and usable (`perch.gatewayReady`, which Agents sets at start and on save), or Not Now runs *(Sean, 2026-11-24)*. The agents step has no gateway button, since a walkthrough's text cannot depend on a context key: its page names Agents: New Claude Tab on the Gateway, and the form offers that button once saved |
 | Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
 | Sign in to Teams | Teams: Sign In | Teams is signed in (`chirp.signedIn`) |
 | Connect Jira and Confluence | Connect Jira (Jira: Sign In: opens the Jira view, whose sign-in form asks for the site URL, email and API token, with a Create one link to Atlassian's API tokens page) | Jira is signed in (`jay.signedIn`) *(Sean, 2026-11-24: no input box at the top)* |
 | Sign in to GitHub | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
 | Choose your parts | Roost: Settings | that command runs |
 
-"Done" follows VS Code's own completion events. The Agents and Choose your parts steps are ticked when their command
-runs (`onCommand:`). The three sign-in steps are ticked only once that part is actually signed in (`onContext:`): each
+"Done" follows VS Code's own completion events. The Choose your parts step, and the two optional ones' buttons, are
+ticked when their command runs (`onCommand:`); the agents step when a message is sent, the gateway step when a
+gateway is ready (`onContext:`). The three sign-in steps are ticked only once that part is actually signed in (`onContext:`): each
 part sets its own context key, in its own namespace so it still works as an extension of its own, true when signed
 in and false when signed out or stopped, and sends it only when it changes. chirp sets `chirp.signedIn` when a login
 works and clears it when signed out; jay sets `jay.signedIn` while it runs with a sign-in; kestrel sets

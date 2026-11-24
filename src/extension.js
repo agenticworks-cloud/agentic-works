@@ -275,6 +275,8 @@ function activate(context) {
     await vscode.commands.executeCommand('perch.codebaseIndex.toggle');
   }));
   context.subscriptions.push(vscode.commands.registerCommand('roost.codebaseSearchNotNow', () => {}));
+  // the walkthrough's gateway step, left for now: its completion event; the step is also done once a gateway is saved (perch.gatewayReady)
+  context.subscriptions.push(vscode.commands.registerCommand('roost.gatewayNotNow', () => {}));
   // the walkthrough's first step: the Claude tab first start opened (Agents' own Open: the last tab, or a picker)
   context.subscriptions.push(vscode.commands.registerCommand('roost.goToClaude', () => vscode.commands.executeCommand('perch.open')));
   // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal

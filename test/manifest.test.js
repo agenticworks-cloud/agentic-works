@@ -288,15 +288,20 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   assert.strictEqual(w.id, 'roost.getStarted');
   const when = Object.fromEntries(w.steps.map((s) => [s.id, s.when]));
   assert.deepStrictEqual(when, {
-    agents: 'config.roost.agents.enabled && !roost.agents.failed', codebaseSearch: 'config.roost.agents.enabled && !roost.agents.failed', teams: 'config.roost.teams.enabled && !roost.teams.failed',
+    agents: 'config.roost.agents.enabled && !roost.agents.failed', gateway: 'config.roost.agents.enabled && !roost.agents.failed', codebaseSearch: 'config.roost.agents.enabled && !roost.agents.failed', teams: 'config.roost.teams.enabled && !roost.teams.failed',
     jira: 'config.roost.jira.enabled && !roost.jira.failed', github: 'config.roost.pullRequests.enabled && !roost.pullRequests.failed',
     parts: undefined,
   });
   // a sign-in step is done once its part says it is signed in (a context key it sets), not when its button runs
   const contexts = Object.fromEntries(w.steps.map((s) => [s.id, s.completionEvents.filter((e) => e.startsWith('onContext:'))]));
   assert.deepStrictEqual(contexts, {
-    agents: ['onContext:perch.messageSent'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
+    agents: ['onContext:perch.messageSent'], gateway: ['onContext:perch.gatewayReady'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
   });
+  assert.deepStrictEqual(w.steps.map((st) => st.id), ['agents', 'gateway', 'codebaseSearch', 'teams', 'jira', 'github', 'parts'], 'the gateway step right after the agents step');
+  const buttonsOf = (id) => [...w.steps.find((st) => st.id === id).description.matchAll(/\(command:([\w.]+)\)/g)].map((x) => x[1]);
+  assert.deepStrictEqual(buttonsOf('agents'), ['roost.goToClaude', 'perch.newCodex'], 'either agent');
+  assert.deepStrictEqual(buttonsOf('gateway'), ['perch.setUpGateway', 'roost.gatewayNotNow']);
+  assert.deepStrictEqual(w.steps.find((st) => st.id === 'gateway').completionEvents, ['onContext:perch.gatewayReady', 'onCommand:roost.gatewayNotNow'], 'done when a gateway is saved, or left for now');
   const commands = new Set(m.contributes.commands.map((c) => c.command));
   for (const step of w.steps) {
     assert.ok(fs.existsSync(path.join(root, step.media.markdown)), `${step.id}: ${step.media.markdown} exists`);

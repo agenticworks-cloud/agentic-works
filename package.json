@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -364,6 +364,10 @@
         "title": "Roost: Leave Codebase Search Off"
       },
       {
+        "command": "roost.gatewayNotNow",
+        "title": "Roost: Leave the Gateway for Now"
+      },
+      {
         "command": "roost.goToClaude",
         "title": "Roost: Go to the Claude Tab"
       }
@@ -609,6 +613,10 @@
         {
           "command": "roost.goToClaude",
           "when": "false"
+        },
+        {
+          "command": "roost.gatewayNotNow",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -817,14 +825,27 @@
         "steps": [
           {
             "id": "agents",
-            "title": "Talk to Claude",
-            "description": "Your first Claude tab is open beside this page: type a message there. Codex tabs work the same way.\n[Go to the Claude Tab](command:roost.goToClaude)",
+            "title": "Talk to Claude or Codex",
+            "description": "Your first tab is open beside this page: type a message there. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[Go to the Claude Tab](command:roost.goToClaude)\n[New Codex Tab](command:perch.newCodex)",
             "media": {
               "markdown": "media/walkthrough/agents.md"
             },
             "when": "config.roost.agents.enabled && !roost.agents.failed",
             "completionEvents": [
               "onContext:perch.messageSent"
+            ]
+          },
+          {
+            "id": "gateway",
+            "title": "Use an LLM gateway (optional)",
+            "description": "Run Claude tabs through an Anthropic-compatible endpoint, such as a company's LLM proxy. Claude Code's own settings stay as they are.\n[Set Up a Gateway](command:perch.setUpGateway)\n[Not Now](command:roost.gatewayNotNow)",
+            "media": {
+              "markdown": "media/walkthrough/gateway.md"
+            },
+            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "completionEvents": [
+              "onContext:perch.gatewayReady",
+              "onCommand:roost.gatewayNotNow"
             ]
           },
           {
