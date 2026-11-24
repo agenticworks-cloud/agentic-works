@@ -13,6 +13,7 @@ const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
 const FIRST_START_KEY = 'roost.firstStart.done';
 const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
+const AGENTS_VIEW_COMMAND = 'workbench.view.extension.perch';  // Perch's activity-bar container id: opens the side bar on it
 const WALKTHROUGH = 'seanahn.roost#roost.getStarted';            // roost.contributes.json's walkthrough
 const openWalkthrough = () => vscode.commands.executeCommand('workbench.action.openWalkthrough', WALKTHROUGH, false);
 // The Agents part was called perch in 0.1.0: while roost.agents.enabled is set nowhere, a roost.perch.enabled the
@@ -209,23 +210,23 @@ class Roost {
     await Promise.allSettled([...keys, ...starts]);
   }
 
-  // Roost's very first activation: once the parts have started, the bottom panel opens on the PRs tab (it is closed
-  // on a fresh profile) and the Get started walkthrough opens, then roost.firstStart.done is recorded, whatever
-  // happened: a PRs part that is off or failed, or a command that fails, is not retried later.
+  // Roost's very first activation: once the parts have started, the side bar opens on Perch's view (a fresh window
+  // may have it closed, and with the activity bar on top its icons go with it), the bottom panel on the PRs tab (closed
+  // on a fresh profile), and last the Get started walkthrough, in the editor. Then roost.firstStart.done is recorded,
+  // whatever happened: a part that is off or failed, or a command that fails, is not retried later.
   async firstStart() {
     if (this.base.globalState.get(FIRST_START_KEY)) return;
-    if (this.parts.has('pullRequests') && this.state('pullRequests') === 'on') {
+    const open = async (what, run) => {
       try {
-        await vscode.commands.executeCommand(PRS_VIEW_COMMAND);
+        await run();
       } catch (err) {
-        this.log(`Roost could not open the PRs tab on its first start: ${errorText(err)}`);
+        this.log(`Roost could not open ${what} on its first start: ${errorText(err)}`);
       }
-    }
-    try {
-      await openWalkthrough();
-    } catch (err) {
-      this.log(`Roost could not open its walkthrough on its first start: ${errorText(err)}`);
-    }
+    };
+    const on = (id) => this.parts.has(id) && this.state(id) === 'on';
+    if (on('agents')) await open('the Perch view', () => vscode.commands.executeCommand(AGENTS_VIEW_COMMAND));
+    if (on('pullRequests')) await open('the PRs tab', () => vscode.commands.executeCommand(PRS_VIEW_COMMAND));
+    await open('its walkthrough', openWalkthrough);
     try {
       await this.base.globalState.update(FIRST_START_KEY, true);
     } catch (err) {

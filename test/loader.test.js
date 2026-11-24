@@ -525,8 +525,12 @@ function firstStartSetup(config) {
   env.store = store;
   env.opened = [];
   env.ui.commands['workbench.view.extension.kestrel'] = () => { env.opened.push(1); };
+  env.order = [];
+  env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
+  const prs = env.ui.commands['workbench.view.extension.kestrel'];
+  env.ui.commands['workbench.view.extension.kestrel'] = () => { env.order.push('prs'); prs(); };
   env.walkthroughs = [];
-  env.ui.commands['workbench.action.openWalkthrough'] = (...a) => { env.walkthroughs.push(a); };
+  env.ui.commands['workbench.action.openWalkthrough'] = (...a) => { env.order.push('walkthrough'); env.walkthroughs.push(a); };
   return env;
 }
 async function activateFirst(env) {
@@ -567,6 +571,24 @@ test('first start: a failing command is logged and still recorded', async () => 
   await env.extension.deactivate();
 });
 
+test('first start: the Perch view, then the PRs tab, then the walkthrough in the editor; Perch only while Agents is on', async () => {
+  let env = firstStartSetup({});
+  await activateFirst(env);
+  assert.deepStrictEqual(env.order, ['perch', 'prs', 'walkthrough']);
+  await env.extension.deactivate();
+  env = firstStartSetup({ 'roost.agents.enabled': false });
+  await activateFirst(env);
+  assert.deepStrictEqual(env.order, ['prs', 'walkthrough']);
+  await env.extension.deactivate();
+  env = firstStartSetup({});
+  env.ui.commands['workbench.view.extension.perch'] = () => { throw new Error('no perch'); };
+  await activateFirst(env);
+  assert.ok(env.ui.out.some((l) => l.includes('Perch view') && l.includes('no perch')));
+  assert.deepStrictEqual(env.order, ['prs', 'walkthrough'], 'the rest still opens');
+  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  await env.extension.deactivate();
+});
+
 test('first start: a walkthrough that fails to open is logged and still recorded', async () => {
   const env = firstStartSetup({});
   env.ui.commands['workbench.action.openWalkthrough'] = () => { throw new Error('no walkthrough'); };
@@ -579,7 +601,7 @@ test('first start: a walkthrough that fails to open is logged and still recorded
 
 test('Roost: Get Started opens the walkthrough; Roost: Sign In to GitHub runs gh auth login in a terminal', async () => {
   const { ui, extension, base } = setup({});
-  await activate(extension, base);
+  await (await activate(extension, base)).firstStarted;   // its own walkthrough call done first
   const opened = [];
   ui.commands['workbench.action.openWalkthrough'] = (...a) => opened.push(a);
   await ui.vscode.commands.executeCommand('roost.getStarted');
