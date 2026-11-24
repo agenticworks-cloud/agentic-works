@@ -103,6 +103,10 @@
         "icon": "$(add)"
       },
       {
+        "command": "perch.setUpGateway",
+        "title": "Agents: Set Up a Gateway…"
+      },
+      {
         "command": "perch.newCodex",
         "title": "Agents: New Codex Tab",
         "icon": "$(add)"
@@ -392,6 +396,10 @@
         },
         {
           "command": "perch.newClaudeGateway",
+          "when": "config.roost.agents.enabled && !roost.agents.failed"
+        },
+        {
+          "command": "perch.setUpGateway",
           "when": "config.roost.agents.enabled && !roost.agents.failed"
         },
         {
@@ -965,7 +973,7 @@
           "agents.claude.gatewayEnv": {
             "type": "string",
             "default": "~/.config/gateway-claude/env",
-            "description": "A file describing a gateway Claude Code can be run through: export KEY=VALUE lines, as a shell reads them, with ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY, and any model names. A Claude tab opened on the gateway runs with these added to its environment; nothing is written to Claude Code's settings. When the file exists, + offers a tab on the gateway."
+            "description": "A file describing a gateway Claude Code can be run through: export KEY=VALUE lines, as a shell reads them, with ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY, and any model names. A Claude tab opened on the gateway runs with these added to its environment; nothing is written to Claude Code's settings. When the file exists, + offers a tab on the gateway. Agents: Set Up a Gateway… fills it in from a form."
           },
           "agents.claude.defaultBackend": {
             "type": "string",
