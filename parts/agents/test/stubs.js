@@ -106,7 +106,9 @@ class FakeAgent {
 }
 
 // commandAnswers: what other extensions' commands answer, by id, from activation on (ui.commandAnswers, which a test may change)
-function install(state, { extensions, config, catalogs, meter, globals, voice, audio, remote, past, workspaceFolders, codeIndex, commandAnswers } = {}) {
+function install(state, { extensions, config, catalogs, meter, globals, voice, audio, remote, past, workspaceFolders, codeIndex, commandAnswers, company } = {}) {
+  // the company file (src/company.js): a test's own, else none, so the developer's own company.json never reaches the tests
+  process.env.ROOST_COMPANY_FILE = company || '/nonexistent/perch-test/company.json';
   // the agents' own records of past sessions: what they list, and every name written to them
   const store = Object.assign({ sessions: [], failed: [], renamed: [], deleted: [], failDelete: null, lists: [], failRename: null, transcripts: {}, loads: [], claudeUsage: {} }, past);
   store.sessions = store.sessions.map((x) => Object.assign({}, x));   // each install has records of its own

@@ -326,7 +326,8 @@ function checkForm({ baseUrl, token, keepToken } = {}) {
  * The directory is made for its owner only, and the file is left readable by its owner only, since it holds the token.
  * An empty token keeps the one the file has.
  * @param {string} file
- * @param {{ baseUrl: string, token?: string, models?: Record<string,string> }} form
+ * A company's `env` (company.json's gateway.env) is written the same way as the model names, as `export K=V` lines.
+ * @param {{ baseUrl: string, token?: string, models?: Record<string,string>, env?: Record<string,string> }} form
  * @returns {{ file: string, exists: boolean, ok: boolean, error: string|null, vars: Record<string,string> }} the file read back
  */
 function saveGateway(file, form) {
@@ -340,11 +341,34 @@ function saveGateway(file, form) {
   const values = { [URL_VAR]: String(f.baseUrl).trim() };
   if (token) values[tokenVar(vars)] = token;
   for (const k of MODEL_VARS) if (f.models && typeof f.models[k] === 'string') values[k] = f.models[k];
+  for (const [k, v] of Object.entries(f.env || {})) if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && typeof v === 'string') values[k] = v;
   const out = updateEnvText(text, values);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, out, { mode: 0o600 });
   if (process.platform !== 'win32') fs.chmodSync(file, 0o600);   // an existing file keeps its mode through a write
   return readGateway(file);
+}
+
+/**
+ * A secret in a file of its own: `value` and a newline, the file for its owner only (0600, set again after the write,
+ * since an existing file keeps its mode through one), and its directory made for its owner only (0700) when it is not
+ * there. A directory that is there already is left as it is.
+ */
+function writeSecretFile(file, value) {
+  const dir = path.dirname(file);
+  const made = fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (made && process.platform !== 'win32') fs.chmodSync(dir, 0o700);   // the umask may have taken from it
+  fs.writeFileSync(file, String(value) + '\n', { mode: 0o600 });
+  if (process.platform !== 'win32') fs.chmodSync(file, 0o600);
+}
+
+/** The key, trimmed, into each of a company's keyFiles (other tools of the company read it there). @returns {string[]} the paths written */
+function saveKeyFiles(files, key) {
+  const k = String(key || '').trim();
+  if (!k) throw new Error('A key is needed.');
+  const written = [];
+  for (const f of Array.isArray(files) ? files : []) { writeSecretFile(f, k); written.push(f); }
+  return written;
 }
 
 /** What the form is shown of the file: everything but the token, of which only whether there is one. */
@@ -355,4 +379,4 @@ function formState(gw) {
   return { file: gw ? gw.file : '', exists: !!(gw && gw.exists), ok: !!(gw && gw.ok), baseUrl: v[URL_VAR] || '', tokenSet: TOKEN_VARS.some((k) => v[k]), models };
 }
 
-module.exports = { MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };
+module.exports = { writeSecretFile, saveKeyFiles, MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };

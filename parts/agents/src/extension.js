@@ -12,6 +12,8 @@ const { CodeIndex } = require('./codeIndex');
 const { resolveProgram, sdkCodex, sdkClaude, terminalRun } = require('./binaries');
 const codexAuth = require('./codexAuth');
 const Gateway = require('./gateway');
+const { checkKey } = require('./gatewayCheck');
+const { companyFile, readCompany } = require('./company');
 const { chooseFirstTab } = require('./firstTab');
 const Prices = require('./prices');
 const { shortModel } = require('./relay');
@@ -691,6 +693,9 @@ class Session {
         if (back) this.view.deliver(this.id, back);
         return;
       }
+      case 'gatewayResolved':        // the process found which of a company's addresses answers: for the host's listeners, not the page
+        for (const f of this.view.onGatewayResolved) { try { f(ev.baseUrl); } catch (e) { this.view.trace(`gateway resolved: ${(e && e.message) || e}`); } }
+        return;
       case 'relay':                  // one response through the gateway: which model it came from, and what the gateway charged, for this turn
         if (typeof ev.cost === 'number' && Number.isFinite(ev.cost)) this.viaCost = (this.viaCost || 0) + ev.cost;
         if (typeof ev.keySpend === 'number') this.keySpend = ev.keySpend;
@@ -796,6 +801,7 @@ class Session {
       // fixed for the life of the agent process: a process cannot change how it authenticated
       this.backend = this.gateway ? 'gateway' : this.own || (this.view.meter ? this.view.meter.backend() : '');
       const gw = this.gateway ? this.view.gateway() : null;
+      const companyGw = gw ? this.view.companyGateway() : null;
       if (gw) this.view.prices.load();   // the list prices a streamed response is priced at, for the turn's figure
       const pinned = !gw && !!this.view.pinnedGatewayUrl();   // the machine pins a gateway for all Claude Code; a non-gateway tab must escape it
       const launchCat = this.catalog();
@@ -815,7 +821,9 @@ class Session {
         executable: prog.path || undefined,
         costBefore: this.costSoFar === null ? undefined : this.costSoFar,
         env: gw ? Gateway.gatewayEnv(gw.vars) : undefined,
-        gateway: gw ? { target: gw.vars.ANTHROPIC_BASE_URL } : undefined,   // through the relay, which sees which model answers
+        // through the relay, which sees which model answers; to the first of a company's addresses that answers as the
+        // process starts (claudeAgent.resolveGatewayTarget), else to the file's
+        gateway: gw ? { target: gw.vars.ANTHROPIC_BASE_URL, candidates: companyGw ? companyGw.baseUrls.slice() : [], key: Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '' } : undefined,
         offGateway: pinned && this.backend ? { bedrock: this.backend !== 'subscription' } : undefined,   // take a sub/API tab off the pinned gateway
         backend: !gw && !pinned && this.own ? { bedrock: this.own === 'api' } : undefined,   // a backend of the tab's own, as its process's settings, whatever the window's switch says
         askPermission: (req) => new Promise((resolve) => this.pending.set(req.id, resolve)),
@@ -1211,6 +1219,8 @@ class PerchView {
     this.meter = new MeterHost(context, (state, why, codex) => this.onMeter(state, why, codex), { program: () => program('claude') });
     // list prices for a gateway's models, in the extension's own storage: read when a tab goes through the gateway
     this.prices = Prices.createPrices({ file: require('path').join((context.globalStorageUri && context.globalStorageUri.fsPath) || require('path').join(require('os').tmpdir(), 'perch'), 'litellm-prices.json') });
+    this.onGatewaySaved = new Set();      // (gw) => void: told after each save of the gateway form, with the file read back
+    this.onGatewayResolved = new Set();   // (baseUrl) => void: told the address a tab's start found answering, of a company's gateway
     this.root = (context.extensionUri && (context.extensionUri.fsPath || context.extensionUri.path)) || context.extensionPath || require('path').join(__dirname, '..');
     this.voice = new VoiceHost({
       root: this.root,
@@ -1482,6 +1492,16 @@ class PerchView {
     return Object.assign({}, b, { defaultModel: (d && d.slug) || '' });
   }
 
+  /** The company file (company.json, src/company.js), read on each call: an installer may write it at any time. */
+  company() { return readCompany(companyFile()); }
+  /** The company's gateway, or null: no company file, an invalid one, or one that names no gateway. */
+  companyGateway() { const c = this.company(); return (c.ok && c.company.gateway) || null; }
+  /** What the gateway form is shown: the file as formState has it, and the company's gateway, if any, with the address saved. */
+  gatewayFormState(gw) {
+    const cg = this.companyGateway();
+    return Object.assign(Gateway.formState(gw), { preset: cg ? { name: cg.name, keyPage: cg.keyPage, baseUrl: (gw && gw.vars.ANTHROPIC_BASE_URL) || '' } : null });
+  }
+
   /** Where the gateway's file is, by the setting or the default. */
   gatewayPath() { return Gateway.gatewayFile(cfg('claude.gatewayEnv')); }
   /** The gateway as its file describes it now. Read each time: the file is small, and the user may be editing it. */
@@ -1542,22 +1562,56 @@ class PerchView {
     const post = (m) => { Promise.resolve(panel.webview.postMessage(m)).catch(() => { /* the page is gone */ }); };
     panel.webview.onDidReceiveMessage((msg) => {
       if (!msg || typeof msg !== 'object') return;
-      if (msg.type === 'ready') post({ type: 'state', state: Gateway.formState(this.gateway()) });
+      if (msg.type === 'ready') post({ type: 'state', state: this.gatewayFormState(this.gateway()) });
       else if (msg.type === 'openFile') this.openGatewayFile();
       else if (msg.type === 'newTab') Promise.resolve(vscode.commands.executeCommand('perch.newClaudeGateway')).catch((e) => this.trace(`gateway form: ${(e && e.message) || e}`));
-      else if (msg.type === 'save') {
-        const models = {};
-        for (const k of Gateway.MODEL_VARS) if (msg.models && typeof msg.models[k] === 'string') models[k] = msg.models[k];
-        let gw;
-        try { gw = Gateway.saveGateway(this.gatewayPath(), { baseUrl: String(msg.baseUrl || ''), token: String(msg.token || ''), models }); }
-        catch (e) { post({ type: 'error', text: (e && e.message) || String(e) }); return; }
-        this.syncGatewayContext();
-        this.sendTabs();   // the tabs' footers and menus learn of the gateway now
-        post({ type: 'saved', state: Gateway.formState(gw) });
-      }
+      else if (msg.type === 'getKey') {
+        const cg = this.companyGateway();
+        if (cg) Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(cg.keyPage))).catch((e) => this.trace(`gateway form: ${(e && e.message) || e}`));
+      } else if (msg.type === 'save') this.saveGatewayForm(msg, post).catch((e) => post({ type: 'error', text: (e && e.message) || String(e) }));
     });
     panel.onDidDispose(() => { if (this.gatewayPanel === panel) this.gatewayPanel = null; });
     return panel;
+  }
+
+  /**
+   * The gateway form's Check and save. The key (the one typed, trimmed, or the one the file has when none is) is checked
+   * with the gateway (GET /v1/models) before anything is written. A company's gateway: its addresses, in order, and
+   * only a key that works is saved, with the address that answered, the company's env, and the key in each of its
+   * keyFiles. Otherwise the typed base URL; on an unexpected answer only, Save anyway (force) saves unchecked.
+   * Neither the key nor anything holding it goes to the page or the output channel.
+   */
+  async saveGatewayForm(msg, post) {
+    const file = this.gatewayPath(), before = this.gateway();
+    const typed = String(msg.token || '').trim();
+    const key = typed || Gateway.TOKEN_VARS.map((k) => before.vars[k]).find(Boolean) || '';
+    const cg = this.companyGateway();
+    let form, check = null;
+    if (cg) {
+      if (!key) { post({ type: 'error', text: 'A key is needed.' }); return; }
+      check = await checkKey({ baseUrls: cg.baseUrls, key, requiredModel: cg.requiredModel, name: cg.name, style: 'gateway' });
+      if (check.verdict !== 'works') { post({ type: 'verdict', text: check.text, canForce: false }); return; }
+      form = { baseUrl: check.baseUrl, token: typed, env: cg.env };
+    } else {
+      const models = {};
+      for (const k of Gateway.MODEL_VARS) if (msg.models && typeof msg.models[k] === 'string') models[k] = msg.models[k];
+      form = { baseUrl: String(msg.baseUrl || '').trim(), token: typed, models };
+      const wrong = Gateway.checkForm({ baseUrl: form.baseUrl, token: typed, keepToken: !!key });
+      if (wrong) { post({ type: 'error', text: wrong }); return; }
+      if (!msg.force) {
+        check = await checkKey({ baseUrls: [form.baseUrl], key, style: 'gateway' });
+        if (check.verdict !== 'works') { post({ type: 'verdict', text: check.text, canForce: check.verdict === 'unexpected' }); return; }
+      }
+    }
+    let gw;
+    try {
+      gw = Gateway.saveGateway(file, form);
+      if (cg) Gateway.saveKeyFiles(cg.keyFiles, key);
+    } catch (e) { post({ type: 'error', text: (e && e.message) || String(e) }); return; }
+    this.syncGatewayContext();
+    this.sendTabs();   // the tabs' footers and menus learn of the gateway now
+    post(Object.assign({ type: 'saved', state: this.gatewayFormState(gw) }, check ? { answeredAt: check.baseUrl } : {}));
+    for (const f of this.onGatewaySaved) { try { f(gw); } catch (e) { this.trace(`gateway saved: ${(e && e.message) || e}`); } }
   }
 
   /** The gateway's file, made from the template when there is none, so there is something to fill in. Owner-readable only. */

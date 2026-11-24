@@ -221,5 +221,26 @@ try {
   assert(!JSON.stringify(st).includes('sk-1'), 'the token is not in it');
   assert.deepStrictEqual(G.formState(G.readGateway(path.join(tmp, 'none'))).tokenSet, false);
 
+  // ---- a company's env, written as export lines like the model names
+  const withEnv = path.join(tmp, 'company-env');
+  got = G.saveGateway(withEnv, { baseUrl: 'https://gw.example.com/llm-api', token: 'k', env: { ANTHROPIC_MODEL: 'router-auto', EXTRA: 'a b' } });
+  assert.deepStrictEqual([got.ok, got.vars.ANTHROPIC_MODEL, got.vars.EXTRA, got.vars.ANTHROPIC_AUTH_TOKEN], [true, 'router-auto', 'a b', 'k']);
+  assert(/^export EXTRA='a b'$/m.test(fs.readFileSync(withEnv, 'utf8')), 'quoted as a shell reads it');
+
+  // ---- keyFiles: the key alone, for its owner only, in a directory for its owner only
+  const keyFile = path.join(tmp, 'x', 'token');
+  assert.deepStrictEqual(G.saveKeyFiles([keyFile], 'k'), [keyFile], 'the paths written');
+  assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'k\n');
+  if (process.platform !== 'win32') {
+    assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600);
+    assert.strictEqual(fs.statSync(path.dirname(keyFile)).mode & 0o777, 0o700);
+  }
+  fs.chmodSync(keyFile, 0o644);
+  G.writeSecretFile(keyFile, 'k2');
+  assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'k2\n');
+  if (process.platform !== 'win32') assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600, 'an existing file is put back to 0600');
+  assert.deepStrictEqual(G.saveKeyFiles([], 'k'), []);
+  G.saveKeyFiles([keyFile], ' k3\n'); assert.strictEqual(fs.readFileSync(keyFile, 'utf8'), 'k3\n', 'the key trimmed');
+
   console.log('gateway tests passed');
 } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
