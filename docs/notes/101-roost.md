@@ -531,6 +531,49 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - Also found: the installer adds Homebrew's `brew shellenv` to the login profile only when VS Code came from
     Homebrew; it should whenever Homebrew was used (`gh` from Homebrew is otherwise not on new terminals' PATH, nor
     VS Code's, on a Mac whose profile lacks it).
+  - **Settled while planning 0.4** *(my calls, 2026-11-24; plan `docs/superpowers/plans/2026-11-24-roost-0.4-company.md`)*:
+    - *Company file.* `ROOST_COMPANY_FILE` overrides the path. Any error makes the whole file invalid (the note names
+      the path, `mcpServers[1].connect.kind: …`); unknown keys are ignored; `~` expands in key files, commands and
+      `doneWhen` files; `${token}` is allowed only in a `tokenPage` server's `register`. `check` and `doneWhen` sit
+      inside `connect`. A second context key, `roost.companyTools`, gates *Connect your tools*. The Agents part reads
+      the file through its own copy of `src/company.js` (a part never requires Roost's `src/`), checked identical.
+    - *Key check.* A probe or check waits 3 s per address at a tab start, 10 s in a form. A 401/403 from the first
+      address is final. `requiredModel` matches with a leading `anthropic/` ignored. Without a company gateway the
+      form checks too, and only on an *unexpected answer* (a gateway with no `/v1/models`) offers **Save anyway**.
+      At a tab start with no address answering, the tab uses the gateway file's address, with no note.
+    - *Terminal `claude`* is written only when a connection is saved, so `apiKeyHelper` never points at a key that
+      doesn't exist yet (the first *Open* above). The launcher is written at `~/.local/bin/claude` only when that path
+      is free or already Roost's (Claude Code's own installer uses the same path); otherwise `settings.json` gets the
+      address that answered, and the panel says so. The launcher caches its pick for 5 minutes, probes with `curl -m 3`,
+      and finds the real `claude` on the PATH, else in the newest Claude Code extension. `settings.json` must not then
+      carry `ANTHROPIC_BASE_URL` (Claude Code applies it over the launcher's environment), so the gateway way removes
+      it, asking first if it is the user's. The key file for `apiKeyHelper` is `keyFiles[0]`, else
+      `~/.config/roost/gateway-key`. Roost records what it wrote: a later choice removes Roost's own values and treats
+      any other value as the user's (shown, masked when its name says token, key or secret, and replaced only on
+      **Replace**). A settings file that isn't a plain JSON object is never rewritten. Agents treats any `apiKeyHelper`
+      in `settings.json` as a pinned machine (non-gateway tabs then take it off).
+    - *Connect Claude* is an Agents panel (`perch.connectClaude`); its gateway way opens the gateway form. The choice is
+      recorded (`perch.claude.connection`) and new Claude tabs follow it until a tab's footer picks a backend. The
+      Anthropic API key lives in `~/.config/roost/anthropic-key` and reaches a tab as `ANTHROPIC_API_KEY` (a third
+      tab backend, `apiKey`; the footer's menu is unchanged). Bedrock is checked with the AWS CLI
+      (`aws bedrock list-foundation-models --by-provider anthropic`); without the CLI it offers **Save anyway**; an
+      expired SSO sign-in names `aws sso login`. With nothing recorded, the step counts as done when a gateway is ready
+      or Claude can already run.
+    - *Connect your tools* lives in Roost's `src/`, not a part. Registration writes `~/.claude.json`'s `mcpServers`
+      directly (re-read just before, atomic), rather than running `claude mcp add`, so a token is never in argv; a
+      different entry of the same name is replaced only on **Replace**. `tokenPage` tokens are kept in
+      `~/.config/roost/tokens/<id>`. With no `check`, a row is connected when its `doneWhen` file exists (`none`:
+      always). `mcpTool` uses one server process for both calls (60 s, then 15 minutes for `complete`); the code and
+      link are picked from the tool's text. Checks run when the panel opens and after a sign-in, not at start (VS
+      Code keeps a ticked step).
+    - *Teams and Jira buttons* find their tools row by file: the row whose `doneWhen` file is the part's
+      `signIn.tokenFile`.
+    - *Order:* Connect Claude, Talk to Claude or Codex, Connect your tools, Search your code, Teams, Jira, GitHub,
+      Choose your parts. `roost.gatewayNotNow` becomes `roost.connectClaudeNotNow`.
+    - *Installer:* git is checked without running Apple's `/usr/bin/git` shim when the Command Line Tools are missing;
+      on a Mac without Homebrew it runs `xcode-select --install` and waits up to 10 minutes. "Homebrew was used" means
+      this run installed something with it, or `code`, `gh` or `git` comes from it; its shellenv goes in a block of
+      its own, step `homebrew`, with no line when Homebrew wasn't used.
 
 ## Left to the builder
 
