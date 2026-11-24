@@ -371,6 +371,20 @@ function saveKeyFiles(files, key) {
   return written;
 }
 
+/**
+ * A base URL as compared with another: the host in lower case (URL does that), and no trailing slash. '' for one that
+ * does not parse.
+ */
+function normalBaseUrl(u) {
+  try { return new URL(String(u || '').trim()).href.replace(/\/+$/, ''); } catch (_) { return ''; }
+}
+
+/** Whether `url` is one of `baseUrls`, compared as normalBaseUrl has them. */
+function isOneOf(url, baseUrls) {
+  const n = normalBaseUrl(url);
+  return !!n && (Array.isArray(baseUrls) ? baseUrls : []).some((b) => normalBaseUrl(b) === n);
+}
+
 /** What the form is shown of the file: everything but the token, of which only whether there is one. */
 function formState(gw) {
   const v = (gw && gw.vars) || {};
@@ -379,4 +393,4 @@ function formState(gw) {
   return { file: gw ? gw.file : '', exists: !!(gw && gw.exists), ok: !!(gw && gw.ok), baseUrl: v[URL_VAR] || '', tokenSet: TOKEN_VARS.some((k) => v[k]), models };
 }
 
-module.exports = { writeSecretFile, saveKeyFiles, MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };
+module.exports = { normalBaseUrl, isOneOf, writeSecretFile, saveKeyFiles, MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };

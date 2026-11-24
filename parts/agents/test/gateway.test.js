@@ -227,6 +227,13 @@ try {
   assert.deepStrictEqual([got.ok, got.vars.ANTHROPIC_MODEL, got.vars.EXTRA, got.vars.ANTHROPIC_AUTH_TOKEN], [true, 'router-auto', 'a b', 'k']);
   assert(/^export EXTRA='a b'$/m.test(fs.readFileSync(withEnv, 'utf8')), 'quoted as a shell reads it');
 
+  // ---- base URLs compared: the host's case and a trailing slash do not count; the path does
+  assert.strictEqual(G.isOneOf('https://GW.Example.com/llm-api/', ['https://a.example.com', 'https://gw.example.com/llm-api']), true);
+  assert.strictEqual(G.isOneOf('https://gw.example.com/other', ['https://gw.example.com/llm-api']), false);
+  assert.strictEqual(G.isOneOf('https://other.example.com', ['https://gw.example.com']), false);
+  assert.strictEqual(G.isOneOf('', ['https://gw.example.com']), false);
+  assert.strictEqual(G.isOneOf('not a url', ['not a url']), false);
+
   // ---- keyFiles: the key alone, for its owner only, in a directory for its owner only
   const keyFile = path.join(tmp, 'x', 'token');
   assert.deepStrictEqual(G.saveKeyFiles([keyFile], 'k'), [keyFile], 'the paths written');

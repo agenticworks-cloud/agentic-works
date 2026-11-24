@@ -801,7 +801,10 @@ class Session {
       // fixed for the life of the agent process: a process cannot change how it authenticated
       this.backend = this.gateway ? 'gateway' : this.own || (this.view.meter ? this.view.meter.backend() : '');
       const gw = this.gateway ? this.view.gateway() : null;
+      // the company's addresses are re-checked only when the file names one of them: the file's token is sent to each, and
+      // a gateway of another's must not have it sent to the company's hosts
       const companyGw = gw ? this.view.companyGateway() : null;
+      const candidates = companyGw && Gateway.isOneOf(gw.vars.ANTHROPIC_BASE_URL, companyGw.baseUrls) ? companyGw.baseUrls.slice() : [];
       if (gw) this.view.prices.load();   // the list prices a streamed response is priced at, for the turn's figure
       const pinned = !gw && !!this.view.pinnedGatewayUrl();   // the machine pins a gateway for all Claude Code; a non-gateway tab must escape it
       const launchCat = this.catalog();
@@ -821,9 +824,9 @@ class Session {
         executable: prog.path || undefined,
         costBefore: this.costSoFar === null ? undefined : this.costSoFar,
         env: gw ? Gateway.gatewayEnv(gw.vars) : undefined,
-        // through the relay, which sees which model answers; to the first of a company's addresses that answers as the
-        // process starts (claudeAgent.resolveGatewayTarget), else to the file's
-        gateway: gw ? { target: gw.vars.ANTHROPIC_BASE_URL, candidates: companyGw ? companyGw.baseUrls.slice() : [], key: Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '' } : undefined,
+        // through the relay, which sees which model answers; to the first of the company's addresses that answers as the
+        // process starts (claudeAgent.resolveGatewayTarget), when the file names one of them, else to the file's
+        gateway: gw ? { target: gw.vars.ANTHROPIC_BASE_URL, candidates, key: Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '' } : undefined,
         offGateway: pinned && this.backend ? { bedrock: this.backend !== 'subscription' } : undefined,   // take a sub/API tab off the pinned gateway
         backend: !gw && !pinned && this.own ? { bedrock: this.own === 'api' } : undefined,   // a backend of the tab's own, as its process's settings, whatever the window's switch says
         askPermission: (req) => new Promise((resolve) => this.pending.set(req.id, resolve)),

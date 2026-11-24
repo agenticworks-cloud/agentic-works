@@ -1942,6 +1942,29 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       created[n0].emit({ kind: 'gatewayResolved', baseUrl: PRIVATE });
       assert.deepStrictEqual(resolved, [PRIVATE]);
       assert(!v.events(sid).some((e) => e.kind === 'gatewayResolved'), 'nothing for the page');
+      // the file holds a company address (written another way: its host in capitals, a trailing slash): probed, and switched
+      // to the one that answers, as the real agent would with these options
+      const { resolveGatewayTarget } = require('../src/claudeAgent.js');
+      const tabOn = async (base) => {
+        fs.writeFileSync(file, `export ANTHROPIC_BASE_URL=${base}\nexport ANTHROPIC_AUTH_TOKEN=sk-good\n`);
+        v.fire({ type: 'new', kind: 'claude' }); const t = v.lastTabs().active;
+        v.fire({ type: 'setBackend', sid: t, value: 'gateway' });
+        const before = created.length; v.fire({ type: 'send', sid: t, text: 'hello' });
+        return created[before].o.gateway;
+      };
+      const PUBLIC_ODD = 'https://PUBLIC.example.com/llm-api/';
+      let o = await tabOn(PUBLIC_ODD);
+      assert.deepStrictEqual(o, { target: PUBLIC_ODD, candidates: [PRIVATE, PUBLIC], key: 'sk-good' }, 'a company address: its addresses go with the tab');
+      asked.length = 0;
+      assert.strictEqual(await resolveGatewayTarget(o, { fetch: globalThis.fetch }), PUBLIC, 'probed, and switched to the one that answers');
+      assert.deepStrictEqual(asked, [PRIVATE + '/v1/models', PUBLIC + '/v1/models']);
+      // the file holds another gateway: the company's hosts are never sent its token, and the file's address is used
+      const OTHER = 'https://other.example.com/llm-api';
+      o = await tabOn(OTHER);
+      assert.deepStrictEqual(o, { target: OTHER, candidates: [], key: 'sk-good' }, 'another gateway: no candidates');
+      asked.length = 0;
+      assert.strictEqual(await resolveGatewayTarget(o, { fetch: globalThis.fetch }), OTHER, 'the file\'s address');
+      assert.deepStrictEqual(asked, [], 'no probe');
       c.perch.dispose();
     } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
   }
