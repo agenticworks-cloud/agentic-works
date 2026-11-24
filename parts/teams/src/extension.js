@@ -2,7 +2,7 @@
 // chirp: Microsoft Teams in VS Code. Wires sign-in (design 201), Graph, the pollers, the sidebar and the conversation tabs.
 const vscode = require('vscode');
 const fs = require('fs'); const os = require('os'); const path = require('path');
-const { createAuth, createTokenFileAuth, CHIRP_CLIENT_ID, SignInNeeded, Offline, SignInCancelled, SignInFailed } = require('./auth');
+const { createAuth, createTokenFileAuth, CHIRP_CLIENT_ID, signInApp, adminConsentLink, clientIdProblem, tenantProblem, SignInNeeded, Offline, SignInCancelled, SignInFailed } = require('./auth');
 const { createEditorAuth } = require('./editorAuth');
 const { createDeviceCodeAuth } = require('./deviceCode');
 const { createGraph } = require('./graph');
@@ -29,7 +29,9 @@ const TEAMS_MS = 1800000;
 const MENTIONS_MS = 60000;
 const OFFLINE = 'Offline, retrying';
 const chatKey = (id) => 'chat:' + id;
-const adminLink = (clientId) => `https://login.microsoftonline.com/organizations/adminconsent?client_id=${clientId}`;
+// a sign-in that ended this way may have met Microsoft's "Need admin approval" page, which chirp can't see on either path
+const HINT_KINDS = new Set(['declined', 'expired', 'consent']);
+const SIGN_IN_KEYS = ['method', 'tokenFile', 'clientId', 'tenant'];
 const expandHome = (p) => (p && p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p);
 
 let current = null;
@@ -47,7 +49,7 @@ function activate(context, deps = {}) {
   const watchFile = deps.watchFile || fs.watchFile, unwatchFile = deps.unwatchFile || fs.unwatchFile;
   const setIntervalFn = deps.setInterval || setInterval, clearIntervalFn = deps.clearInterval || clearInterval;
   const fetchFn = deps.fetch || ((...a) => globalThis.fetch(...a));
-  const clientId = deps.clientId || CHIRP_CLIENT_ID;
+  const defaultClientId = deps.clientId || CHIRP_CLIENT_ID;   // chirp's own app (a test's stand-in for it)
   const secrets = deps.secrets || context.secrets;
   const cfg = (k) => vscode.workspace.getConfiguration('teams').get(k);
   const mentions = createMentionState(context.globalState);
@@ -68,12 +70,23 @@ function activate(context, deps = {}) {
 
   // ---- sign-in: the method from the settings, rebuilt when they change
   let tokenFile = '', auth = null, cancelSignIn = null, userCancelled = false;
+  // app: { clientId, tenant, company } — chirp's own app, or the company's from teams.signIn.clientId / .tenant
+  let app = signInApp({}, defaultClientId), builtKey = null, configNote = null, writingApp = false;
+  const signInKey = () => JSON.stringify(SIGN_IN_KEYS.map((k) => cfg('signIn.' + k) || ''));
   function buildAuth() {
+    builtKey = signInKey();
     tokenFile = expandHome(cfg('signIn.tokenFile') || '');
+    app = signInApp({ clientId: cfg('signIn.clientId'), tenant: cfg('signIn.tenant') }, defaultClientId);
+    // an invalid value is ignored, and said once per change, as a note above the lists
+    if (configNote && s.status && s.status.text === configNote) s.status = null;
+    configNote = app.notes.length ? app.notes.join(' ') : null;
+    if (configNote) { log(configNote); s.status = { kind: 'note', text: configNote }; }
+    showStatus();
+    const { clientId, tenant } = app;
     auth = createAuth({
-      method: cfg('signIn.method') || 'auto', tokenFile,
-      makeEditor: () => (vscode.authentication && vscode.authentication.getSession ? createEditorAuth({ authentication: vscode.authentication, clientId, state: context.globalState }) : null),
-      makeDeviceCode: () => createDeviceCodeAuth(Object.assign({ secrets, fetch: fetchFn, clientId, onCode: showCode }, deps.sleep ? { sleep: deps.sleep } : {})),
+      method: cfg('signIn.method') || 'auto', tokenFile, preferCode: app.company,
+      makeEditor: () => (vscode.authentication && vscode.authentication.getSession ? createEditorAuth({ authentication: vscode.authentication, clientId, tenant, state: context.globalState }) : null),
+      makeDeviceCode: () => createDeviceCodeAuth(Object.assign({ secrets, fetch: fetchFn, clientId, tenant, onCode: showCode }, deps.sleep ? { sleep: deps.sleep } : {})),
       makeTokenFile: () => createTokenFileAuth({ file: tokenFile, fetch: fetchFn }),
       onNote: (text) => setStatus({ kind: 'note', text }),
     });
@@ -226,7 +239,9 @@ function activate(context, deps = {}) {
       await auth.signIn({ channels: false, newAccount: userOut(), cancel });
     } catch (e) {
       cancelSignIn = null;
-      s.signIn = { stage: 'signedOut' }; sidebar.update({ signIn: s.signIn });
+      // the signed-out page then says what "Need admin approval" means, in case that's where Microsoft stopped
+      const hint = e instanceof SignInCancelled || (e instanceof SignInFailed && HINT_KINDS.has(e.kind));
+      s.signIn = hint ? { stage: 'signedOut', hint: true } : { stage: 'signedOut' }; sidebar.update({ signIn: s.signIn });
       if (e instanceof SignInCancelled) return;
       if (e instanceof SignInNeeded) { s.signedOut = false; return signedOut(); }   // says what to do: the token file, or none set
       if (e instanceof SignInFailed) { setStatus({ kind: 'error', text: e.message }); log(e); return; }
@@ -363,7 +378,8 @@ function activate(context, deps = {}) {
     vscode.window.onDidChangeWindowState((w) => { if (w.focused) { for (const p of pollers) p.kick(); conversations.onFocus(); } }),
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, { deserializeWebviewPanel: async (panel, state) => conversations.restore(panel, state) }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('teams.signIn')) onSettings().catch(log);
+      // a change that leaves the sign-in settings as they were (Use a Company Microsoft App's own writes) is not a restart
+      if (e.affectsConfiguration('teams.signIn') && !writingApp && signInKey() !== builtKey) onSettings().catch(log);
       if (e.affectsConfiguration('teams.agentFiles') && cfg('agentFiles') === false) mirror.clearAll();   // off means the plain-text chats go too
     }),
     vscode.commands.registerCommand('chirp.activeConversationFile', () => conversations.activeConversationFile()),
@@ -375,7 +391,8 @@ function activate(context, deps = {}) {
     vscode.commands.registerCommand('chirp.cancelSignIn', () => { if (cancelSignIn) cancelSignIn(); }),
     vscode.commands.registerCommand('chirp.findPeople', (query) => findPeople(query)),
     vscode.commands.registerCommand('chirp.startChat', (userId, name) => startChat(userId, name)),
-    vscode.commands.registerCommand('chirp.copyAdminLink', () => vscode.env.clipboard.writeText(adminLink(clientId))),
+    vscode.commands.registerCommand('chirp.copyAdminLink', () => vscode.env.clipboard.writeText(adminConsentLink(app.clientId, app.tenant))),
+    vscode.commands.registerCommand('chirp.useCompanyApp', () => useCompanyApp()),
     vscode.commands.registerCommand('chirp.copyCode', async () => {
       if (!s.signIn || s.signIn.stage !== 'code') return;
       await vscode.env.clipboard.writeText(s.signIn.userCode);
@@ -383,6 +400,25 @@ function activate(context, deps = {}) {
     }),
     out,
   );
+
+  /** Asks for a company's own app (its IDs come from IT), writes both settings for the user, and signs in with it. */
+  async function useCompanyApp() {
+    const ask = (step, o) => vscode.window.showInputBox(Object.assign({ title: `Teams: Use a Company Microsoft App (${step} of 2)`, ignoreFocusOut: true }, o));
+    const id = await ask(1, { prompt: "Your company's Application (client) ID for this app, from your IT team", placeHolder: '01234567-89ab-cdef-0123-456789abcdef',
+      value: cfg('signIn.clientId') || '', validateInput: (v) => clientIdProblem(v, { required: true }) });
+    if (id === undefined || clientIdProblem(id, { required: true })) return;
+    const tenant = await ask(2, { prompt: "Your company's Directory (tenant) ID, or its domain", placeHolder: 'contoso.onmicrosoft.com',
+      value: cfg('signIn.tenant') || '', validateInput: (v) => tenantProblem(v, { required: true }) });
+    if (tenant === undefined || tenantProblem(tenant, { required: true })) return;
+    const conf = vscode.workspace.getConfiguration('teams');
+    writingApp = true;   // one restart for both settings, here, rather than one per write
+    try {
+      await conf.update('signIn.clientId', id.trim(), vscode.ConfigurationTarget.Global);
+      await conf.update('signIn.tenant', tenant.trim(), vscode.ConfigurationTarget.Global);
+    } finally { writingApp = false; }
+    if (signInKey() !== builtKey) await onSettings();
+    if (s.signedOut) await signIn();   // the new app may already have a session (set before, in another window)
+  }
 
   /** People whose name or mail starts with what was typed, for a chat the filter didn't find. */
   async function findPeople(query) {

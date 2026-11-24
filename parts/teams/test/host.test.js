@@ -18,7 +18,7 @@ const MY_TOKEN = JWT({ appid: 'cid', oid: 'me', tid: 'tid', upn: 'sean@example.c
 /** Microsoft's sign-in endpoints: a device code, then tokens (or what world.loginAnswers says, in order). */
 function login(world, url, init, calls) {
   const body = new URLSearchParams(String(init.body));
-  calls.push({ method: 'POST', path: 'login:' + url.split('/').pop(), body: init.body, scope: body.get('scope') });
+  calls.push({ method: 'POST', path: 'login:' + url.split('/').pop(), url, body: init.body, scope: body.get('scope'), clientId: body.get('client_id') });
   const ok = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
   if (url.endsWith('/devicecode')) return ok({ device_code: 'dc', user_code: 'ABCD-1234', verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 1 });
   const a = (world.loginAnswers || []).shift();
@@ -77,6 +77,8 @@ function start(world, o = {}) {
   ui.config['teams.signIn.method'] = o.method || 'auto';
   ui.config['teams.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
   ui.config['teams.agentFiles'] = true;
+  ui.config['teams.signIn.clientId'] = o.clientId || '';
+  ui.config['teams.signIn.tenant'] = o.tenant || '';
   const sec = o.secrets || secrets();
   const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: (f, opts, fn) => watched.push(fn), unwatchFile: () => {}, secrets: sec, sleep: async () => {}, clientId: 'cid', restoreGraceMs: o.restoreGraceMs });
   const h = { api, fetch, dir, context, watched, world, secrets: sec };
@@ -836,6 +838,8 @@ function startWithTicks(world, o = {}) {
   ui.config['teams.signIn.method'] = o.method || 'auto';
   ui.config['teams.signIn.tokenFile'] = o.method && o.method !== 'tokenFile' ? '' : tokenFile;
   ui.config['teams.agentFiles'] = true;
+  ui.config['teams.signIn.clientId'] = o.clientId || '';
+  ui.config['teams.signIn.tenant'] = o.tenant || '';
   const api = ext.activate(context, { fetch, chirpDir: path.join(dir, '.chirp'), watchFile: () => {}, unwatchFile: () => {}, setInterval: (fn) => { ticks.push(fn); return ticks.length; }, clearInterval: () => {}, secrets: o.secrets || secrets(), sleep: async () => {}, clientId: 'cid' });
   const h = { api, fetch, dir, context, world, ticks, tokenFile };
   running.push(h);
@@ -1052,4 +1056,149 @@ test('reactions in a chat tab are named from its members', async () => {
   const panel = await openTab(h, PLAT);
   const sent = panel.webview.posted.find((x) => x.type === 'messages').messages.find((x) => x.id === 'm2');
   assert.deepStrictEqual(sent.reactions, [{ emoji: '👍', count: 1, who: 'Like: Ben Carter' }]);
+});
+
+// ---- a company's own Microsoft app (teams.signIn.clientId / teams.signIn.tenant)
+const CO_APP = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'.replace(/c3/g, 'cc');   // no "c3" in what the tests name
+const CO_TENANT = 'contoso.onmicrosoft.com';
+const loginCalls = (h) => h.fetch.calls.filter((c) => c.path.startsWith('login:'));
+
+test('a company app: auto signs in with a code, at the tenant, with its client id; the admin link names it', async () => {
+  ui.focused = true; ui.sessions.length = 0; ui.session = () => { throw new Error('the editor is not asked'); };
+  const h = start(chatWorld(), { method: 'auto', clientId: CO_APP.toUpperCase(), tenant: CO_TENANT }); const view = ui.resolveSidebar(); await settle();
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'deviceCode' });
+  assert.deepStrictEqual(ui.sessions.filter((c) => c.options && c.options.createIfNone), [], 'the sign-in code came first');
+  const calls = loginCalls(h);
+  assert.ok(calls.length >= 2);
+  for (const c of calls) {
+    assert.ok(c.url.startsWith(`https://login.microsoftonline.com/${CO_TENANT}/oauth2/v2.0/`), c.url);
+    assert.strictEqual(c.clientId, CO_APP);
+  }
+  assert.strictEqual(JSON.parse(h.secrets.m.get('chirp.deviceCode.tokens')).client_id, CO_APP, 'the tokens say whose they are');
+  await ui.commands['chirp.copyAdminLink']();
+  assert.strictEqual(ui.copied.at(-1), `https://login.microsoftonline.com/${CO_TENANT}/adminconsent?client_id=${CO_APP}`);
+  ui.session = () => undefined;
+});
+
+test('a company app through the editor: its id and tenant in the scopes', async () => {
+  ui.focused = true; ui.sessions.length = 0;
+  const token = JWT({ appid: CO_APP, oid: 'me', tid: 'tid', upn: 'sean@example.com', name: 'Sean Ahn' });
+  let signedIn = false;
+  ui.session = (scopes, options) => (options && options.silent && !signedIn ? undefined : (signedIn = true, { accessToken: token, account: { label: 'sean' } }));
+  const h = start(chatWorld(), { method: 'editor', clientId: CO_APP, tenant: CO_TENANT }); const view = ui.resolveSidebar(); await settle();
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'editor' });
+  const asked = ui.sessions.find((c) => c.options && c.options.createIfNone);
+  assert.deepStrictEqual(asked.scopes.slice(0, 2), [`VSCODE_CLIENT_ID:${CO_APP}`, `VSCODE_TENANT:${CO_TENANT}`]);
+  assert.deepStrictEqual(loginCalls(h), []);
+  ui.session = () => undefined;
+});
+
+test('without a company app the admin link and the order are as before', async () => {
+  ui.focused = true; ui.sessions.length = 0; ui.session = () => undefined;
+  start(chatWorld(), { method: 'auto' }); ui.resolveSidebar(); await settle();
+  await ui.commands['chirp.copyAdminLink']();
+  assert.strictEqual(ui.copied.at(-1), 'https://login.microsoftonline.com/organizations/adminconsent?client_id=cid');
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.ok(ui.sessions.some((c) => c.options && c.options.createIfNone && c.scopes[0] === 'VSCODE_CLIENT_ID:cid' && c.scopes[1] === 'VSCODE_TENANT:organizations'), 'the editor first');
+});
+
+test('an invalid client id or tenant is ignored, with a note', async () => {
+  ui.focused = true;
+  const h = start(chatWorld(), { method: 'deviceCode', clientId: 'not-an-id', tenant: 'not a tenant' }); const view = ui.resolveSidebar(); await settle();
+  assert.strictEqual(lastState(view).status.kind, 'note');
+  assert.match(lastState(view).status.text, /teams\.signIn\.clientId isn't an Application \(client\) ID/);
+  assert.match(lastState(view).status.text, /teams\.signIn\.tenant/);
+  await ui.commands['chirp.copyAdminLink']();
+  assert.strictEqual(ui.copied.at(-1), 'https://login.microsoftonline.com/organizations/adminconsent?client_id=cid');
+  ui.setConfig('teams.signIn.clientId', ''); ui.setConfig('teams.signIn.tenant', ''); await settle();
+  assert.strictEqual(lastState(view).status, null, 'fixed: the note goes');
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.ok(loginCalls(h).every((c) => c.clientId === 'cid' && c.url.includes('/organizations/')));
+});
+
+test('changing the company app signs in again; the other app\'s tokens are not used', async () => {
+  ui.focused = true;
+  const h = start(chatWorld(), { method: 'deviceCode' }); const view = ui.resolveSidebar(); await settle();
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'deviceCode' });
+  ui.setConfig('teams.signIn.clientId', CO_APP); await settle();
+  assert.deepStrictEqual(signInState(view), { stage: 'signedOut' }, "chirp's own app's tokens are not used with the company's");
+  ui.setConfig('teams.signIn.clientId', ''); await settle();
+  assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'deviceCode' }, 'and are still there for chirp\'s own');
+});
+
+test('Teams: Use a Company Microsoft App asks for both IDs, writes them for the user and signs in', async () => {
+  ui.focused = true; ui.updates.length = 0; ui.inputBoxes.length = 0;
+  const h = start(chatWorld(), { method: 'auto' }); const view = ui.resolveSidebar(); await settle();
+  ui.inputs = [` ${CO_APP} `, CO_TENANT];
+  await ui.commands['chirp.useCompanyApp'](); await settle();
+  assert.deepStrictEqual(ui.updates, [['teams.signIn.clientId', CO_APP, 1], ['teams.signIn.tenant', CO_TENANT, 1]], 'at the user level');
+  assert.deepStrictEqual(ui.inputBoxes.map((o) => o.title), ['Teams: Use a Company Microsoft App (1 of 2)', 'Teams: Use a Company Microsoft App (2 of 2)']);
+  assert.ok(ui.inputBoxes[0].validateInput('nope'), 'the first box refuses what is not an ID');
+  assert.strictEqual(ui.inputBoxes[0].validateInput(CO_APP), null);
+  assert.ok(ui.inputBoxes[1].validateInput('not a tenant'));
+  assert.strictEqual(ui.inputBoxes[1].validateInput('4a2b8c1d-0e3f-4a5b-9c6d-7e8f9a0b1c2d'), null, 'a tenant ID');
+  assert.strictEqual(ui.inputBoxes[1].validateInput(CO_TENANT), null, 'or a domain');
+  assert.deepStrictEqual(lastState(view).account, { username: 'sean@example.com', method: 'deviceCode' }, 'signed in, with a code');
+  assert.ok(loginCalls(h).length && loginCalls(h).every((c) => c.clientId === CO_APP && c.url.includes(`/${CO_TENANT}/`)));
+  assert.strictEqual(loginCalls(h).filter((c) => c.path === 'login:devicecode').length, 1, 'one sign-in, not one per setting');
+});
+
+test('Use a Company Microsoft App: Escape at either box changes nothing', async () => {
+  ui.focused = true;
+  for (const answers of [[undefined], [CO_APP, undefined]]) {
+    ui.updates.length = 0;
+    const h = start(chatWorld(), { method: 'auto' }); ui.resolveSidebar(); await settle();
+    ui.inputs = answers.slice();
+    await ui.commands['chirp.useCompanyApp'](); await settle();
+    assert.deepStrictEqual(ui.updates, []);
+    assert.deepStrictEqual(loginCalls(h), [], 'no sign-in');
+    h.api.dispose();
+  }
+});
+
+test('the approval hint: not before a sign-in, after one that ends cancelled or expired, gone once signed in', async () => {
+  ui.focused = true;
+  const w = chatWorld();
+  start(w, { method: 'deviceCode' }); const view = ui.resolveSidebar(); await settle();
+  assert.deepStrictEqual(signInState(view), { stage: 'signedOut' }, 'no hint before any attempt');
+  w.loginAnswers = [{ status: 400, body: { error: 'expired_token' } }];
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.deepStrictEqual(signInState(view), { stage: 'signedOut', hint: true });
+  assert.deepStrictEqual(lastState(view).status, { kind: 'error', text: 'Sign-in code expired.' });
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.strictEqual(signInState(view), null, 'signed in: no hint');
+});
+
+test('the approval hint after the editor sign-in is cancelled (what chirp sees when the browser shows Need admin approval)', async () => {
+  ui.focused = true;
+  ui.session = (scopes, options) => { if (options && options.silent) return undefined; throw new Error('Cancelled'); };
+  start(chatWorld(), { method: 'editor' }); const view = ui.resolveSidebar(); await settle();
+  assert.deepStrictEqual(signInState(view), { stage: 'signedOut' });
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.deepStrictEqual(signInState(view), { stage: 'signedOut', hint: true });
+  assert.strictEqual(lastState(view).status, null, 'calm: no error');
+  ui.session = () => undefined;
+});
+
+test('the approval hint: a consent error shows it; a personal account does not', async () => {
+  ui.focused = true;
+  for (const [body, hint] of [[{ error: 'invalid_grant', error_description: 'AADSTS65001: not consented' }, true], [{ error: 'invalid_request', error_description: 'AADSTS50020: live.com' }, false]]) {
+    const w = chatWorld();
+    const h = start(w, { method: 'deviceCode' }); const view = ui.resolveSidebar(); await settle();
+    w.loginAnswers = [{ status: 400, body }];
+    await ui.commands['chirp.signIn'](); await settle();
+    assert.strictEqual(!!signInState(view).hint, hint, body.error_description);
+    h.api.dispose();
+  }
+});
+
+test('the hint\'s buttons run their commands', async () => {
+  ui.focused = true;
+  start(chatWorld(), { method: 'deviceCode' }); const view = ui.resolveSidebar(); await settle();
+  ui.executed.length = 0; ui.inputs = [undefined];
+  view.webview._receive({ type: 'useCompanyApp' }); await settle();
+  assert.deepStrictEqual(ui.executed.map((x) => x[0]), ['chirp.useCompanyApp']);
 });

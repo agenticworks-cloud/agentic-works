@@ -25,6 +25,13 @@ test('package.json has the listing icon and the new settings', () => {
   assert.deepStrictEqual(props['teams.signIn.method'].enum, ['auto', 'editor', 'deviceCode', 'tokenFile']);
   assert.strictEqual(props['teams.signIn.tokenFile'].default, '');
   assert.strictEqual(props['teams.agentFiles'].default, true);
+  for (const k of ['teams.signIn.clientId', 'teams.signIn.tenant']) {
+    assert.strictEqual(props[k].type, 'string'); assert.strictEqual(props[k].default, '', `${k}: empty means chirp's own app`);
+    assert.match(props[k].markdownDescription, /IT/);
+  }
+  assert.match(props['teams.signIn.clientId'].markdownDescription, /public client flows/);
+  assert.match(props['teams.signIn.clientId'].markdownDescription, /redirect/);
+  assert.ok(pkg.contributes.commands.some((c) => c.command === 'chirp.useCompanyApp' && c.title === 'Teams: Use a Company Microsoft App…'));
   assert.match(pkg.description, /Not affiliated with Microsoft\.$/);
   assert.deepStrictEqual(pkg.keywords, ['teams', 'chat', 'microsoft 365', 'agent']);
 });

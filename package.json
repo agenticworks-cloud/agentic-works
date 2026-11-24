@@ -327,6 +327,10 @@
         "title": "Teams: Copy the Admin Approval Link"
       },
       {
+        "command": "chirp.useCompanyApp",
+        "title": "Teams: Use a Company Microsoft App…"
+      },
+      {
         "command": "chirp.copyCode",
         "title": "Teams: Copy Sign-in Code and Open the Sign-in Page"
       },
@@ -564,6 +568,10 @@
         },
         {
           "command": "chirp.copyAdminLink",
+          "when": "config.roost.teams.enabled && !roost.teams.failed"
+        },
+        {
+          "command": "chirp.useCompanyApp",
           "when": "config.roost.teams.enabled && !roost.teams.failed"
         }
       ],
@@ -1268,8 +1276,8 @@
             ],
             "default": "auto",
             "enumDescriptions": [
-              "A token file if one is set, otherwise the editor's Microsoft sign-in, otherwise a sign-in code.",
-              "The editor's own Microsoft account sign-in, using chirp's app.",
+              "A token file if one is set, otherwise the editor's Microsoft sign-in, otherwise a sign-in code. With a company app (teams.signIn.clientId), the sign-in code comes first.",
+              "The editor's own Microsoft account sign-in, using chirp's app (or the company app in teams.signIn.clientId).",
               "A code you enter at microsoft.com/devicelogin; chirp keeps the tokens in the editor's secret storage.",
               "Reuse the login another tool keeps in a token file (teams.signIn.tokenFile)."
             ],
@@ -1279,6 +1287,16 @@
             "type": "string",
             "default": "",
             "description": "A token file another tool keeps (JSON with access_token, refresh_token, client_id, tenant_id, expires_at). When set, chirp reuses that login instead of signing in itself. chirp refreshes it in place and never deletes it."
+          },
+          "teams.signIn.clientId": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "The Application (client) ID of your company's own Microsoft app for Teams, if it has one: your IT team provides it. Empty: chirp's own app. Use it when your company lets only its admins approve apps and has approved its own. Its registration must allow public client flows for the sign-in code (`deviceCode`), and accept VS Code's redirect for the editor's sign-in (`editor`); with it set, `auto` uses the sign-in code first. Set it, and `#teams.signIn.tenant#`, with **Teams: Use a Company Microsoft App…**. A value that isn't an ID is ignored (with a note in the Teams view). Not used with a token file."
+          },
+          "teams.signIn.tenant": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Your company's Directory (tenant) ID, or its domain such as `contoso.onmicrosoft.com`: your IT team provides it, with `#teams.signIn.clientId#`. Empty: `organizations`, any work or school account. A value that is neither is ignored (with a note in the Teams view). Not used with a token file."
           },
           "teams.agentFiles": {
             "type": "boolean",

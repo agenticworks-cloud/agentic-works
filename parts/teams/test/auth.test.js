@@ -152,3 +152,83 @@ test('sign out forgets the method', async () => {
   assert.ok(made.deviceCode.calls.some((c) => c[0] === 'signOut'));
   assert.strictEqual(auth.current(), null);
 });
+
+// ---- the app chirp signs in with (teams.signIn.clientId / teams.signIn.tenant)
+const CO = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+
+test('no settings: chirp\'s own app, any work or school account', () => {
+  assert.deepStrictEqual(A.signInApp({}), { clientId: A.CHIRP_CLIENT_ID, tenant: 'organizations', company: false, notes: [] });
+  assert.deepStrictEqual(A.signInApp({ clientId: '', tenant: '' }, 'cid'), { clientId: 'cid', tenant: 'organizations', company: false, notes: [] });
+});
+
+test('a company app and tenant, trimmed and lower-cased', () => {
+  assert.deepStrictEqual(A.signInApp({ clientId: ` ${CO.toUpperCase()} `, tenant: 'Contoso.onmicrosoft.com' }), { clientId: CO, tenant: 'contoso.onmicrosoft.com', company: true, notes: [] });
+  assert.deepStrictEqual(A.signInApp({ clientId: CO, tenant: '4A2B8C1D-0E3F-4A5B-9C6D-7E8F9A0B1C2D' }).tenant, '4a2b8c1d-0e3f-4a5b-9c6d-7e8f9a0b1c2d');
+  assert.strictEqual(A.signInApp({ tenant: 'contoso.com' }).company, false, "a tenant alone keeps chirp's app");
+  assert.strictEqual(A.signInApp({ clientId: A.CHIRP_CLIENT_ID }).company, false, "chirp's own id is not a company app");
+});
+
+test('invalid values are ignored, each with a note', () => {
+  const a = A.signInApp({ clientId: 'my-app', tenant: 'https://login.microsoftonline.com/x' }, 'cid');
+  assert.deepStrictEqual([a.clientId, a.tenant, a.company], ['cid', 'organizations', false]);
+  assert.strictEqual(a.notes.length, 2);
+  assert.match(a.notes[0], /teams\.signIn\.clientId/); assert.match(a.notes[1], /teams\.signIn\.tenant/);
+});
+
+test('the checks: GUIDs, domains, organizations', () => {
+  for (const ok of [CO, CO.toUpperCase(), '']) assert.strictEqual(A.clientIdProblem(ok), null, ok);
+  for (const bad of ['x', CO + '0', CO.replace(/-/g, ''), '{' + CO + '}']) assert.ok(A.clientIdProblem(bad), bad);
+  assert.ok(A.clientIdProblem('', { required: true }), 'the command needs one');
+  for (const ok of [CO, 'contoso.onmicrosoft.com', 'contoso.com', 'organizations', '']) assert.strictEqual(A.tenantProblem(ok), null, ok);
+  for (const bad of ['contoso', 'common', 'consumers', 'a b.com', 'contoso.onmicrosoft.com/x', '-x.com']) assert.ok(A.tenantProblem(bad), bad);
+  assert.ok(A.tenantProblem(' ', { required: true }));
+});
+
+test('authority and admin link follow the tenant', () => {
+  assert.strictEqual(A.authorityFor('contoso.com'), 'https://login.microsoftonline.com/contoso.com/oauth2/v2.0');
+  assert.strictEqual(A.authorityFor(''), A.AUTHORITY);
+  assert.strictEqual(A.adminConsentLink('cid'), 'https://login.microsoftonline.com/organizations/adminconsent?client_id=cid');
+  assert.strictEqual(A.adminConsentLink(CO, 'contoso.com'), `https://login.microsoftonline.com/contoso.com/adminconsent?client_id=${CO}`);
+});
+
+function companyChooser(o) {
+  const made = {}; const notes = [];
+  const mk = (name) => () => { made[name] = made[name] || (o[name] === null ? null : fakeMethod(name, o[name] || {})); return made[name]; };
+  const auth = A.createAuth({ method: o.method || 'auto', tokenFile: o.tokenFile || '', preferCode: true, makeEditor: mk('editor'), makeDeviceCode: mk('deviceCode'), makeTokenFile: mk('tokenFile'), onNote: (t) => notes.push(t) });
+  return { auth, made, notes };
+}
+
+test('auto with a company app: the sign-in code first, the editor never asked', async () => {
+  const { auth, made } = companyChooser({});
+  await auth.signIn({});
+  assert.strictEqual(auth.current().method, 'deviceCode');
+  assert.strictEqual(made.editor, undefined);
+});
+
+test('auto with a company app: no public client flows moves on to the editor, with a note', async () => {
+  const { auth, notes } = companyChooser({ deviceCode: { signIn: async () => { throw new A.SignInFailed('misconfigured', 'x'); } } });
+  await auth.signIn({});
+  assert.strictEqual(auth.current().method, 'editor');
+  assert.deepStrictEqual(notes, [A.CODE_FALLBACK_NOTE]);
+});
+
+test('auto with a company app: an expired code does not move on', async () => {
+  const { auth, made } = companyChooser({ deviceCode: { signIn: async () => { throw new A.SignInFailed('expired', 'x'); } } });
+  await assert.rejects(auth.signIn({}), (e) => e.kind === 'expired');
+  assert.strictEqual(made.editor, undefined);
+});
+
+test('a company app: explicit methods and the token file are honoured', async () => {
+  let c = companyChooser({ method: 'editor' }); await c.auth.signIn({});
+  assert.strictEqual(c.auth.current().method, 'editor'); assert.strictEqual(c.made.deviceCode, undefined);
+  c = companyChooser({ method: 'deviceCode' }); await c.auth.signIn({});
+  assert.strictEqual(c.auth.current().method, 'deviceCode'); assert.strictEqual(c.made.editor, undefined);
+  c = companyChooser({ tokenFile: '/x/t.json' }); await c.auth.signIn({});
+  assert.strictEqual(c.auth.current().method, 'tokenFile');
+});
+
+test('a company app: a restart finds the editor session too', async () => {
+  const { auth } = companyChooser({ editor: { session: true } });
+  assert.strictEqual(await auth.accessToken(), 'editor-token');
+  assert.strictEqual(auth.current().method, 'editor');
+});

@@ -33,7 +33,15 @@
     if (!out) { chatsHead.hidden = false; chats.hidden = false; teamsHead.hidden = false; teams.hidden = false; }
     signin.hidden = !si;
     if (!si) { signin.replaceChildren(); return; }
-    if (si.stage === 'signedOut') signin.replaceChildren(button('Sign in to Microsoft', 'signIn', 'primary'));
+    if (si.stage === 'signedOut') {
+      signin.replaceChildren(button('Sign in to Microsoft', 'signIn', 'primary'));
+      // after a sign-in that ended without one: Microsoft may have said the app needs approval, which chirp can't see
+      if (si.hint) {
+        const hint = el('div', 'hint');
+        hint.append(el('div', null, 'If Microsoft said Need admin approval, your company has to approve the app first:'), button('Copy admin link', 'copyAdminLink'), button('Use a company app…', 'useCompanyApp'));
+        signin.append(hint);
+      }
+    }
     else if (si.stage === 'waiting') signin.replaceChildren(el('div', 'wait', 'Waiting for sign-in in the browser…'), button('Cancel', 'cancelSignIn'));
     else if (si.stage === 'code') signin.replaceChildren(el('div', 'code', si.userCode || ''), button('Copy code & open', 'copyCode', 'primary'), el('div', 'where', `Enter it at ${si.verificationUri || ''}`), button('Cancel', 'cancelSignIn'));
   }

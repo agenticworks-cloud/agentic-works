@@ -20,7 +20,7 @@ function fakeWebview() {
 }
 
 function install() {
-  const ui = { providers: {}, panels: [], commands: {}, executed: [], opened: [], focused: true, config: {}, out: [], watchers: [], infos: [], copied: [], sessions: [] };
+  const ui = { providers: {}, panels: [], commands: {}, executed: [], opened: [], focused: true, config: {}, out: [], watchers: [], infos: [], copied: [], sessions: [], inputs: [], inputBoxes: [], updates: [] };
   const configChange = new Emitter();
   // the editor's Microsoft provider: ui.session(scopes, options) answers getSession; calls are recorded
   ui.session = () => undefined;
@@ -47,7 +47,7 @@ function install() {
     return panel;
   }
   const vscode = {
-    Uri, EventEmitter: Emitter,
+    Uri, EventEmitter: Emitter, ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     ViewColumn: { Active: -1, One: 1, Two: 2 },
     window: {
       get state() { return { focused: ui.focused }; },
@@ -59,13 +59,18 @@ function install() {
       createOutputChannel: () => ({ appendLine: (l) => ui.out.push(l), dispose() {} }),
       showErrorMessage: (m) => { ui.out.push('error: ' + m); },
       showInformationMessage: async (m) => { ui.infos.push(m); return undefined; },
+      // ui.inputs: the answers, in order (undefined: Escape); each box's options are kept, and its check must pass
+      showInputBox: async (o) => { ui.inputBoxes.push(o); const a = ui.inputs.shift(); if (a !== undefined && o.validateInput && o.validateInput(a)) throw new Error('the box would refuse ' + a); return a; },
     },
     commands: {
       registerCommand: (id, fn) => { ui.commands[id] = fn; return { dispose() {} }; },
       executeCommand: async (id, ...a) => { ui.executed.push([id, ...a]); return ui.commands[id] ? ui.commands[id](...a) : undefined; },
     },
     workspace: {
-      getConfiguration: (section) => ({ get: (k, d) => { const v = ui.config[(section ? section + '.' : '') + k]; return v === undefined ? d : v; } }),
+      getConfiguration: (section) => ({
+        get: (k, d) => { const v = ui.config[(section ? section + '.' : '') + k]; return v === undefined ? d : v; },
+        update: async (k, v, target) => { const key = (section ? section + '.' : '') + k; ui.updates.push([key, v, target]); ui.setConfig(key, v); },
+      }),
       onDidChangeConfiguration: configChange.event,
     },
     authentication: { getSession: async (provider, scopes, options) => { ui.sessions.push({ provider, scopes, options }); return ui.session(scopes, options); } },

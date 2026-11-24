@@ -4,7 +4,7 @@ const vscode = require('vscode');
 const crypto = require('crypto');
 
 // the page's buttons, and the commands they run
-const ACTIONS = { signIn: 'chirp.signIn', cancelSignIn: 'chirp.cancelSignIn', copyCode: 'chirp.copyCode', enableChannels: 'chirp.enableChannels', copyAdminLink: 'chirp.copyAdminLink' };
+const ACTIONS = { signIn: 'chirp.signIn', cancelSignIn: 'chirp.cancelSignIn', copyCode: 'chirp.copyCode', enableChannels: 'chirp.enableChannels', copyAdminLink: 'chirp.copyAdminLink', useCompanyApp: 'chirp.useCompanyApp' };
 
 class Sidebar {
   constructor(extensionUri, { meName = () => '' } = {}) {

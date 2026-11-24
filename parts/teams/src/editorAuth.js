@@ -1,14 +1,17 @@
 'use strict';
 // Sign-in through the editor's own Microsoft account provider (design 201, "1. Built-in Microsoft sign-in"), with chirp's
 // app id passed in the provider's special VSCODE_CLIENT_ID / VSCODE_TENANT scopes. The editor keeps and refreshes the tokens.
-const { CHAT_SCOPES, CHANNEL_SCOPES, claims, accountOf, SignInNeeded, SignInCancelled, SignInFailed } = require('./auth');
+const { DEFAULT_TENANT, CHAT_SCOPES, CHANNEL_SCOPES, claims, accountOf, SignInNeeded, SignInCancelled, SignInFailed } = require('./auth');
 
 const SIGNED_OUT = 'chirp.editorAuth.signedOut';
 const CHANNELS = 'chirp.editorAuth.channels';
 
-function createEditorAuth({ authentication, clientId, state }) {
+// Microsoft's "the app needs approval" errors, if the editor passes them on (it may only show them in the browser)
+const CONSENT = /AADSTS65001|AADSTS90094/;
+
+function createEditorAuth({ authentication, clientId, tenant = DEFAULT_TENANT, state }) {
   let token = null;
-  const scopes = (channels) => ['VSCODE_CLIENT_ID:' + clientId, 'VSCODE_TENANT:organizations', ...CHAT_SCOPES, ...(channels ? CHANNEL_SCOPES : [])];
+  const scopes = (channels) => ['VSCODE_CLIENT_ID:' + clientId, 'VSCODE_TENANT:' + (tenant || DEFAULT_TENANT), ...CHAT_SCOPES, ...(channels ? CHANNEL_SCOPES : [])];
   const channelsOn = () => !!state.get(CHANNELS);
 
   async function signIn({ channels = false, newAccount = false, cancel } = {}) {
@@ -18,6 +21,7 @@ function createEditorAuth({ authentication, clientId, state }) {
       // getSession takes no cancellation token: Cancel stops chirp waiting, and the editor's own prompt can be dismissed
       s = cancel ? await Promise.race([asking, new Promise((_, reject) => cancel.onCancellationRequested(() => reject(new SignInCancelled())))]) : await asking;
     } catch (e) {
+      if (CONSENT.test(String(e && e.message))) throw new SignInFailed('consent', 'Microsoft says your company has to approve the app first.');
       // declining the editor's prompt reads "User did not consent to login." (needs a live check); closing it, "Cancelled"
       if (e instanceof SignInCancelled || /cancel|did not consent/i.test(String(e && e.message))) throw new SignInCancelled();
       throw new SignInFailed('unusable', String(e && e.message || e));

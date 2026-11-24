@@ -62,11 +62,13 @@ test('slow_down adds five seconds', async () => {
   assert.deepStrictEqual(slept, [5000, 10000]);
 });
 
-test('expired, declined, personal and misconfigured map to SignInFailed kinds', async () => {
+test('expired, declined, personal, misconfigured and consent map to SignInFailed kinds', async () => {
   const cases = [
     [json(400, { error: 'expired_token' }), 'expired', 'Sign-in code expired.'],
     [json(400, { error: 'authorization_declined' }), 'declined', 'Sign-in was declined.'],
-    [json(401, { error: 'invalid_client', error_description: 'AADSTS7000218: The request body must contain client_assertion' }), 'misconfigured', "chirp's app registration doesn't allow device sign-in (AADSTS7000218)."],
+    [json(401, { error: 'invalid_client', error_description: 'AADSTS7000218: The request body must contain client_assertion' }), 'misconfigured', 'The app\'s registration doesn\'t allow sign-in codes (AADSTS7000218): it needs "Allow public client flows".'],
+    [json(400, { error: 'invalid_grant', error_description: 'AADSTS65001: The user or administrator has not consented to use the application' }), 'consent', 'Microsoft says your company has to approve the app first.'],
+    [json(400, { error: 'access_denied', error_description: 'AADSTS90094: The grant requires admin permission.' }), 'consent', 'Microsoft says your company has to approve the app first.'],
     [json(400, { error: 'invalid_request', error_description: 'AADSTS50020: User account from identity provider live.com does not exist in tenant' }), 'personal', 'chirp needs a work or school Microsoft 365 account.'],
   ];
   for (const [answer, kind, message] of cases) {
@@ -197,4 +199,33 @@ test('a refused refresh signs out, so windows stop retrying it', async () => {
   const { auth } = make({ secrets, fetch: fakeFetch([json(400, { error: 'invalid_request' })]) });
   await assert.rejects(auth.accessToken(), SignInNeeded);
   assert.strictEqual(secrets.m.has(KEY), false);
+});
+
+// ---- a company app: its tenant and client id, and tokens kept to the app that got them
+const CO = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+
+test('a company app signs in and refreshes at its tenant, with its client id', async () => {
+  const secrets = fakeSecrets();
+  const fetch = fakeFetch([tokens(), tokens()]);
+  const { auth } = make({ secrets, fetch, clientId: CO, tenant: 'contoso.onmicrosoft.com' });
+  await auth.signIn({});
+  assert.strictEqual(JSON.parse(secrets.m.get(KEY)).client_id, CO, 'the tokens say which app got them');
+  await auth.refresh();
+  assert.deepStrictEqual(fetch.calls.map((c) => c.url.replace('https://login.microsoftonline.com/', '')), ['contoso.onmicrosoft.com/oauth2/v2.0/devicecode', 'contoso.onmicrosoft.com/oauth2/v2.0/token', 'contoso.onmicrosoft.com/oauth2/v2.0/token']);
+  assert.ok(fetch.calls.every((c) => c.body.get('client_id') === CO));
+  assert.strictEqual(fetch.calls[2].body.get('grant_type'), 'refresh_token');
+});
+
+test("another app's stored tokens are not used, nor deleted", async () => {
+  for (const [label, record] of [['recorded', stored({ client_id: 'cid', expires_at: NOW / 1000 + 3600 })], ['from the token (before 0.3)', stored({ expires_at: NOW / 1000 + 3600 })]]) {
+    const secrets = fakeSecrets({ [KEY]: record });
+    const fetch = fakeFetch([]);
+    const { auth } = make({ secrets, fetch, clientId: CO });
+    await assert.rejects(auth.accessToken(), SignInNeeded, label);
+    await assert.rejects(auth.refresh(), SignInNeeded, label);
+    assert.deepStrictEqual(fetch.calls, [], 'never refreshed with the wrong app');
+    assert.strictEqual(secrets.m.get(KEY), record, 'left for the app that got them');
+    const own = make({ secrets, fetch, clientId: 'cid' }).auth;
+    assert.strictEqual(await own.accessToken(), TOKEN, 'still good for its own app');
+  }
 });

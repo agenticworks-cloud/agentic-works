@@ -139,6 +139,22 @@ test('signed out: a sign-in button in place of the lists', () => {
   assert.deepStrictEqual(p.posted.at(-1), { type: 'signIn' });
 });
 
+test('signed out after a sign-in that ended without one: the approval hint, and its buttons', () => {
+  const p = page();
+  p.send(state({ signIn: { stage: 'signedOut' }, account: null }));
+  assert.strictEqual(p.d.querySelector('.signin .hint'), null, 'not before any attempt');
+  assert.strictEqual(btn(p, 'Copy admin link'), undefined);
+  p.send(state({ signIn: { stage: 'signedOut', hint: true }, account: null }));
+  assert.strictEqual(p.d.querySelector('.signin .hint').textContent.startsWith('If Microsoft said Need admin approval, your company has to approve the app first:'), true);
+  assert.ok(btn(p, 'Sign in to Microsoft'), 'signing in again stays first');
+  click(p, btn(p, 'Copy admin link'));
+  assert.deepStrictEqual(p.posted.at(-1), { type: 'copyAdminLink' });
+  click(p, btn(p, 'Use a company app…'));
+  assert.deepStrictEqual(p.posted.at(-1), { type: 'useCompanyApp' });
+  p.send(state({ signIn: { stage: 'waiting' }, account: null }));
+  assert.strictEqual(p.d.querySelector('.signin .hint'), null, 'gone while signing in');
+});
+
 test('waiting: the message and Cancel', () => {
   const p = page();
   p.send(state({ signIn: { stage: 'waiting' }, account: null }));

@@ -1,15 +1,16 @@
 'use strict';
 // Device-code sign-in (design 201, "2. Device-code sign-in"): chirp shows a code, the user enters it at microsoft.com, and
 // chirp keeps the tokens in the editor's secret storage and refreshes them itself.
-const { AUTHORITY, CHAT_SCOPES, CHANNEL_SCOPES, graphScope, accountOf, SignInNeeded, Offline, SignInCancelled, SignInFailed } = require('./auth');
+const { DEFAULT_TENANT, authorityFor, CHAT_SCOPES, CHANNEL_SCOPES, graphScope, claims, accountOf, SignInNeeded, Offline, SignInCancelled, SignInFailed } = require('./auth');
 
 const KEY = 'chirp.deviceCode.tokens';
 const REFRESH_MARGIN_S = 60;
 const MESSAGES = {
   expired: 'Sign-in code expired.',
   declined: 'Sign-in was declined.',
+  consent: 'Microsoft says your company has to approve the app first.',
   personal: 'chirp needs a work or school Microsoft 365 account.',
-  misconfigured: "chirp's app registration doesn't allow device sign-in (AADSTS7000218).",
+  misconfigured: "The app's registration doesn't allow sign-in codes (AADSTS7000218): it needs \"Allow public client flows\".",
   storage: "chirp couldn't save your sign-in: the editor's secret storage isn't available. On Linux, install a keyring such as gnome-keyring.",
 };
 const failed = (kind, detail) => new SignInFailed(kind, MESSAGES[kind] || detail || kind);
@@ -18,25 +19,31 @@ const failed = (kind, detail) => new SignInFailed(kind, MESSAGES[kind] || detail
 function errorKind(data) {
   const e = (data && data.error) || '', d = (data && data.error_description) || '';
   if (e === 'expired_token') return 'expired';
+  if (/AADSTS65001|AADSTS90094/.test(d)) return 'consent';   // the app needs approval (if Microsoft ever says so here)
   if (e === 'authorization_declined' || e === 'access_denied') return 'declined';
   if (e === 'invalid_client' || /AADSTS7000218/.test(d)) return 'misconfigured';
   if (/AADSTS50020|AADSTS9002331|Microsoft account/i.test(d)) return 'personal';
   return 'other';
 }
 
-function createDeviceCodeAuth({ secrets, fetch, clientId, onCode = () => {}, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+/** The app a stored sign-in belongs to: recorded since 0.3, else read from its access token. */
+const ownerOf = (t) => String(t.client_id || ((claims(t.access_token) || {}).appid) || '').toLowerCase() || null;
+
+function createDeviceCodeAuth({ secrets, fetch, clientId, tenant = DEFAULT_TENANT, onCode = () => {}, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   let cached;            // undefined: not read yet; null: none stored
   let inflight = null;
   secrets.onDidChange((e) => { if (!e || e.key === KEY) cached = undefined; });   // another window signed in, refreshed or out
 
   const form = (o) => ({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(o).toString() });
   async function post(path, o) {
-    const res = await fetch(`${AUTHORITY}/${path}`, form(o));
+    const res = await fetch(`${authorityFor(tenant)}/${path}`, form(o));
     let data = {}; try { data = await res.json(); } catch (_) { /* not json */ }
     return { ok: res.ok, status: res.status, data };
   }
   async function read() {
     if (cached === undefined) { const raw = await secrets.get(KEY); try { cached = raw ? JSON.parse(raw) : null; } catch (_) { cached = null; } }
+    // a sign-in made with another app (teams.signIn.clientId changed) is never used with this one; left for that app
+    if (cached && ownerOf(cached) && ownerOf(cached) !== String(clientId).toLowerCase()) cached = null;
     return cached;
   }
   async function save(t) {
@@ -47,7 +54,7 @@ function createDeviceCodeAuth({ secrets, fetch, clientId, onCode = () => {}, now
     access_token: data.access_token, refresh_token: data.refresh_token || (old && old.refresh_token),
     expires_at: Math.floor(now() / 1000) + Number(data.expires_in || 3600),
     tenant_id: (accountOf(data.access_token) || {}).tenantId || (old && old.tenant_id) || null,
-    scope: data.scope || (old && old.scope) || '', channels: !!channels,
+    scope: data.scope || (old && old.scope) || '', channels: !!channels, client_id: clientId,
   });
 
   async function signIn({ channels = false, cancel } = {}) {
