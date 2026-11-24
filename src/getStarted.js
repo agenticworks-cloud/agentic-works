@@ -19,7 +19,7 @@ const ORDER_ROOST = ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 
 const STEP_IDS = [...new Set([...ORDER_COMPANY, ...ORDER_ROOST])];
 const NAMES = {
   github: 'Sign in to GitHub', agents: 'Talk to Claude or Codex', teams: 'Sign in to Teams', jira: 'Connect Jira and Confluence',
-  codebase: 'Search your code (optional)', parts: 'Choose your parts',
+  codebase: 'Search your code by meaning', parts: 'Choose your parts',
 };
 // the part a step belongs to: shown while that part is on and not failed
 const PART_OF = { github: 'pullRequests', claude: 'agents', agents: 'agents', codebase: 'agents', teams: 'teams', jira: 'jira' };
@@ -173,13 +173,17 @@ class GetStarted {
         details: stepDetails(id, { companyGateway: !!gwName, words }) }));
     const jira = this.vscode.workspace.getConfiguration('jira');
     const jiraFile = jira.get('signIn.tokenFile', '');
+    // the site the user set (user scope only, as the Jira part reads it: never a workspace's), else the company file's;
+    // the email is the company file's. The page fills both in unless the user has typed another.
+    const userSite = (jira.inspect('site') || {}).globalValue;
+    const jiraSite = str(userSite) || str(c && c.jira && c.jira.site);
     return {
       title: `Get started with ${(c && c.title) || 'Roost'}`,
       steps,
       claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
       github: { logins: [...this.logins] },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams },
-      jira: { rowId: this.rowFor('jira'), site: str(jira.get('site', '')), form: !(typeof jiraFile === 'string' && jiraFile) },
+      jira: { rowId: this.rowFor('jira'), site: jiraSite, email: str(c && c.jira && c.jira.email), form: !(typeof jiraFile === 'string' && jiraFile) },
       parts: [...this.roost.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.roost.isEnabled(e.part.id) })),
     };
   }

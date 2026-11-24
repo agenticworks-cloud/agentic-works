@@ -76,8 +76,8 @@ On its very first start Roost opens the PRs tab once, so the bottom panel shows 
 an editor tab. Open the page again any time with **Roost: Get Started** in the Command Palette. It is Roost's own
 page, with each step's controls in place. A step shows while its part is on. Without a company file the steps run:
 Connect Claude, Talk to Claude or Codex, Sign in to Teams, Connect Jira and Confluence, Sign in to GitHub, Search your
-code (optional), Choose your parts. With one: Sign in to GitHub, Connect Claude, Talk to Claude or Codex, Connect your
-tools, Sign in to Teams, Connect Jira and Confluence, Search your code (optional), Choose your parts. Connect your
+code by meaning, Choose your parts. With one: Sign in to GitHub, Connect Claude, Talk to Claude or Codex, Connect your
+tools, Sign in to Teams, Connect Jira and Confluence, Search your code by meaning, Choose your parts. Connect your
 tools appears only when the company file lists at least one `mcpServers` entry. The first step not yet done is open,
 the others closed with their tick, and a step once done stays done. VS Code's own walkthrough is still there as a
 fallback, on the Welcome page.
@@ -107,6 +107,10 @@ files. Required keys are marked **required**.
   `keyCommand`, **Get a key** runs it (no shell, stdin closed, at most 12 minutes) and checks and saves the key it
   prints; when it can't, the step says why (the helper's last stderr line, key-shaped words masked), with **Try
   again** and the manual way (the key page, the key field, **Check and save**).
+- `jira` (optional): `site` (an https URL, the company's Atlassian site) and `email` (the person's email), each
+  optional, filled in on the Connect Jira and Confluence step so only an API token is left to type. A user-level
+  `jira.site` setting wins over the file's site. Never a token: any other key is ignored. Unlike the rest of the
+  file, a bad value here is dropped with a note in the Roost output channel, and the rest of the file still loads.
 - `mcpServers` (optional): a list of servers with distinct ids, each `{ id, name, about, register, connect }`.
   - `id` (**required**): letters, digits, `_` or `-`. `name` and `about` (**required**): strings.
   - `register` (**required**) is what Claude Code is given: `{ "type": "http", "url", "headers" }` or

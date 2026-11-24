@@ -54,7 +54,32 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 
 // a minimal file, and defaults
 const min = read({ name: 'Min' });
-assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [] });
+assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' } });
+assert.deepStrictEqual(min.notes, []);
+// jira: the site and email the Get started page fills in; never a token (one there is ignored)
+const jr = read({ name: 'J', jira: { site: 'https://example.atlassian.net', email: 'you@example.com', token: 'tok-1' } });
+assert.strictEqual(jr.ok, true, jr.error);
+assert.deepStrictEqual(jr.company.jira, { site: 'https://example.atlassian.net', email: 'you@example.com' });
+assert.deepStrictEqual(jr.notes, []);
+assert.ok(!JSON.stringify(jr.company).includes('tok-1'));
+assert.deepStrictEqual(read({ name: 'J', jira: { site: 'https://example.atlassian.net' } }).company.jira, { site: 'https://example.atlassian.net', email: '' });
+// a bad site or email is dropped with a note; the rest of the file still loads
+for (const [jira, want, note] of [
+  [{ site: 'http://example.atlassian.net', email: 'you@example.com' }, { site: '', email: 'you@example.com' }, 'jira.site:'],
+  [{ site: 'example.atlassian.net' }, { site: '', email: '' }, 'jira.site:'],
+  [{ site: 42 }, { site: '', email: '' }, 'jira.site:'],
+  [{ site: 'https://example.atlassian.net', email: 'you' }, { site: 'https://example.atlassian.net', email: '' }, 'jira.email:'],
+  [{ email: 'you@example' }, { site: '', email: '' }, 'jira.email:'],
+  [{ email: 'a b@example.com' }, { site: '', email: '' }, 'jira.email:'],
+  ['https://example.atlassian.net', { site: '', email: '' }, 'jira:'],
+]) {
+  const r = read({ ...EXAMPLE, jira });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.deepStrictEqual(r.company.jira, want, JSON.stringify(jira));
+  assert.strictEqual(r.notes.length, 1);
+  assert.ok(r.notes[0].startsWith(note), r.notes[0]);
+  assert.strictEqual(r.company.gateway.name, 'Example Gateway', 'the rest still loads');
+}
 // steps.talk: the Talk to Claude or Codex step's name (Sean, 2026-11-24)
 assert.deepStrictEqual(read({ name: 'T', steps: { talk: 'Talk to Example Gateway' } }).company.steps, { gateway: '', tools: '', talk: 'Talk to Example Gateway' });
 const g = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k' } }).company.gateway;

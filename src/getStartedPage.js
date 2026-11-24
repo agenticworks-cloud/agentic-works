@@ -8,7 +8,7 @@
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
 // Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting, details }], claude: { companyGateway,
-//   keyCommand }, github: { logins }, teams: { rowId, note }, jira: { rowId, site, form }, parts: [{ id, title, on }] }
+//   keyCommand }, github: { logins }, teams: { rowId, note }, jira: { rowId, site, email, form }, parts: [{ id, title, on }] }
 //   (details: HTML the host rendered from media/getstarted/, src/stepDetails.js, every word escaped there; the page
 //   shows it as it is); rows {rows} (the tools rows, src/toolsRows.js); agents {replies, of}
 //   (perch.connectClaude.request's replies; of: the request's type) or agents {error}; jira {error} (null once signed in).
@@ -110,16 +110,18 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       v.form.append(field('Site URL', v.site), field('Email', v.email), tokenField, row(v.submit), v.error);
       v.signIn = button('Sign In', '', () => post({ type: 'jiraSignIn' }));
       v.signInRow = row(v.signIn);
-      v.prefill = '';
+      v.prefill = { site: '', email: '' };   // what each field was last filled with
       v.body.append(v.list, v.form, v.signInRow);
       v.rows = () => { const id = state && state.jira ? state.jira.rowId : ''; v.tools.show(id ? rows.filter((r) => r.id === id) : []); };
       v.update = (s) => {
         const j = s.jira || {};
         v.form.hidden = !!j.rowId || !j.form;
         v.signInRow.hidden = !!j.rowId || !!j.form;
-        // the site from the state, unless the user has typed another
-        const site = typeof j.site === 'string' ? j.site : '';
-        if (v.site.value === '' || v.site.value === v.prefill) { v.site.value = site; v.prefill = site; }
+        // the site and email from the state, each unless the user has typed another
+        for (const k of ['site', 'email']) {
+          const value = typeof j[k] === 'string' ? j[k] : '';
+          if (v[k].value === '' || v[k].value === v.prefill[k]) { v[k].value = value; v.prefill[k] = value; }
+        }
         v.rows();
       };
       v.jiraError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; };

@@ -878,6 +878,22 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     words are put back escaped after the markdown is made; only https links are kept, and the host opens a clicked
     one with `openExternal` (any other scheme: nothing). Not checked live: the layout in a real VS Code window.
 
+- **Jira pre-filled; Search your code by meaning — Built (0.5.3)** *(Sean, 2026-11-24: "Connect Jira and
+  Confluence, the same, use [the company's site] and the email address, we already know. then search your code, remove the
+  optional part, say by meaning")*. The company file may hold an optional `jira` section, `{ site, email }`: the
+  company's site and the person's email, which the Connect Jira and Confluence form is filled with, so only an API
+  token is left to type.
+  - *Never a token:* any other key in the section, a token among them, is ignored. A bad value (a site that isn't
+    https, an email that doesn't look like one) is dropped with a note in the output; the rest of the file still
+    loads, unlike a bad value anywhere else in it *(my call: a wrong prefill is not worth losing the gateway over)*.
+  - *The site:* the user-level `jira.site` (`inspect().globalValue`, as the Jira part reads it) wins, else the
+    company file's. Before this the page read it with `get()`, which could pick up a workspace's value.
+  - *The form:* each of the site and email is filled from the state unless the user has typed another; nothing is
+    sent until Sign in. The token is as before: never in the state, emptied as it is sent.
+  - *The rename:* Search your code (optional) is now **Search your code by meaning**, on the page and in the
+    walkthrough; the step is unchanged (off by default, Turn On or Not Now), and its text still says the by-meaning
+    model is installed separately.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of

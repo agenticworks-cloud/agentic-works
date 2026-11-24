@@ -514,10 +514,12 @@ function activate(context, options = {}) {
     }
     r.startGithubSignIn();
   }));
-  // the company file, read before the parts start; a file that is there but invalid is logged once
+  // the company file, read before the parts start; a file that is there but invalid is logged once, as is each value
+  // it drops (its notes)
   const file = companyFile();
   r.company = readCompany(file);
   if (!r.company.ok && !r.company.missing) r.log(`${file} is not a valid company file: ${r.company.error}`);
+  if (r.company.ok) for (const note of r.company.notes || []) r.log(`${file}: ${note}`);
   const companyKeys = r.setCompanyContexts();
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
   const started = r.startAll();

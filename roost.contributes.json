@@ -155,7 +155,7 @@
         },
         {
           "id": "codebaseSearch",
-          "title": "Search your code (optional)",
+          "title": "Search your code by meaning",
           "description": "Give Claude and Codex tabs a tool that searches the workspace, by keywords and, once installed, by meaning. Off unless you turn it on.\n[Turn On Codebase Search](command:roost.codebaseSearchOn)\n[Not Now](command:roost.codebaseSearchNotNow)",
           "media": {
             "markdown": "media/walkthrough/codebase-search.md"

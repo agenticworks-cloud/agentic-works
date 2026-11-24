@@ -2,6 +2,8 @@
 // The company file: ~/.config/roost/company.json, written by a company's installer (ROOST_COMPANY_FILE overrides the
 // path). It names an LLM gateway and the MCP servers the company offers. readCompany validates it whole: any error
 // makes the file invalid, and the error starts with the path of the offending value (mcpServers[1].connect.kind: ...).
+// The one exception is the optional jira section: a bad value there is dropped with a note (readCompany's notes), and
+// the rest of the file still loads.
 // This file is copied byte for byte to parts/agents/src/company.js (a part never requires Roost's src/); a Roost test
 // checks the copies match.
 const fs = require('node:fs');
@@ -29,6 +31,15 @@ const isHttp = (v) => {
     return false;
   }
 };
+const isHttps = (v) => {
+  if (!isString(v)) return false;
+  try {
+    return new URL(v).protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+};
+const EMAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 const ID = /^[A-Za-z0-9_-]+$/;
 const KINDS = ['tokenPage', 'command', 'mcpTool', 'none'];
 const TOKEN = '${token}';
@@ -206,10 +217,27 @@ function server(s, i, seen, home) {
   return { id: s.id, name: s.name, about: s.about, register: reg, connect: conn, install: install(s.install, `${at}.install`, home) };
 }
 
-function validate(data, home) {
+// jira: the company's Jira site and the user's email, for the Get started page to fill in: { site, email }, both
+// optional. Never a token: any other field (a token among them) is ignored. A bad value is dropped with a note.
+function jira(j, notes) {
+  const out = { site: '', email: '' };
+  if (j === undefined || j === null) return out;
+  if (!isObject(j)) { notes.push('jira: must be an object; it is ignored'); return out; }
+  if (j.site !== undefined) {
+    if (isHttps(j.site)) out.site = j.site;
+    else notes.push('jira.site: must be an https URL; it is ignored');
+  }
+  if (j.email !== undefined) {
+    if (isString(j.email) && EMAIL.test(j.email)) out.email = j.email;
+    else notes.push('jira.email: must be an email address; it is ignored');
+  }
+  return out;
+}
+
+function validate(data, home, notes = []) {
   if (!isObject(data)) throw new Invalid('', 'the file must hold a JSON object');
   if (!isString(data.name) || !data.name) throw new Invalid('name', 'must be a non-empty string');
-  const company = { name: data.name, title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [] };
+  const company = { name: data.name, title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' } };
   // optional wording for the Get started page: its title, and the names of its gateway, tools and talk steps
   if (data.title !== undefined) {
     if (!isString(data.title) || !data.title) throw new Invalid('title', 'must be a non-empty string');
@@ -224,6 +252,7 @@ function validate(data, home) {
       company.steps[k] = v;
     }
   }
+  company.jira = jira(data.jira, notes);
   if (data.gateway !== undefined && data.gateway !== null) company.gateway = gateway(data.gateway, home);
   if (data.mcpServers !== undefined) {
     if (!Array.isArray(data.mcpServers)) throw new Invalid('mcpServers', 'must be an array');
@@ -247,8 +276,10 @@ function readCompany(file, { home = os.homedir() } = {}) {
   } catch (e) {
     return { ok: false, missing: false, error: `invalid JSON: ${e.message}` };
   }
+  // notes: the values dropped from the optional sections, each starting with its path (jira.site: ...)
+  const notes = [];
   try {
-    return { ok: true, company: validate(data, home) };
+    return { ok: true, company: validate(data, home, notes), notes };
   } catch (e) {
     if (e instanceof Invalid) return { ok: false, missing: false, error: e.message };
     throw e;

@@ -1,4 +1,4 @@
-# Search your code (optional)
+# Search your code by meaning
 
 Codebase search gives Claude and Codex tabs a `codebase_search` tool. It searches your workspace by keywords, and by
 meaning once that is installed, so a tab can find code by what it does when the names in the code aren't what you'd ask

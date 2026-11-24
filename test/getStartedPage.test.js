@@ -22,7 +22,7 @@ const shown = (el) => { for (let e = el; e && e !== d.body; e = e.parentElement)
 const step = (id) => d.querySelector(`.step[data-id="${id}"]`);
 const open = () => [...d.querySelectorAll('.step.open')].map((s) => s.dataset.id);
 const button = (el, text) => [...el.querySelectorAll('button')].find((b) => b.textContent === text && shown(b));
-const st = (o) => Object.assign({ title: 'Get started with Roost', steps: [], claude: { companyGateway: '' }, github: { logins: [] }, teams: { rowId: '' }, jira: { rowId: '', site: '', form: true }, parts: [] }, o);
+const st = (o) => Object.assign({ title: 'Get started with Roost', steps: [], claude: { companyGateway: '' }, github: { logins: [] }, teams: { rowId: '' }, jira: { rowId: '', site: '', email: '', form: true }, parts: [] }, o);
 const S = (id, name, done = false, waiting = '') => ({ id, name, done, waiting });
 
 assert.deepStrictEqual(out, [{ type: 'ready' }], 'the page asks for its state');
@@ -246,11 +246,17 @@ assert.strictEqual(step('teams').querySelector('.note').textContent, "Teams isn'
 assert.ok(!shown(step('teams').querySelector('.waiting')));
 host({ type: 'state', state: st({ teams: { rowId: '' }, steps: [S('teams', 'Sign in to Teams', false, 'Finish signing in in your browser.')] }) });
 assert.ok(!shown(step('teams').querySelector('.note')));
-// jira: the form, prefilled site
-host({ type: 'state', state: st({ jira: { rowId: '', site: 'https://example.atlassian.net', form: true }, steps: [S('jira', 'Sign in to Jira')] }) });
+// jira: the form, prefilled site and email (a company file's), and nothing sent until Sign in is pressed
+const sentBefore = out.length;
+host({ type: 'state', state: st({ jira: { rowId: '', site: 'https://example.atlassian.net', email: 'you@example.com', form: true }, steps: [S('jira', 'Sign in to Jira')] }) });
 const j = step('jira');
 assert.deepStrictEqual(open(), ['jira']);
 assert.strictEqual(j.querySelector('input[name=site]').value, 'https://example.atlassian.net');
+assert.strictEqual(j.querySelector('input[name=email]').value, 'you@example.com');
+assert.ok(!out.slice(sentBefore).some((m) => m.type === 'jiraForm'), 'a prefill sends nothing');
+// a later state's email replaces one the user hasn't changed
+host({ type: 'state', state: st({ jira: { rowId: '', site: 'https://example.atlassian.net', email: 'other@example.com', form: true }, steps: [S('jira', 'Sign in to Jira')] }) });
+assert.strictEqual(j.querySelector('input[name=email]').value, 'other@example.com');
 assert.strictEqual(j.querySelector('a').href, 'https://id.atlassian.com/manage-profile/security/api-tokens');
 assert.strictEqual(j.querySelector('a').textContent, 'Create one');
 j.querySelector('input[name=site]').value = ' https://example.atlassian.net/ ';
@@ -266,8 +272,8 @@ assert.ok(shown(j.querySelector('.error')));
 assert.strictEqual(j.querySelector('.error').textContent, 'the email or API token was rejected');
 host({ type: 'jira', error: null });
 assert.ok(!shown(j.querySelector('.error')));
-host({ type: 'state', state: st({ jira: { rowId: '', site: 'https://example.atlassian.net', form: true }, steps: [S('jira', 'Sign in to Jira')] }) });
-assert.strictEqual(j.querySelector('input[name=email]').value, ' me@example.com ', 'a later state keeps what is typed');
+host({ type: 'state', state: st({ jira: { rowId: '', site: 'https://example.atlassian.net', email: 'you@example.com', form: true }, steps: [S('jira', 'Sign in to Jira')] }) });
+assert.strictEqual(j.querySelector('input[name=email]').value, ' me@example.com ', 'a later state keeps the email typed over the prefill');
 assert.strictEqual(j.querySelector('input[name=site]').value, ' https://example.atlassian.net/ ', 'a site typed over the prefill is kept');
 host({ type: 'state', state: st({ jira: { rowId: '', site: '', form: false }, steps: [S('jira', 'Sign in to Jira')] }) });
 assert.ok(!shown(j.querySelector('input[name=site]')));

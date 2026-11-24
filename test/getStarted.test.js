@@ -207,8 +207,8 @@ test('no company file: Roost\'s words and order', async () => {
   assert.strictEqual(st.title, 'Get started with Roost');
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
-  assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code (optional)', 'Choose your parts']);
-  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [] }, { rowId: '', note: '' }, { rowId: '', site: '', form: true }]);
+  assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code by meaning', 'Choose your parts']);
+  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [] }, { rowId: '', note: '' }, { rowId: '', site: '', email: '', form: true }]);
   await s.extension.deactivate();
 });
 
@@ -392,9 +392,34 @@ test('a reply after the page closed is dropped quietly', async () => {
   await s.extension.deactivate();
 });
 
+test('the Jira form is filled from the company file: a user-level jira.site wins, a workspace one is ignored; never a token', async () => {
+  const company = { ...EXAMPLE, jira: { site: 'https://example.atlassian.net', email: 'you@example.com', token: 'tok-company-1' } };
+  let s = await pageSetup(company);
+  assert.deepStrictEqual((await s.stateOf()).jira, { rowId: '', site: 'https://example.atlassian.net', email: 'you@example.com', form: true });
+  assert.ok(!JSON.stringify(s.page.posted).includes('tok-company-1'), 'a token in the company file is never sent');
+  // a workspace-level jira.site: get() would return it, but only the user's scope counts
+  s.ui.config['jira.site'] = 'https://workspace.example.com';
+  s.ui.inspect['jira.site'] = { workspaceValue: 'https://workspace.example.com' };
+  s.ui.changeConfig(['jira.site']);
+  assert.strictEqual((await s.stateOf()).jira.site, 'https://example.atlassian.net', 'a workspace value is ignored');
+  // a user-level jira.site wins over the company file's
+  s.ui.inspect['jira.site'] = { globalValue: 'https://mine.example.com', workspaceValue: 'https://workspace.example.com' };
+  s.ui.changeConfig(['jira.site']);
+  assert.deepStrictEqual((await s.stateOf()).jira, { rowId: '', site: 'https://mine.example.com', email: 'you@example.com', form: true });
+  await s.extension.deactivate();
+  // a bad site or email in the company file: dropped, with a note in the output; the rest of the file still loads
+  s = await pageSetup({ ...EXAMPLE, jira: { site: 'http://example.atlassian.net', email: 'not an email' } });
+  const st = await s.stateOf();
+  assert.deepStrictEqual(st.jira, { rowId: '', site: '', email: '', form: true });
+  assert.strictEqual(st.claude.companyGateway, 'Example Gateway');
+  assert.ok(s.ui.out.some((l) => l.includes('jira.site: must be an https URL')), s.ui.out.join('\n'));
+  assert.ok(s.ui.out.some((l) => l.includes('jira.email: must be an email address')));
+  await s.extension.deactivate();
+});
+
 test('jiraForm goes to jay.signInWith; its answer comes back; the token is in neither the page\'s messages nor the output', async () => {
   const s = await pageSetup(null, { 'jira.site': 'example.atlassian.net' });
-  assert.deepStrictEqual((await s.stateOf()).jira, { rowId: '', site: 'example.atlassian.net', form: true });
+  assert.deepStrictEqual((await s.stateOf()).jira, { rowId: '', site: 'example.atlassian.net', email: '', form: true });
   const got = [];
   s.ui.commands['jay.signInWith'] = async (m) => { got.push(m); return 'That API token was not accepted.'; };
   const form = { type: 'jiraForm', site: 'example.atlassian.net', email: 'a@example.com', token: 'tok-secret-7' };

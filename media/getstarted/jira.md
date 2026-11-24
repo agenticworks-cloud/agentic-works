@@ -1,11 +1,12 @@
 The **Jira and Confluence** view lists your tickets, and **Jira: Open Ticket** and **Jira: Open Confluence Page** open
 one by key or link.
 
-To sign in, fill in the form here:
+To sign in, fill in the form here. With a company setup, the site and email are already filled in, so only an API
+token is needed (**Create one** below).
 
 1. **Site URL**: your Atlassian site, such as `https://your-site.atlassian.net`. It is filled in when `jira.site` is
-   set.
-2. **Email**: the one you sign in to Atlassian with.
+   set, or from the company setup.
+2. **Email**: the one you sign in to Atlassian with; filled in from the company setup when it has one.
 3. **API token**: **Create one** opens Atlassian's
    [API tokens page](https://id.atlassian.com/manage-profile/security/api-tokens). Create a token there and paste it.
 

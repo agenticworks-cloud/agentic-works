@@ -7,7 +7,8 @@ search, and the extra tool can cost them steps. It helps most in large or unfami
 
 - **Turn On** turns it on for every workspace; each tab takes it up from its next message. It needs Python 3.8 or
   newer.
-- Search by meaning needs a one-time download of about 300 MB: run **Agents: Install Codebase Search by Meaning**.
+- Searching by meaning uses a model that is installed separately, a one-time download of about 300 MB: run
+  **Agents: Install Codebase Search by Meaning**. Until then it searches by keywords.
 - **Not Now** leaves it off. **Agents: Toggle Codebase Search** changes it later.
 
 Indexes are kept in `~/.cache/codebase-index/`.
