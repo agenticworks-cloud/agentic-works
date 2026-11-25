@@ -970,6 +970,10 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   "full emoji pickers")*. A click on a reaction adds Sean's or takes it back; hovering a message shows six quick
   reactions and a picker with every emoji, a search, recent ones and a skin tone (parts/teams note 101, "Reacting").
   jay's ticket keys: someone else's in purple, unassigned ones plain, and closer to the expand arrow (jay 0.2.9).
+- **Build's task count on the phase pill — Built (0.5.12)** *(ported from Perch 0.7.48, its note 203)*. In Build the
+  pill reads "Build 5/9" and the card's Build row "Build — 5 of 9 tasks done", from the SDD ledger the session last
+  named. Roost's Get started tests no longer add "hello" sessions to the real session list: the test home keeps its own
+  (`roost-test-reset`, outside this repo).
 
 ## Left to the builder
 
