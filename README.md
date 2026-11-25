@@ -97,9 +97,10 @@ files. Required keys are marked **required**.
 - `title` (optional): a non-empty string; the Get started page reads "Get started with <title>" (default Roost).
 - `steps` (optional): `email`, `gateway`, `tools` and `talk`, each an optional non-empty string naming that step of
   the Get started page (defaults Your email, Connect Claude, Connect your tools, Talk to Claude or Codex).
-- `email` (optional): `domain` (**required**, such as `example.com`) and `env` (an upper-case environment variable
-  name, not one the system uses). The Get started page then has an email step after GitHub's: a box that ends in
-  `@<domain>`, **Save** (only an address on that domain) and **Not Now**. The address stays in Roost's own storage,
+- `email` (optional): `domain` (**required**, such as `example.com`), `env` (an upper-case environment variable
+  name, not one the system uses) and `example` (the name part shown in grey before `@<domain>`, such as `first.last`;
+  `your.name` without one). The Get started page then has an email step after GitHub's: a box showing
+  `<example>@<domain>` in grey, **Save** (only an address on that domain; a bare name gets `@<domain>`) and **Not Now**. The address stays in Roost's own storage,
   is never logged, starts the Jira step's email, and goes in `env` to the gateway's `keyCommand` and to the
   `command` sign-ins of `mcpServers` (their terminal's environment, never their command line), so they can fill it in.
   A bad section is dropped with a note, as `jira`'s is.

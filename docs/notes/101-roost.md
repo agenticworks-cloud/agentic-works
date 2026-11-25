@@ -944,7 +944,8 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   separate step, in case, someone opts out from" the gateway)*.
   - *The file:* `email: { domain, env }` and `steps.email` (`src/company.js`; a bad section is dropped with a note).
   - *The step* (company order, after GitHub, only with the section): a box ending in `@<domain>` with the cursor
-    before the `@`, **Save** (an address on the domain, kept lowercase) and **Not Now**; still editable once ticked.
+    before the `@` (since 0.5.15: an empty box showing `your.name@<domain>` in grey, focused when the step opens;
+    a bare name gets `@<domain>` on Save), **Save** (an address on the domain, kept lowercase) and **Not Now**; still editable once ticked.
   - *Where it goes:* globalState `roost.email`, which the parts share (a part's context is made from Roost's); never
     logged. A setting was the other choice, but Roost contributes none of its own today. The Jira form's email starts
     with it. The gateway's `keyCommand` (the Agents part, page and panel alike) and each `command` sign-in's terminal
@@ -980,6 +981,12 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   every editor's title bar, Get started included. On a VS Code that has never been started, the installer's Icons step
   now hides them too, the way a right-click in the title bar does (note 102, step 6).
 - **Send "Hello" — Built (0.5.14).** The Get started step that talks to Claude says to send "Hello" rather than "a message".
+- **The email box: focused, with an example — Built (0.5.15).** *(Sean, 2026-11-25: "set focus to the email entry",
+  "someone@… as background"; a witty name such as fledgling "may get the person confused")* The box is empty with
+  `your.name@<domain>` in grey, takes the focus whenever the step opens, and a bare name gets `@<domain>` on Save.
+  A company file can show its own format instead: `email.example` ("your.name for roost, but first.last for
+  c3works"); a bad one is ignored with a note. A state refresh no longer moves steps that are already in place,
+  which took the focus out of a box being typed in.
 
 ## Left to the builder
 

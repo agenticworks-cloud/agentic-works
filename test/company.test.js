@@ -60,10 +60,17 @@ assert.deepStrictEqual(min.notes, []);
 {
   const em = read({ name: 'E', email: { domain: 'Example.com', env: 'EXAMPLE_EMAIL' }, steps: { email: 'Your work email' } });
   assert.strictEqual(em.ok, true, em.error);
-  assert.deepStrictEqual(em.company.email, { domain: 'example.com', env: 'EXAMPLE_EMAIL' });
+  assert.deepStrictEqual(em.company.email, { domain: 'example.com', env: 'EXAMPLE_EMAIL', example: '' });
   assert.strictEqual(em.company.steps.email, 'Your work email');
   assert.deepStrictEqual(em.notes, []);
-  assert.deepStrictEqual(read({ name: 'E', email: { domain: 'example.com' } }).company.email, { domain: 'example.com', env: '' });
+  assert.deepStrictEqual(read({ name: 'E', email: { domain: 'example.com' } }).company.email, { domain: 'example.com', env: '', example: '' });
+  // example: the name part the box shows in grey before @<domain> (the company's own format, such as first.last)
+  assert.deepStrictEqual(read({ name: 'E', email: { domain: 'example.com', example: 'first.last' } }).company.email, { domain: 'example.com', env: '', example: 'first.last' });
+  for (const example of ['', 'a@b', 'has space', 'x'.repeat(65), 7]) {
+    const r = read({ name: 'E', email: { domain: 'example.com', example } });
+    assert.deepStrictEqual([r.company.email, r.notes.length], [{ domain: 'example.com', env: '', example: '' }, 1], JSON.stringify(example));
+    assert.ok(r.notes[0].startsWith('email.example:'), r.notes[0]);
+  }
   invalid({ name: 'E', steps: { email: '' } }, 'steps.email');
   // a bad section is dropped with a note: no email step
   for (const [email, note] of [

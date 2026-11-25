@@ -204,14 +204,14 @@ test('steps.talk names the talk step (Sean, 2026-11-24)', async () => {
 });
 
 test('email: a step of its own after GitHub when the company file asks; saved, kept for the tools, never logged', async () => {
-  const company = { ...EXAMPLE, email: { domain: 'example.com', env: 'EXAMPLE_EMAIL' }, steps: { email: 'Your work email' }, jira: { email: 'old@example.com' } };
+  const company = { ...EXAMPLE, email: { domain: 'example.com', env: 'EXAMPLE_EMAIL', example: 'first.last' }, steps: { email: 'Your work email' }, jira: { email: 'old@example.com' } };
   const s = await pageSetup(company);
   let st = await s.stateOf();
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts']);
   const step = st.steps.find((x) => x.id === 'email');
   assert.deepStrictEqual([step.name, step.done], ['Your work email', false]);
   assert.ok(step.details, 'it has details');
-  assert.deepStrictEqual(st.email, { domain: 'example.com', value: '' });
+  assert.deepStrictEqual(st.email, { domain: 'example.com', example: 'first.last', value: '' });
   assert.strictEqual(st.jira.email, 'old@example.com', 'nothing saved yet: the company file\'s');
   // not on the company's domain, or not an address: refused, nothing saved
   for (const bad of ['me@other.com', '@example.com', 'me', 'a b@example.com', 42]) {
@@ -225,7 +225,7 @@ test('email: a step of its own after GitHub when the company file asks; saved, k
   assert.strictEqual(s.store.get('roost.email'), 'me.name@example.com');
   st = await s.stateOf();
   assert.strictEqual(st.steps.find((x) => x.id === 'email').done, true);
-  assert.deepStrictEqual(st.email, { domain: 'example.com', value: 'me.name@example.com' });
+  assert.deepStrictEqual(st.email, { domain: 'example.com', example: 'first.last', value: 'me.name@example.com' });
   assert.strictEqual(st.jira.email, 'me.name@example.com', 'the saved address fills the Jira form');
   // still editable once done
   await s.page.receive({ type: 'emailSave', email: 'other.name@example.com' });

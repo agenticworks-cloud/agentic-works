@@ -232,7 +232,7 @@ class GetStarted {
     return {
       title: `Get started with ${(c && c.title) || 'Roost'}`,
       steps,
-      email: c && c.email ? { domain: c.email.domain, value: saved } : null,
+      email: c && c.email ? { domain: c.email.domain, example: c.email.example, value: saved } : null,
       claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
       agents: { autoTab, openTab: autoTab && this.offerTab() },
       github: { logins: [...this.logins] },

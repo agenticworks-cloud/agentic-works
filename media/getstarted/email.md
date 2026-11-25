@@ -1,5 +1,5 @@
-Type the email address you use at work, so the sign-ins {{title}} set up can fill it in for you. The box already ends in the
-company's domain; type the part before it and press **Save**.
+Type the email address you use at work, so the sign-ins {{title}} set up can fill it in for you. The part before the @
+is enough: **Save** adds the company's domain.
 
 Saving ticks this step. The address stays on this computer, in Roost's own storage: Roost never logs it and sends it to
 no one. It goes only to the tools {{title}} set up, when they open a sign-in window:

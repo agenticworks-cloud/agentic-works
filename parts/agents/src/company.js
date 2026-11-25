@@ -245,10 +245,13 @@ function jira(j, notes) {
 }
 
 // email: the Get started page asks for the user's address on the company's domain, and the company's tools get it in
-// the environment variable named here (never on a command line): { domain, env }, env optional. A bad section is
-// dropped with a note: no email step then.
+// the environment variable named here (never on a command line): { domain, env, example }, env and example optional.
+// example is the name part the box shows in grey before @<domain> (the company's own format, such as first.last;
+// Roost's page shows your.name without one): a bad one is ignored with a note. A bad domain or env drops the
+// section with a note: no email step then.
 const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
+const EXAMPLE_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
 const RESERVED_ENV = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|NODE_OPTIONS|NODE_PATH|PYTHONPATH|LD_.*|DYLD_.*)$/;
 function email(e, notes) {
   if (e === undefined || e === null) return null;
@@ -263,7 +266,12 @@ function email(e, notes) {
     }
     env = e.env;
   }
-  return { domain, env };
+  let example = '';
+  if (e.example !== undefined) {
+    if (isString(e.example) && EXAMPLE_NAME.test(e.example)) example = e.example;
+    else notes.push('email.example: must be the part of an address before the @, such as first.last; it is ignored');
+  }
+  return { domain, env, example };
 }
 
 function validate(data, home, notes = [], dir = home) {

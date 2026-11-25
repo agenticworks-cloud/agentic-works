@@ -66,23 +66,25 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       };
     },
 
-    // the company's email step: the box ends in @<domain> until something is typed or saved, the cursor before the @
+    // the company's email step: an empty box showing your.name@<domain> in grey (or the company file's email.example
+    // before the @), focused when the step opens; a bare name gets @<domain> on Save
     email(v) {
-      // text, not email: an email input has no selection to put the cursor before the @
-      v.box = input('text', 'email', '');
+      v.box = input('email', 'email', '');
       v.box.autocomplete = 'email'; v.box.inputMode = 'email';
-      v.save = button('Save', '', () => post({ type: 'emailSave', email: v.box.value.trim() }));
+      v.domain = '';
+      const typed = () => { const t = v.box.value.trim(); return t && v.domain && !t.includes('@') ? t + '@' + v.domain : t; };
+      v.save = button('Save', '', () => post({ type: 'emailSave', email: typed() }));
       onEnter(v.box, v.save);
-      // the cursor before the @ when the box is still only the domain; again after a click has placed it
-      const before = () => { if (v.box.value === v.prefill && v.box.value.startsWith('@')) v.box.setSelectionRange(0, 0); };
-      v.box.addEventListener('focus', () => { before(); setTimeout(before, 0); });
+      v.focus = () => v.box.focus();
       v.error = el('p', 'error'); v.error.hidden = true; v.error.setAttribute('role', 'alert');
       v.prefill = '';   // what the box was last filled with
       v.body.append(field('Email', v.box), row(v.save, button('Not Now', 'secondary', () => post({ type: 'notNow', step: 'email' }))), v.error);
       v.update = (s) => {
         const e = s.email || {};
-        const domain = typeof e.domain === 'string' ? e.domain : '';
-        const value = typeof e.value === 'string' && e.value ? e.value : domain ? '@' + domain : '';
+        v.domain = typeof e.domain === 'string' ? e.domain : '';
+        const example = typeof e.example === 'string' && e.example ? e.example : 'your.name';   // the company's own format, if it has one
+        v.box.placeholder = v.domain ? example + '@' + v.domain : '';
+        const value = typeof e.value === 'string' ? e.value : '';
         if (v.box.value === '' || v.box.value === v.prefill) { v.box.value = value; v.prefill = value; }
       };
       v.emailError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; };
@@ -442,6 +444,9 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       v.body.hidden = !isOpen;
       v.name.setAttribute('aria-expanded', String(isOpen));
       if (isOpen && !v.asked) { v.asked = true; if (v.onFirstOpen) v.onFirstOpen(); }
+      // a step with a box to fill (the email) puts the cursor in it each time it opens
+      if (isOpen && !v.wasOpen && v.focus) v.focus();
+      v.wasOpen = isOpen;
     }
   }
 
@@ -475,6 +480,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     const ids = new Set(steps.map((x) => x.id));
     for (const [id, v] of views) if (!ids.has(id)) { v.root.remove(); views.delete(id); openIds.delete(id); wasDone.delete(id); if (chosen === id) chosen = null; }
     const list = document.getElementById('steps');
+    let at = 0;   // where the next step belongs in the list
     for (const x of steps) {
       let v = views.get(x.id);
       if (!v) { v = make(x.id); views.set(x.id, v); if (v.rows) v.rows(); }
@@ -484,7 +490,9 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       v.waiting.textContent = x.waiting || '';
       v.waiting.hidden = !x.waiting;
       if (v.update) v.update(s);
-      list.appendChild(v.root);   // in the steps' order
+      // in the steps' order, moved only when out of place: moving a step takes the focus out of a box being typed in
+      if (list.children[at] !== v.root) list.insertBefore(v.root, list.children[at] || null);
+      at += 1;
       // a step closes when it turns done, opened by hand or not; one done from the start, or reopened, is left alone
       if (x.done && wasDone.get(x.id) === false) {
         openIds.delete(x.id);

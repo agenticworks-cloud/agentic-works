@@ -260,16 +260,23 @@ step('a2').querySelector('.name').click();
 host({ type: 'state', state: st({ steps: [S('a1', 'A1', true), S('a2', 'A2', true), S('a3', 'A3')] }) });
 assert.deepStrictEqual(open(), ['a3']);
 
-// ---- email: the box ends in @<domain>, the cursor before it; Save sends it; a refresh keeps what is typed
+// ---- email: an empty box with a your.name@<domain> placeholder, focused when the step opens; a bare name gets the
+// domain on Save; a refresh keeps what is typed
 host({ type: 'state', state: st({ email: { domain: 'example.com', value: '' }, steps: [S('email', 'Your work email')] }) });
 {
   const e = step('email');
   assert.deepStrictEqual(open(), ['email']);
   const box = e.querySelector('input[name=email]');
   assert.ok(shown(box));
-  assert.strictEqual(box.value, '@example.com');
-  box.dispatchEvent(new w.Event('focus'));
-  assert.deepStrictEqual([box.selectionStart, box.selectionEnd], [0, 0], 'the cursor before @');
+  assert.deepStrictEqual([box.value, box.placeholder], ['', 'your.name@example.com'], 'empty, the example in grey');
+  host({ type: 'state', state: st({ email: { domain: 'example.com', example: 'first.last', value: '' }, steps: [S('email', 'Your work email')] }) });
+  assert.strictEqual(box.placeholder, 'first.last@example.com', "the company's own example");
+  host({ type: 'state', state: st({ email: { domain: 'example.com', value: '' }, steps: [S('email', 'Your work email')] }) });
+  assert.strictEqual(w.document.activeElement, box, 'the box has the focus when the step opens');
+  box.value = 'me.name';
+  button(e, 'Save').click();
+  assert.deepStrictEqual(out.pop(), { type: 'emailSave', email: 'me.name@example.com' }, 'a bare name gets the domain');
+  box.value = '';
   const sent = out.length;
   host({ type: 'state', state: st({ email: { domain: 'example.com', value: '' }, steps: [S('email', 'Your work email')] }) });
   assert.strictEqual(out.length, sent, 'a refresh sends nothing');
@@ -284,7 +291,9 @@ host({ type: 'state', state: st({ email: { domain: 'example.com', value: '' }, s
   assert.ok(!shown(e.querySelector('.error')));
   host({ type: 'state', state: st({ email: { domain: 'example.com', value: 'me.name@example.com' }, steps: [S('email', 'Your work email', true)] }) });
   assert.strictEqual(box.value, 'me.name@example.com');
+  box.blur();
   e.querySelector('.name').click();
+  assert.strictEqual(w.document.activeElement, box, 'reopened by hand: focused again');
   box.value = 'x@example.com';
   box.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter' }));
   assert.deepStrictEqual(out.pop(), { type: 'emailSave', email: 'x@example.com' });
