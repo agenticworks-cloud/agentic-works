@@ -993,6 +993,11 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   an empty PRs tab. The company file's optional `notes` puts the company's own text first in a step's details (keyed
   as `steps` is), rendered by the same escaping renderer. Git runs over HTTPS with gh's sign-in
   (`--git-protocol https`), so no SSH key is needed for the walkthrough.
+- **"Hello" typed in the talk step's new tab — Built (0.5.17).** *(Sean, 2026-11-25: "can we type in hello to the
+  perch tab and set focus?")* Get started opens the talk step's tab (the gateway tab, Open Claude Tab, New Claude Tab,
+  New Codex Tab) with `{ fill: 'Hello' }`; Agents' `perch.openGatewayTab`, `perch.newClaude` and `perch.newCodex` take
+  it as the new tab's prefill, which the page types in the box with the focus there, so Enter sends it. A tab already
+  open is only shown, nothing typed; any other argument (a menu's URI) opens an empty tab.
 
 ## Left to the builder
 

@@ -583,9 +583,9 @@ test('a code waiting for a sign-in the page did not start is not shown in it', a
 const AUTO = { ...EXAMPLE, gateway: { ...EXAMPLE.gateway, openTabOnTalk: true } };
 // perch.sessionCount and perch.openGatewayTab, faked: `count` and `answer` are what they say, each call recorded
 function fakePerch(s, { count = 0, answer = 'opened' } = {}) {
-  const f = { calls: [], count, answer };
+  const f = { calls: [], args: [], count, answer };
   s.ui.commands['perch.sessionCount'] = () => { f.calls.push('sessionCount'); return typeof f.count === 'function' ? f.count() : f.count; };
-  s.ui.commands['perch.openGatewayTab'] = () => { f.calls.push('openGatewayTab'); return typeof f.answer === 'function' ? f.answer() : f.answer; };
+  s.ui.commands['perch.openGatewayTab'] = (...a) => { f.calls.push('openGatewayTab'); f.args.push(a); return typeof f.answer === 'function' ? f.answer() : f.answer; };
   return f;
 }
 const settle = async () => { for (let i = 0; i < 10; i++) await tick(); };
@@ -615,6 +615,7 @@ test('openTabOnTalk: no tab before the gateway is ready, nor after a Not Now; on
   assert.strictEqual(st.agents.openTab, true, 'closed: Open Claude Tab');
   await s.page.receive({ type: 'openTab' });
   assert.deepStrictEqual(f.calls.slice(2), ['openGatewayTab'], 'Open Claude Tab: the same command');
+  assert.deepStrictEqual(f.args, [[{ fill: 'Hello' }], [{ fill: 'Hello' }]], '"Hello" typed in the tab, by itself and with Open Claude Tab');
   await s.extension.deactivate();
 });
 
@@ -724,7 +725,7 @@ test('Not Now, Turn On, Done and All settings run the walkthrough\'s commands an
   const s = await pageSetup(EXAMPLE);
   const ran = [];
   for (const id of ['roost.connectClaudeNotNow', 'roost.toolsNotNow', 'roost.codebaseSearchNotNow', 'roost.codebaseSearchOn', 'roost.openSettings', 'roost.newClaudeTab', 'roost.newCodexTab']) {
-    s.ui.commands[id] = () => { ran.push(id); };
+    s.ui.commands[id] = (...a) => { ran.push(id); if (id.startsWith('roost.new')) ran.push(a); };
   }
   await s.page.receive({ type: 'notNow', step: 'claude' });
   assert.deepStrictEqual(ran, ['roost.connectClaudeNotNow']);
@@ -735,7 +736,7 @@ test('Not Now, Turn On, Done and All settings run the walkthrough\'s commands an
   await s.page.receive({ type: 'newTab', kind: 'claude' });
   await s.page.receive({ type: 'newTab', kind: 'codex' });
   await s.page.receive({ type: 'notNow', step: 'nope' });
-  assert.deepStrictEqual(ran.slice(1), ['roost.toolsNotNow', 'roost.codebaseSearchOn', 'roost.openSettings', 'roost.newClaudeTab', 'roost.newCodexTab']);
+  assert.deepStrictEqual(ran.slice(1), ['roost.toolsNotNow', 'roost.codebaseSearchOn', 'roost.openSettings', 'roost.newClaudeTab', [{ fill: 'Hello' }], 'roost.newCodexTab', [{ fill: 'Hello' }]], 'a new tab has "Hello" typed in it');
   assert.deepStrictEqual((await s.stateOf()).steps.filter((x) => x.done).map((x) => x.id), ['claude', 'tools', 'codebase', 'parts']);
   await s.extension.deactivate();
   const p = await pageSetup(null);

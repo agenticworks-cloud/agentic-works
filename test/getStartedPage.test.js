@@ -202,7 +202,7 @@ assert.deepStrictEqual(out.pop(), { type: 'newTab', kind: 'codex' });
 const talk = (agents) => st({ claude: { companyGateway: 'Example Gateway' }, agents, steps: [S('claude', 'Connect Claude', true), S('agents', 'Talk to Claude or Codex'), S('tools', 'Connect your tools'), S('codebase', 'Search your code')] });
 host({ type: 'state', state: talk({ autoTab: true, openTab: false }) });
 assert.ok(!button(step('agents'), 'New Claude Tab') && !button(step('agents'), 'New Codex Tab'), 'no New Claude Tab or New Codex Tab');
-assert.ok(step('agents').textContent.includes('A Claude tab opens on Example Gateway by itself. Send "Hello" there.'));
+assert.ok(step('agents').textContent.includes('A Claude tab opens on Example Gateway by itself, with "Hello" typed in it. Press Enter to send it.'));
 assert.ok(!button(step('agents'), 'Open Claude Tab'), 'a tab is open: no Open Claude Tab');
 host({ type: 'state', state: talk({ autoTab: true, openTab: true }) });
 button(step('agents'), 'Open Claude Tab').click();

@@ -1,5 +1,5 @@
-Press **New Claude Tab** or **New Codex Tab**: the tab opens beside this page. Type a message at the bottom and press
-Enter; "Hello" is enough. This step is ticked once you have sent one, from either.
+Press **New Claude Tab** or **New Codex Tab**: the tab opens beside this page with "Hello" typed in its box, the
+cursor there. Press Enter to send it, or type your own message. This step is ticked once you have sent one, from either.
 
 A Claude tab is a real Claude Code session, and a Codex tab a real Codex session, in an editor tab. It reads and
 edits your workspace, runs commands when you allow it, and keeps its history across reloads.

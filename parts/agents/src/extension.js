@@ -314,6 +314,16 @@ function messageSent() {
   Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.messageSent', true)).catch(() => { /* an older VS Code */ });
 }
 
+/**
+ * A new tab's typed text from a command's argument: { fill } with a short string (Roost's Get started types "Hello",
+ * and the tab's page puts it in the box and takes the focus). Anything else, such as the URI a menu passes, is nothing.
+ */
+const FILL_MAX = 200;
+function tabFill(spec) {
+  const fill = spec && typeof spec === 'object' && !Array.isArray(spec) ? spec.fill : undefined;
+  return typeof fill === 'string' && fill && fill.length <= FILL_MAX ? { fill } : {};
+}
+
 class Session {
   constructor(view, { id, kind, title, titled, unsaved, named, mode, effort, model, ide, resume, location, paneled, costSoFar, kept, gateway, own, gatewayCost, gatewayEstimate, periods, left, handoff, records, dir }) {
     this.view = view;
@@ -1672,13 +1682,13 @@ class PerchView {
    * ('revealed'), wherever it is; else a new one opens in an editor ('opened'), whatever the default for new tabs and
    * the saved backend, which may lag a gateway just saved. 'failed' when none could be opened.
    */
-  async openGatewayTab() {
+  async openGatewayTab(spec) {
     await this.settled;
     if (this.closing) return 'failed';
     if (!this.gateway().ok) return 'notReady';
     const open = this.sessions.find((s) => s.kind === 'claude' && s.gateway);
-    if (open) { this.focusTab(open); return 'revealed'; }
-    const s = this.addSession('claude', { gateway: true, location: 'editor' });
+    if (open) { this.focusTab(open); return 'revealed'; }   // shown as it is: nothing typed in a tab already there
+    const s = this.addSession('claude', { gateway: true, location: 'editor', ...tabFill(spec) });
     return s ? 'opened' : 'failed';
   }
 
@@ -3326,11 +3336,11 @@ function activate(context) {
     vscode.window.registerWebviewPanelSerializer(PANEL_TYPE, perch),
     vscode.commands.registerCommand('perch.new', () => perch.pickNew()),
     vscode.commands.registerCommand('perch.open', () => perch.open()),
-    vscode.commands.registerCommand('perch.newClaude', () => perch.addSession('claude')),
+    vscode.commands.registerCommand('perch.newClaude', (spec) => perch.addSession('claude', tabFill(spec))),
     vscode.commands.registerCommand('perch.newClaudeGateway', () => perch.addSession('claude', { gateway: true })),
-    vscode.commands.registerCommand('perch.newCodex', () => perch.addSession('codex')),
+    vscode.commands.registerCommand('perch.newCodex', (spec) => perch.addSession('codex', tabFill(spec))),
     vscode.commands.registerCommand('perch.sessionCount', () => perch.sessionCount()),
-    vscode.commands.registerCommand('perch.openGatewayTab', () => perch.openGatewayTab()),
+    vscode.commands.registerCommand('perch.openGatewayTab', (spec) => perch.openGatewayTab(spec)),
     vscode.commands.registerCommand('perch.setUpGateway', () => { perch.setUpGateway(); }),
     vscode.commands.registerCommand('perch.connectClaude', () => { perch.connectClaude(); }),
     vscode.commands.registerCommand('perch.connectClaude.request', (msg) => perch.connectRequest(msg)),

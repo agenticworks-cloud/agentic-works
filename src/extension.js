@@ -509,10 +509,11 @@ function activate(context, options = {}) {
   // the walkthrough's first step opens the tab, Claude or Codex, beside the walkthrough, which keeps most of the width
   // (no tab is opened on first start: Sean, 2026-11-24). Resolves to the command's answer; one that says no new tab
   // opened (perch.openGatewayTab's 'revealed', 'notReady', 'failed') waits for no new group.
-  const besideWalkthrough = async (command) => {
+  // Its argument, Get started's { fill: 'Hello' }, goes to the Agents command, which types it in the new tab.
+  const besideWalkthrough = async (command, spec) => {
     const groups = () => (vscode.window.tabGroups && vscode.window.tabGroups.all) || [];
     const before = groups().length;
-    const result = await vscode.commands.executeCommand(command);
+    const result = await (spec === undefined ? vscode.commands.executeCommand(command) : vscode.commands.executeCommand(command, spec));
     if (typeof result === 'string' && result !== 'opened') return result;
     for (let n = 0; n < 20 && groups().length === before; n++) await new Promise((r) => setTimeout(r, 50));
     if (before === 1 && groups().length === 2) {
@@ -520,11 +521,11 @@ function activate(context, options = {}) {
     }
     return result;
   };
-  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeTab', () => besideWalkthrough('perch.newClaude')));
-  context.subscriptions.push(vscode.commands.registerCommand('roost.newCodexTab', () => besideWalkthrough('perch.newCodex')));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeTab', (spec) => besideWalkthrough('perch.newClaude', spec)));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.newCodexTab', (spec) => besideWalkthrough('perch.newCodex', spec)));
   // the Get started talk step with gateway.openTabOnTalk: a Claude tab on the gateway, an open one shown rather than
   // another opened (perch.openGatewayTab), not perch.newClaude, whose saved backend may lag a gateway just saved
-  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeGatewayTab', () => besideWalkthrough('perch.openGatewayTab')));
+  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeGatewayTab', (spec) => besideWalkthrough('perch.openGatewayTab', spec)));
   // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal (startGithubSignIn).
   // Already signed in, it says so first and offers another account.
   context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', async () => {

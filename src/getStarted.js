@@ -46,6 +46,7 @@ const NAMES = {
 const PART_OF = { github: 'pullRequests', claude: 'agents', agents: 'agents', codebase: 'agents', teams: 'teams', jira: 'jira' };
 const NOT_NOW = { claude: 'roost.connectClaudeNotNow', tools: 'roost.toolsNotNow', codebase: 'roost.codebaseSearchNotNow' };
 const NEW_TAB = { claude: 'roost.newClaudeTab', codex: 'roost.newCodexTab' };
+const GREETING = { fill: 'Hello' };   // typed in the talk step's new tab, whose box takes the focus: Enter sends it
 const WAIT_TERMINAL = 'Finish signing in in the terminal.';
 const WAIT_BROWSER = 'Finish signing in in your browser.';
 const WAIT_CLAUDE = 'Signing in to Claude in the terminal…';
@@ -314,7 +315,7 @@ class GetStarted {
           break;
         }
         case 'github': this.githubSignIn(); break;
-        case 'newTab': if (NEW_TAB[m.kind]) await run(NEW_TAB[m.kind]); break;
+        case 'newTab': if (NEW_TAB[m.kind]) await run(NEW_TAB[m.kind], GREETING); break;
         case 'openTab': if (this.autoTabOn() && this.running('agents')) await this.openTabNow(); break;
         case 'teamsCopyCode':
           // chirp.copyCode copies the code and opens the page itself: only while a code with an https page waits
@@ -443,7 +444,7 @@ class GetStarted {
       const count = await run('perch.sessionCount');
       if (this.disposed || this.panel !== panel) return;
       if (typeof count === 'number' && count > 0) { a.settled = true; return; }
-      result = await run(OPEN_GATEWAY_TAB);
+      result = await run(OPEN_GATEWAY_TAB, GREETING);
     } catch (err) {
       this.log(`Get started: the Claude tab could not be opened: ${errorMessage(err)}`);
       result = 'failed';
@@ -461,7 +462,7 @@ class GetStarted {
 
   // Open Claude Tab: the same command, which shows a tab already open rather than opening another
   async openTabNow() {
-    const result = await this.vscode.commands.executeCommand(OPEN_GATEWAY_TAB);
+    const result = await this.vscode.commands.executeCommand(OPEN_GATEWAY_TAB, GREETING);
     if (TAB_OPEN.includes(result)) this.tabOpened();
     this.refresh();
   }

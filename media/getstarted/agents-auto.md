@@ -1,5 +1,5 @@
-Once {{gateway}} is ready, a Claude tab on it opens beside this page by itself. Type a message at the bottom and
-press Enter. This step is ticked once you have sent one.
+Once {{gateway}} is ready, a Claude tab on it opens beside this page by itself, with "Hello" typed in its box and the
+cursor there. Press Enter to send it, or type your own message. This step is ticked once you have sent one.
 
 A Claude tab is a real Claude Code session, in an editor tab. It reads and edits your workspace, runs commands when
 you allow it, and keeps its history across reloads.

@@ -1666,6 +1666,23 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     r.perch.dispose();
   }
 
+  // ---- perch.newClaude and perch.newCodex with { fill } (Roost's Get started types "Hello"); anything else, such as
+  // the URI a menu passes, opens an empty tab
+  {
+    const m = install();
+    const filled = {};   // what each tab's box was given: the fill event to a ready page, or the prefill a page gets later
+    const send = m.perch.sendEvent.bind(m.perch);
+    m.perch.sendEvent = (sid, e) => { if (e && e.kind === 'fill') filled[sid] = e.text; return send(sid, e); };
+    m.commands['perch.newClaude']({ fill: 'Hello' });
+    m.commands['perch.newCodex']({ fill: 'Hello' });
+    m.commands['perch.newClaude']({ scheme: 'file', path: '/x', fsPath: '/x' });
+    m.commands['perch.newClaude']({ fill: 42 });
+    m.commands['perch.newClaude']({ fill: 'x'.repeat(201) });
+    assert.deepStrictEqual(m.perch.sessions.map((s) => [s.kind, s.prefill || filled[s.id] || '']),
+      [['claude', 'Hello'], ['codex', 'Hello'], ['claude', ''], ['claude', ''], ['claude', '']]);
+    m.perch.dispose();
+  }
+
   // ---- perch.sessionCount and perch.openGatewayTab (Roost's Get started, with the company file's gateway.openTabOnTalk):
   // each answers once the wait for restored tabs is over; perch.sessionOpen says whether any tab is open
   {
@@ -1691,11 +1708,16 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert.strictEqual(await within(m.commands['perch.openGatewayTab']()), 'opened');
       assert.deepStrictEqual(m.perch.sessions.map((s) => [s.kind, s.location, s.gateway]), [['claude', 'editor', true]], 'a Claude tab on the gateway, in an editor though new tabs go to the sidebar');
       assert.deepStrictEqual(opened(m), [false, true], 'perch.sessionOpen: true once it is open');
-      assert.strictEqual(await within(m.commands['perch.openGatewayTab']()), 'revealed', 'asked again: the open tab is shown');
+      assert.strictEqual(m.perch.sessions[0].prefill, '', 'asked without a fill: an empty box');
+      m.perch.closeSession(m.perch.sessions[0].id);
+      assert.strictEqual(await within(m.commands['perch.openGatewayTab']({ fill: 'Hello' })), 'opened');
+      assert.strictEqual(m.perch.sessions[0].prefill, 'Hello', 'Get started\'s "Hello", waiting for the page, which types it and takes the focus');
+      assert.strictEqual(await within(m.commands['perch.openGatewayTab']({ fill: 'Hello' })), 'revealed', 'asked again: the open tab is shown');
+      assert.strictEqual(m.perch.sessions[0].prefill, 'Hello', 'and nothing more typed in it');
       assert.strictEqual(m.perch.sessions.length, 1, 'no second tab');
       assert.strictEqual(await within(m.commands['perch.sessionCount']()), 1);
       m.perch.closeSession(m.perch.sessions[0].id);
-      assert.deepStrictEqual(opened(m), [false, true, false], 'perch.sessionOpen: false once it is closed');
+      assert.deepStrictEqual(opened(m), [false, true, false, true, false], 'perch.sessionOpen: false once it is closed');
       m.perch.dispose();
     }
     // a restored tab in the sidebar counts
