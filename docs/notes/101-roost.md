@@ -956,6 +956,10 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   restored when VS Code restarts, the installer sets `workbench.startupEditor` to none, and an empty window starts with
   the side bar hidden. So each start, while a shown step is neither done nor Not Now'd, opens the Get started page and
   the Perch view as the first start does (not the PRs tab, which stays first-start only).
+- **The prompt an answer is for, pinned — Built (0.5.9)** *(Sean, 2026-11-25: in the Perch tab "it's hard to see
+  what the response is for"; "follow your scrolling")*. Ported from Perch 0.7.49 (its note 401): a strip above the
+  transcript shows the prompt whose answer is at the top of the view, once its bubble has scrolled off; a long one
+  shows its last two lines; a click goes to it.
 
 ## Left to the builder
 
