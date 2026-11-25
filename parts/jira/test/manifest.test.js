@@ -19,7 +19,7 @@ test('manifest', () => {
   for (const k of ['jira.site', 'jira.signIn.tokenFile', 'jira.signIn.refreshCommand']) assert.ok(!['resource', 'language-overridable', 'machine', 'machine-overridable'].includes(props[k].scope), k);
   assert.strictEqual(props['jira.period'].default, 'quarter');
   assert.deepStrictEqual(props['jira.period'].enum, ['quarter', 'sprint', 'fixVersion']);
-  assert.strictEqual(props['jira.ticketView'].default, 'atlassian');
+  assert.strictEqual(props['jira.ticketView'].default, 'jay');
   assert.deepStrictEqual(props['jira.ticketView'].enum, ['atlassian', 'jay']);
   assert.strictEqual(props['jira.ticketView'].enumDescriptions.length, 2);
   assert.strictEqual(p.extensionDependencies, undefined, 'the Atlassian extension is a soft dependency');

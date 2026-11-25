@@ -1400,8 +1400,8 @@ test('sidebar search: an assignee listed in jira.placeholderAssignees has owner 
 });
 
 // ---- jira.ticketView (design 101, "Which view opens a ticket")
-test('ticketView default: a click opens the Atlassian page, writes the file, marks seen and current.jira', async () => {
-  const h = start();
+test('ticketView "atlassian": a click opens the Atlassian page, writes the file, marks seen and current.jira', async () => {
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   const tabs = atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
@@ -1421,8 +1421,8 @@ test('ticketView default: a click opens the Atlassian page, writes the file, mar
   assert.ok(h.fetch.calls.some((c) => /\/issue\/DEMO-1\/comment/.test(c.url) && /maxResults=50/.test(c.url)), 'the newest 50 comments');
 });
 
-test('ticketView default, unfocused window: the file and seen, but no current.jira', async () => {
-  const h = start({ focused: false });
+test('ticketView "atlassian", unfocused window: the file and seen, but no current.jira', async () => {
+  const h = start({ focused: false, config: { 'jira.ticketView': 'atlassian' } });
   atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
@@ -1432,7 +1432,7 @@ test('ticketView default, unfocused window: the file and seen, but no current.ji
 });
 
 test('ticketView: no Atlassian extension opens jay\'s tab, with one info message per window session', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
   assert.strictEqual(ui.panels.at(-1).title, 'DEMO-1', "jay's tab, at once");
@@ -1446,7 +1446,7 @@ test('ticketView: no Atlassian extension opens jay\'s tab, with one info message
 });
 
 test('ticketView: the Atlassian command failing opens jay\'s tab, message once', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   atlassian({ reject: 'no such issue page' });
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
@@ -1459,8 +1459,8 @@ test('ticketView: the Atlassian command failing opens jay\'s tab, message once',
   assert.strictEqual(ui.out.filter((l) => l.includes('no such issue page')).length, 2);
 });
 
-test('ticketView "jay": jay\'s tab, no Atlassian call', async () => {
-  const h = start({ config: { 'jira.ticketView': 'jay' } });
+test('ticketView default is "jay": jay\'s tab, no Atlassian call', async () => {
+  const h = start();
   atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
@@ -1471,7 +1471,7 @@ test('ticketView "jay": jay\'s tab, no Atlassian call', async () => {
 });
 
 test('ticketView: a failed fetch writes no file and marks nothing seen', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-404' });
@@ -1484,7 +1484,7 @@ test('ticketView: a failed fetch writes no file and marks nothing seen', async (
 });
 
 test('ticketView: the active Atlassian tab of a tracked key is the ticket in front; untracked or non-key tabs are ignored', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   const tabs = atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' }); await settle();
@@ -1510,7 +1510,7 @@ test('ticketView: the active Atlassian tab of a tracked key is the ticket in fro
 });
 
 test('ticketView: the Atlassian tab in front is re-fetched at most once per 30 s, and by the tab poll', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   const tabs = atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' }); await settle();
@@ -1529,7 +1529,7 @@ test('ticketView: the Atlassian tab in front is re-fetched at most once per 30 s
 });
 
 test('ticketView: closing the tracked Atlassian tab removes its file', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   const tabs = atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' }); await settle();
@@ -1547,7 +1547,7 @@ test('ticketView: closing the tracked Atlassian tab removes its file', async () 
 
 // ---- commands for other extensions (perch): jay.openTicket, jay.projectKeys
 test('ticketView: an Atlassian tab retitled with the key within the watch: no fallback, no notice', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   atlassian();
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' }); await settle();
@@ -1557,7 +1557,7 @@ test('ticketView: an Atlassian tab retitled with the key within the watch: no fa
 });
 
 test('ticketView: a slow Atlassian page titled just before the watch ends: no fallback', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   const tabs = atlassian({ stuck: true });
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' }); await settle();
@@ -1569,7 +1569,7 @@ test('ticketView: a slow Atlassian page titled just before the watch ends: no fa
 });
 
 test('ticketView: Atlassian stuck on "Jira Issue" while jay loads the ticket: its tab closes, jay\'s view opens, one notice; Restart extensions runs the restart', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   const tabs = atlassian({ stuck: true });
   ui.infoAnswer = (m, items) => items[0];   // the user presses "Restart extensions"
   await settle();
@@ -1585,7 +1585,7 @@ test('ticketView: Atlassian stuck on "Jira Issue" while jay loads the ticket: it
 });
 
 test('ticketView: after a detected failure, later clicks go straight to jay\'s view, with no second notice; jay.useAtlassianView routes to Atlassian again', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   atlassian({ stuck: true });
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' }); await settle();
@@ -1604,7 +1604,7 @@ test('ticketView: after a detected failure, later clicks go straight to jay\'s v
 });
 
 test('ticketView: a second detected failure in the session (after jay.useAtlassianView) shows no second notice', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   atlassian({ stuck: true });
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' }); await settle(); fireWatch(h); await settle();
@@ -1616,7 +1616,7 @@ test('ticketView: a second detected failure in the session (after jay.useAtlassi
 });
 
 test('ticketView: Atlassian stuck but jay\'s own load failed too (offline, not found): Atlassian is not blamed', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   atlassian({ stuck: true });
   await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-404' }); await settle();
@@ -1629,7 +1629,7 @@ test('ticketView: Atlassian stuck but jay\'s own load failed too (offline, not f
 });
 
 test('jay.openTicket routes like a click: Atlassian by default, jay tab with ticketView "jay"', async () => {
-  const h = start();
+  const h = start({ config: { 'jira.ticketView': 'atlassian' } });
   atlassian();
   await settle();
   assert.strictEqual(await ui.commands['jay.openTicket'](' demo-1 '), true);

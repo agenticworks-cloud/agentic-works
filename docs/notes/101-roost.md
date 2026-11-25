@@ -960,6 +960,12 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   what the response is for"; "follow your scrolling")*. Ported from Perch 0.7.49 (its note 401): a strip above the
   transcript shows the prompt whose answer is at the top of the view, once its bubble has scrolled off; a long one
   shows its last two lines; a click goes to it.
+- **Clearer pinned prompt; jay's own ticket tab; tabs kept off a gateway pinned later — Built (0.5.10)**
+  *(Sean, 2026-11-25: the pinned prompt was "hard to notice" and "flickering"; "switch back to our own editor for jay
+  by default, the one from confluence is ugly"; a subscription tab was answered by the gateway's model)*. The pinned strip is
+  brighter with a focus-coloured edge and is only redrawn when its prompt changes (Perch 0.7.50). `jira.ticketView`
+  defaults to `"jay"`. A subscription or API tab restarts on its own backend when `~/.claude/settings.json` gains or
+  loses a gateway pin while it runs, since a running Claude Code takes up the file's new gateway (Perch 0.7.51).
 
 ## Left to the builder
 

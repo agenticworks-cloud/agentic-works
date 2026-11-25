@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -1434,7 +1434,7 @@
               "The issue page of Atlassian's own extension (atlassian.atlascode), falling back to jay's tab when it isn't installed or fails",
               "jay's own ticket tab"
             ],
-            "default": "atlassian",
+            "default": "jay",
             "description": "Which view a click on a ticket opens, in the tree, in Jira results and on \"Open KEY\"."
           },
           "jira.agentFiles": {
