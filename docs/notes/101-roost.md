@@ -913,6 +913,16 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     answers `chirp.signInCode`; the step shows the code large, its address as text, **Copy code & open**
     (`chirp.copyCode`) and **Cancel** (`chirp.cancelSignIn`), and hides them once signed in or cancelled. Only a code
     of the page's own sign-in shows there, and it is never logged. The Teams view and the palette are as before.
+- **A sign-in row before its sign-in; a finished step closes — Built (0.5.5)** *(Sean, 2026-11-25: "can we run
+  jira-login from [the company setup]? instead of asking user to run it? and connect [the gateway], on completion the
+  form does not collapse")*.
+  - *Before the first sign-in:* a `command` row whose `doneWhen` file is missing says "Not signed in yet." without
+    running its check: the check's own error ("Run 'x-login' first") told the user to run what the row's button runs.
+    Once the file exists the check runs as before, and its last stderr line shows when it fails.
+  - *The button's label:* `connect.button` (a command or mcpTool row, 1 to 40 characters) replaces "Connect", e.g.
+    "Sign in with <provider>". A bad value is dropped with a note, like the jira section's.
+  - *A finished step closes:* a step that turns done closes, whether Get started opened it or the user did, and the
+    details follow the next open step. A step done from the start, or reopened by hand, is left alone.
 
 ## Left to the builder
 

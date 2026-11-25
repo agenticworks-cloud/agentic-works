@@ -47,6 +47,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
   const openIds = new Set();
   let auto = null;             // the step opened for being the first not done
   let chosen = null;           // the step last opened or clicked: its details are shown
+  const wasDone = new Map();   // step id -> done in the last state: a step closes when it turns done
 
   // ---- the steps' controls
   const BUILD = {
@@ -449,7 +450,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     document.querySelector('h1').textContent = s.title || '';
     const steps = Array.isArray(s.steps) ? s.steps.filter((x) => x && typeof x.id === 'string') : [];
     const ids = new Set(steps.map((x) => x.id));
-    for (const [id, v] of views) if (!ids.has(id)) { v.root.remove(); views.delete(id); openIds.delete(id); if (chosen === id) chosen = null; }
+    for (const [id, v] of views) if (!ids.has(id)) { v.root.remove(); views.delete(id); openIds.delete(id); wasDone.delete(id); if (chosen === id) chosen = null; }
     const list = document.getElementById('steps');
     for (const x of steps) {
       let v = views.get(x.id);
@@ -461,8 +462,14 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       v.waiting.hidden = !x.waiting;
       if (v.update) v.update(s);
       list.appendChild(v.root);   // in the steps' order
+      // a step closes when it turns done, opened by hand or not; one done from the start, or reopened, is left alone
+      if (x.done && wasDone.get(x.id) === false) {
+        openIds.delete(x.id);
+        if (chosen === x.id) chosen = null;   // the details follow the next open step
+      }
+      wasDone.set(x.id, !!x.done);
     }
-    // the first not done opens; the one opened for that closes once done; any opened by hand stays as it is
+    // the first not done opens; the one opened for that closes once done
     const first = steps.find((x) => !x.done);
     const firstId = first ? first.id : null;
     if (firstId !== auto) {

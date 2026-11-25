@@ -36,4 +36,16 @@ a.show([docs, mail]);
 assert.strictEqual(d.querySelector('#a .tool[data-id="docs"] input').value, 'half', 'a token being typed survives');
 assert.strictEqual(d.querySelector('#a .tool[data-id="docs"] input'), field, 'the same element');
 
+// a command row's button: the company file's label, else Connect
+{
+  const c = d.createElement('div'); d.body.appendChild(c);
+  const l = new w.ToolsList(c, post);
+  l.show([row({ id: 't1', kind: 'command', button: 'Sign in with Example' }), row({ id: 't2', kind: 'command' })]);
+  const label = (id) => [...c.querySelectorAll(`.tool[data-id="${id}"] button`)].map((x) => x.textContent);
+  assert.ok(label('t1').includes('Sign in with Example') && !label('t1').includes('Connect'));
+  assert.ok(label('t2').includes('Connect'));
+  [...c.querySelectorAll('.tool[data-id="t1"] button')].find((x) => x.textContent === 'Sign in with Example').click();
+  assert.deepStrictEqual(out.pop(), ['connect', 't1', undefined]);
+}
+
 console.log('toolsRows.test.js passed');

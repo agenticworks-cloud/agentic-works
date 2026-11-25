@@ -2,8 +2,8 @@
 // The company file: ~/.config/roost/company.json, written by a company's installer (ROOST_COMPANY_FILE overrides the
 // path). It names an LLM gateway and the MCP servers the company offers. readCompany validates it whole: any error
 // makes the file invalid, and the error starts with the path of the offending value (mcpServers[1].connect.kind: ...).
-// The one exception is the optional jira section: a bad value there is dropped with a note (readCompany's notes), and
-// the rest of the file still loads.
+// The exceptions are the optional jira section and a server's connect.button: a bad value there is dropped with a note
+// (readCompany's notes), and the rest of the file still loads.
 // This file is copied byte for byte to parts/agents/src/company.js (a part never requires Roost's src/); a Roost test
 // checks the copies match.
 const fs = require('node:fs');
@@ -134,11 +134,11 @@ function register(r, at, home) {
   throw new Invalid(`${at}.type`, 'must be "http" or "stdio"');
 }
 
-function connect(c, at, reg, home) {
+function connect(c, at, reg, home, notes) {
   if (c === undefined) c = { kind: 'none' };
   if (!isObject(c)) throw new Invalid(at, 'must be an object');
   if (!KINDS.includes(c.kind)) throw new Invalid(`${at}.kind`, `must be one of ${KINDS.join(', ')}`);
-  const out = { kind: c.kind, args: {}, complete: null, doneWhen: null, check: null };
+  const out = { kind: c.kind, args: {}, complete: null, doneWhen: null, check: null, button: '' };
   if (c.kind === 'tokenPage') {
     if (!isHttp(c.page)) throw new Invalid(`${at}.page`, 'must be an http or https URL');
     out.page = c.page;
@@ -168,6 +168,13 @@ function connect(c, at, reg, home) {
     throw new Invalid(`${at}.doneWhen`, 'is required for a connect kind of command');
   }
   out.check = check(c.check, `${at}.check`, home);
+  // button: the Connect button's label for a command or mcpTool row (e.g. "Sign in with <provider>")
+  if (c.button !== undefined && c.button !== null) {
+    const b = isString(c.button) ? c.button.trim() : '';
+    if (c.kind !== 'command' && c.kind !== 'mcpTool') notes.push(`${at}.button: only a command or mcpTool row has a button; it is ignored`);
+    else if (!b || b.length > 40 || /[\u0000-\u001f\u007f]/.test(b)) notes.push(`${at}.button: must be a string of 1 to 40 characters; it is ignored`);
+    else out.button = b;
+  }
   return out;
 }
 
@@ -199,7 +206,7 @@ function install(v, at, home) {
   return { github: { repo: g.repo, tag, assets }, to };
 }
 
-function server(s, i, seen, home) {
+function server(s, i, seen, home, notes) {
   const at = `mcpServers[${i}]`;
   if (!isObject(s)) throw new Invalid(at, 'must be an object');
   if (!isString(s.id) || !ID.test(s.id)) throw new Invalid(`${at}.id`, 'must be letters, digits, _ or -');
@@ -208,7 +215,7 @@ function server(s, i, seen, home) {
   if (!isString(s.name)) throw new Invalid(`${at}.name`, 'must be a string');
   if (!isString(s.about)) throw new Invalid(`${at}.about`, 'must be a string');
   const reg = register(s.register, `${at}.register`, home);
-  const conn = connect(s.connect, `${at}.connect`, reg, home);
+  const conn = connect(s.connect, `${at}.connect`, reg, home, notes);
   if (conn.kind !== 'tokenPage' && JSON.stringify(reg).includes(TOKEN)) {
     throw new Invalid(`${at}.register`, `${TOKEN} may appear only in a tokenPage server's register`);
   }
@@ -260,7 +267,7 @@ function validate(data, home, notes = []) {
   if (data.mcpServers !== undefined) {
     if (!Array.isArray(data.mcpServers)) throw new Invalid('mcpServers', 'must be an array');
     const seen = new Set();
-    company.mcpServers = data.mcpServers.map((s, i) => server(s, i, seen, home));
+    company.mcpServers = data.mcpServers.map((s, i) => server(s, i, seen, home, notes));
   }
   return company;
 }

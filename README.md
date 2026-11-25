@@ -128,7 +128,9 @@ files. Required keys are marked **required**.
 
     Any kind may also have `doneWhen` and a `check` that must pass before the row counts as connected. A `check` is
     one of three shapes: `{ "method", "url", "body" }` (a request), `{ "mcpTool", "args" }` (a tool call that needs
-    the sign-in) or `{ "command": [ ... ] }` (a status command).
+    the sign-in) or `{ "command": [ ... ] }` (a status command). A `command` row's check runs only once its
+    `doneWhen.file` exists; before that the row says it isn't signed in yet. A `command` or `mcpTool` row may have
+    `button` (1 to 40 characters), the label of its button in place of **Connect**; a bad one is ignored with a note.
   - `install` (optional): where the server's program comes from when it isn't there yet:
     `{ "github": { "repo": "owner/name", "tag": "latest", "assets": { "darwin-arm64": "<asset>", "darwin-x64": …,
     "linux-x64": …, "linux-arm64": … } }, "to": "~/.local/bin/<name>" }`. `tag` is `latest` (the default) or a

@@ -70,7 +70,7 @@ function ToolsList(container, post) {
       v.root.append(a, b);
       v.buttons.push(v.open, v.save);
     } else {
-      v.connect = button('Connect', '', () => post('connect', r.id));
+      v.connect = button(r.button || 'Connect', '', () => post('connect', r.id));
       const a = el('div', 'row'); a.append(v.connect);
       v.root.append(a);
       v.buttons.push(v.connect);

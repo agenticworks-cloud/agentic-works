@@ -236,6 +236,29 @@ host({ type: 'state', state: st({ steps: [S('claude', 'Connect Claude', true), S
 assert.ok(!open().includes('claude'), 'done: it closes');
 assert.ok(open().includes('agents'), 'the next not done opens');
 assert.ok(open().includes('tools') && open().includes('codebase'), 'opened by hand: kept');
+// a step opened by hand closes once it is done, even while the first not done is another
+host({ type: 'state', state: st({ steps: [S('github', 'GitHub'), S('claude', 'Gateway'), S('agents', 'Talk')] }) });
+step('claude').querySelector('.name').click();
+assert.ok(open().includes('github') && open().includes('claude'));
+host({ type: 'state', state: st({ steps: [S('github', 'GitHub'), S('claude', 'Gateway', true), S('agents', 'Talk')] }) });
+assert.ok(!open().includes('claude'), 'opened by hand, then done: it closes');
+assert.ok(open().includes('github'));
+host({ type: 'state', state: st({ steps: [S('github', 'GitHub', true), S('claude', 'Gateway', true), S('agents', 'Talk')] }) });
+assert.deepStrictEqual(open().filter((x) => ['github', 'claude', 'agents'].includes(x)), ['agents']);
+// a done step reopened by hand stays open while nothing changes
+step('claude').querySelector('.name').click();
+host({ type: 'state', state: st({ steps: [S('github', 'GitHub', true), S('claude', 'Gateway', true), S('agents', 'Talk')] }) });
+assert.ok(open().includes('claude'), 'reopened: kept');
+// an earlier step appears; the old step stays open while not done, then closes when done
+host({ type: 'state', state: st({ steps: [S('github', 'GitHub', true), S('claude', 'Gateway', true), S('early', 'Early'), S('agents', 'Talk')] }) });
+assert.ok(open().includes('early') && open().includes('agents'));
+host({ type: 'state', state: st({ steps: [S('github', 'GitHub', true), S('claude', 'Gateway', true), S('early', 'Early'), S('agents', 'Talk', true)] }) });
+assert.ok(!open().includes('agents') && open().includes('early'), 'the old step closes once done');
+// two steps done in one state: both close, only the next opens
+host({ type: 'state', state: st({ steps: [S('a1', 'A1'), S('a2', 'A2'), S('a3', 'A3')] }) });
+step('a2').querySelector('.name').click();
+host({ type: 'state', state: st({ steps: [S('a1', 'A1', true), S('a2', 'A2', true), S('a3', 'A3')] }) });
+assert.deepStrictEqual(open(), ['a3']);
 
 // ---- teams and jira
 out.length = 0;
@@ -422,9 +445,11 @@ assert.ok(!d.querySelectorAll('input[type=password]').length || [...d.querySelec
   assert.strictEqual(heading(), 'Choose your parts');
   at('agents').querySelector('.name').dispatchEvent(new pw.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   assert.strictEqual(heading(), 'Talk to Claude or Codex');
-  // a later state keeps it, with that state's name; the step done and the next opened: still the one clicked
-  send({ type: 'state', state: three({ agentsName: 'Talk to Example Gateway', agentsDone: true }) });
+  // a later state keeps it, with that state's name; once it is done, the details follow the next open step
+  send({ type: 'state', state: three({ agentsName: 'Talk to Example Gateway' }) });
   assert.strictEqual(heading(), 'Talk to Example Gateway');
+  send({ type: 'state', state: three({ agentsName: 'Talk to Example Gateway', agentsDone: true }) });
+  assert.strictEqual(heading(), 'Choose your parts', 'done: the details move on');
   // the clicked step gone: the one opened for being the first not done, then (all done) the first
   send({ type: 'state', state: st({ steps: [D('github', 'Sign in to GitHub', true), D('parts', 'Choose your parts')] }) });
   assert.strictEqual(heading(), 'Choose your parts');

@@ -43,6 +43,12 @@ function setup({ claudeJson, run, fetch } = {}) {
   return { home, company, tools, claude, spawned, changes, fetches, status, runs, runResult };
 }
 const row = (tools, id) => tools.rows().find((r) => r.id === id);
+// the tickets row's sign-in file, as its sign-in command leaves it: before it, the row's check isn't run
+function ticketsSignedIn(s) {
+  const f = path.join(s.home, '.t', 'credentials.json');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, '{}');
+}
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 async function allGone(children) {
   const until = Date.now() + 3000;
@@ -84,13 +90,34 @@ test('checkAll: each row says why it is not connected', async () => {
   const mail = row(s.tools, 'mail');
   assert.strictEqual(mail.state, 'notConnected');
   assert.strictEqual(mail.reason, 'Not signed in. Call login first.');
-  assert.strictEqual(row(s.tools, 'tickets').reason, 'not signed in', 'the command\'s last stderr line');
-  assert.deepStrictEqual(s.runs[0], [path.join(s.home, '.local/bin/t-login'), '--status']);
+  assert.strictEqual(row(s.tools, 'tickets').reason, 'Not signed in yet.', 'no sign-in file: the check is not run');
+  assert.ok(!s.runs.some((a) => a[0].endsWith('t-login')), 'its error would only say to run the sign-in command');
   assert.strictEqual(row(s.tools, 'docs').state, 'notConnected');
   assert.strictEqual(s.fetches.length, 0, 'no request without a token');
   assert.ok(s.changes.some((rows) => rows.some((r) => r.state === 'checking')), 'checking is shown');
   assert.ok(!fs.existsSync(s.claude), 'nothing registered');
   await allGone(s.spawned);
+});
+
+test('check: a command row signed in before runs its check; a failed check gives its last stderr line', async () => {
+  const s = setup();
+  ticketsSignedIn(s);
+  await s.tools.check('tickets');
+  assert.deepStrictEqual(s.runs[0], [path.join(s.home, '.local/bin/t-login'), '--status']);
+  assert.strictEqual(row(s.tools, 'tickets').reason, 'not signed in', 'the command\'s last stderr line');
+});
+
+test('connect.button: the row carries the company file\'s label, else none', async () => {
+  const s = setup();
+  assert.strictEqual(row(s.tools, 'tickets').button, '');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-tools-'));
+  temps.push(home);
+  const data = JSON.parse(JSON.stringify(EXAMPLE));
+  data.mcpServers.find((x) => x.id === 'tickets').connect.button = '  Sign in with Example  ';
+  const file = path.join(home, 'company.json');
+  fs.writeFileSync(file, JSON.stringify(data));
+  const t = new Tools({ company: readCompany(file, { home }).company, home, run: async () => ({ code: 0 }), claudeJson: path.join(home, '.claude.json') });
+  assert.strictEqual(row(t, 'tickets').button, 'Sign in with Example');
 });
 
 test('connectMcpTool: the prompt, then connected and registered', async () => {
@@ -239,6 +266,7 @@ test('connectCommand: polls for the file until it appears', async () => {
 
 test('a check command that does not exist: "not found"', async () => {
   const s = setup();
+  ticketsSignedIn(s);
   const tools = new Tools({ company: s.company, home: s.home, claudeJson: s.claude, onChange: () => {} });
   const r = await tools.check('tickets');
   assert.strictEqual(r.state, 'notConnected');
@@ -301,6 +329,7 @@ test('allConnected: false while a signed-in row is in conflict or its registrati
   s.runResult.code = 0;
   await s.tools.saveToken('docs', 'tok');
   await s.tools.connectMcpTool('mail', { onPrompt: () => {} });
+  ticketsSignedIn(s);
   await s.tools.check('tickets');
   assert.strictEqual(row(s.tools, 'docs').state, 'connected');
   assert.strictEqual(row(s.tools, 'mail').state, 'connected');
@@ -336,6 +365,7 @@ test('rowForTokenFile, and allConnected once all three pass', async () => {
   await s.tools.connectMcpTool('mail', { onPrompt: () => {} });
   assert.strictEqual(s.tools.allConnected(), false);
   s.runResult.code = 0;
+  ticketsSignedIn(s);
   await s.tools.check('tickets');
   assert.strictEqual(s.tools.allConnected(), true);
   s.tools.dispose();

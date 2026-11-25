@@ -94,7 +94,7 @@ class Tools {
     this.pollMs = POLL_MS;
     this.servers = new Map(((company && company.mcpServers) || []).map((s) => [s.id, s]));
     this.state = new Map([...this.servers.values()].map((s) => [s.id, {
-      id: s.id, name: s.name, about: s.about, kind: s.connect.kind, page: s.connect.page || '',
+      id: s.id, name: s.name, about: s.about, kind: s.connect.kind, page: s.connect.page || '', button: s.connect.button || '',
       state: 'unknown', reason: '', prompt: null, conflict: false, signedIn: false, action: '',
     }]));
     this.clients = new Set();
@@ -347,12 +347,14 @@ class Tools {
     const c = server.connect;
     const token = c.kind === 'tokenPage' ? this._readToken(id) : '';
     let failed;
-    if (c.check) {
+    if (c.kind === 'command' && c.doneWhen && !fs.existsSync(c.doneWhen.file)) {
+      // nothing to check before the first sign-in: the check's own error would tell the user to run the sign-in
+      // command, which this row's button does
+      failed = 'Not signed in yet.';
+    } else if (c.check) {
       failed = c.kind === 'tokenPage' && !token ? 'No token saved yet.' : await this._runCheck(server, token);
     } else if (c.kind === 'tokenPage') {
       failed = token ? null : 'No token saved yet.';
-    } else if (c.doneWhen) {
-      failed = fs.existsSync(c.doneWhen.file) ? null : 'Not signed in yet.';
     } else {
       failed = null;
     }

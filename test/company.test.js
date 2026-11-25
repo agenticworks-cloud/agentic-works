@@ -80,6 +80,22 @@ for (const [jira, want, note] of [
   assert.ok(r.notes[0].startsWith(note), r.notes[0]);
   assert.strictEqual(r.company.gateway.name, 'Example Gateway', 'the rest still loads');
 }
+// connect.button: a command or mcpTool row's Connect label; a bad one is dropped with a note
+{
+  const withButton = (button, id = 'tickets') => { const d = clone(EXAMPLE); d.mcpServers.find((x) => x.id === id).connect.button = button; return read(d); };
+  const btn = (r, id = 'tickets') => r.company.mcpServers.find((x) => x.id === id).connect.button;
+  assert.strictEqual(btn(read(EXAMPLE)), '');
+  const ok = withButton('  Sign in with Example  ');
+  assert.deepStrictEqual([ok.ok, btn(ok), ok.notes], [true, 'Sign in with Example', []]);
+  assert.strictEqual(btn(withButton('Sign in', 'mail'), 'mail'), 'Sign in');
+  for (const [b, id] of [['x'.repeat(41)], [''], ['  '], [42], ['a\nb'], ['Sign in', 'docs']]) {
+    const r = withButton(b, id);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(btn(r, id || 'tickets'), '', JSON.stringify(b));
+    assert.strictEqual(r.notes.length, 1);
+    assert.ok(r.notes[0].startsWith(`mcpServers[${id === 'docs' ? 0 : 2}].connect.button:`), r.notes[0]);
+  }
+}
 // steps.talk: the Talk to Claude or Codex step's name (Sean, 2026-11-24)
 assert.deepStrictEqual(read({ name: 'T', steps: { talk: 'Talk to Example Gateway' } }).company.steps, { gateway: '', tools: '', talk: 'Talk to Example Gateway' });
 const g = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k' } }).company.gateway;
