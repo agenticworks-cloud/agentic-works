@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const stub = require('./vscodeStub');
+const { fakeSpawn, CODE_TEXT } = require('./fakeGh');
+const { LOGIN_ARGS, SETUP_GIT_ARGS } = require('../src/githubSignIn');
 
 const src = path.join(__dirname, '..', 'src');
 const tests = [];
@@ -639,32 +641,52 @@ test('first start: a Get started page that fails to open is logged and still rec
   await env.extension.deactivate();
 });
 
-test('Roost: Get Started opens the Get started page; Roost: Sign In to GitHub runs gh auth login in a terminal, and refreshes the PRs when it closes', async () => {
+test('Roost: Get Started opens the Get started page; Roost: Sign In to GitHub signs in without a terminal, the code in a notification', async () => {
   const { ui, extension, base } = setup({});
-  await (await activate(extension, base)).firstStarted;   // its own page opened first
+  const gh = fakeSpawn();
+  await (await activate(extension, base, { ghLogins: async () => [], spawnGh: gh.spawn })).firstStarted;   // its own page opened first
   ui.panels.forEach((p) => p.dispose());
   const opened = [];
   ui.commands['workbench.action.openWalkthrough'] = (...a) => opened.push(a);
   await ui.vscode.commands.executeCommand('roost.getStarted');
   assert.deepStrictEqual(opened, [], 'not the walkthrough');
   assert.deepStrictEqual(ui.panels.filter((p) => !p.disposed).map((p) => [p.viewType, p.title]), [['roost.getStarted', 'Get started']]);
-  await ui.vscode.commands.executeCommand('roost.githubSignIn');
-  assert.strictEqual(ui.terminals.length, 1);
-  assert.ok(ui.terminals[0].shown);
-  assert.deepStrictEqual(ui.terminals[0].sent, ['gh auth login --hostname github.com --git-protocol https --web && exit']);
   const refreshed = [];
   ui.commands['kestrel.refresh'] = () => { refreshed.push(1); };
-  ui.closeTerminal({ name: 'another terminal' });
-  assert.deepStrictEqual(refreshed, [], 'another terminal closing does nothing');
-  ui.closeTerminal(ui.terminals[0]);
-  assert.deepStrictEqual(refreshed, [1], 'the sign-in terminal closing refreshes the PRs');
-  assert.strictEqual(ui.closeListeners(), 0, 'the listener is disposed');
-  ui.closeTerminal(ui.terminals[0]);
-  assert.deepStrictEqual(refreshed, [1]);
+  ui.infos = [];
+  ui.infoChoice = (m, items) => (items.includes('Copy Code & Open GitHub') ? 'Copy Code & Open GitHub' : undefined);
+  const command = ui.vscode.commands.executeCommand('roost.githubSignIn');
+  await tick();
+  assert.deepStrictEqual(gh.calls.map((c) => c.args), [LOGIN_ARGS]);
+  assert.deepStrictEqual(ui.terminals || [], [], 'no terminal');
+  gh.calls[0].child.err(CODE_TEXT);
+  await tick();
+  assert.ok(ui.infos.some((m) => m.includes('AB12-CD34')), 'the code in a notification');
+  assert.deepStrictEqual([ui.clipboard, ui.opened], [['AB12-CD34'], ['https://github.com/login/device']], 'Copy Code & Open GitHub');
+  gh.calls[0].child.exit(0);
+  await tick();
+  assert.deepStrictEqual(gh.calls[1].args, SETUP_GIT_ARGS);
+  gh.calls[1].child.exit(0);
+  await within(command);
+  assert.deepStrictEqual(refreshed, [1], 'the PRs look for the new login');
+  assert.ok(ui.infos.includes('Signed in to GitHub.'));
+  // the PRs part off: kestrel.refresh is not found, and that is ignored; a failure is said as an error
   delete ui.commands['kestrel.refresh'];
-  await ui.vscode.commands.executeCommand('roost.githubSignIn');
-  ui.closeTerminal(ui.terminals[1]);   // the PRs part off: kestrel.refresh is not found, and that is ignored
-  await new Promise((r) => setImmediate(r));
+  const again = ui.vscode.commands.executeCommand('roost.githubSignIn');
+  await tick();
+  gh.calls[2].child.err('error: access_denied\n');
+  gh.calls[2].child.exit(1);
+  await within(again);
+  assert.ok(ui.errors.some((e) => e.message === "GitHub's sign-in didn't finish: error: access_denied"));
+  // Cancel in the notification stops gh, and nothing more is said
+  ui.infoChoice = (m, items) => (items.includes('Cancel') ? 'Cancel' : undefined);
+  const errors = ui.errors.length, infos = ui.infos.length;
+  const cancelled = ui.vscode.commands.executeCommand('roost.githubSignIn');
+  await tick();
+  gh.calls[3].child.err(CODE_TEXT);
+  await within(cancelled);
+  assert.strictEqual(gh.calls[3].child.killed, true);
+  assert.deepStrictEqual([ui.errors.length, ui.infos.length], [errors, infos + 1], 'only the code\'s notification');
   await extension.deactivate();
 });
 
@@ -675,6 +697,7 @@ test('Roost: Sign In to GitHub, already signed in: says who, opens no terminal u
   await ui.vscode.commands.executeCommand('roost.githubSignIn');
   assert.ok(ui.infos.some((m) => m.includes('signed in as octocat')), 'says who is signed in');
   assert.strictEqual((ui.terminals || []).length, 0, 'no sign-in terminal');
+  assert.ok(!ui.infos.some((m) => m.includes('code')), 'and no sign-in');
   await extension.deactivate();
 });
 
@@ -803,7 +826,7 @@ function fakeTools() {
   };
   return { made, makeTools };
 }
-async function toolsSetup(company = EXAMPLE, config = {}, saved = {}) {
+async function toolsSetup(company = EXAMPLE, config = {}, saved = {}, gh = fakeSpawn()) {
   const env = company ? withCompanyFile(company) : setup();
   Object.assign(env.ui.config, config);
   // first start already recorded and every step done: the Get started page would open a panel of its own
@@ -811,9 +834,10 @@ async function toolsSetup(company = EXAMPLE, config = {}, saved = {}) {
   const state = { 'roost.firstStart.done': true, 'roost.getStarted.done': allDone, ...saved };
   env.base.globalState = { get: (k) => state[k], update: async () => {} };
   const fakes = fakeTools();
-  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
+  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [], spawnGh: gh.spawn });
   await roost.ready;
   await roost.firstStarted;
+  env.gh = gh;
   const signIns = [];
   env.ui.commands['chirp.signIn'] = () => signIns.push('chirp');
   env.ui.commands['jay.signIn'] = () => signIns.push('jay');
@@ -887,13 +911,13 @@ test('the page\'s messages: connect by kind, the token, the page, Copy code and 
   assert.deepStrictEqual(t.calls.pop(), ['replaceRegistration', 'tickets']);
   await panel.receive({ type: 'connect', id: 'nope' });   // a stale page: nothing happens, nothing thrown
   // a download that needs GitHub's sign-in: the row's button runs Roost: Sign In to GitHub, and only then
-  const terminals = () => s.ui.terminals || [];
-  const ran = terminals().length;
   await panel.receive({ type: 'githubSignIn', id: 'mail' });
-  assert.strictEqual(terminals().length, ran, 'no action on the row: nothing');
+  assert.strictEqual(s.gh.calls.length, 0, 'no action on the row: nothing');
   t.set('mail', { state: 'notConnected', reason: 'Sign in to GitHub first.', action: 'githubSignIn' });
-  await panel.receive({ type: 'githubSignIn', id: 'mail' });
-  assert.deepStrictEqual(terminals().slice(ran).map((x) => [x.name, x.sent]), [['GitHub sign-in', ['gh auth login --hostname github.com --git-protocol https --web && exit']]]);
+  assert.notStrictEqual(await within(panel.receive({ type: 'githubSignIn', id: 'mail' }), 200), 'timed out', 'the page is not held while GitHub waits');
+  await tick();
+  assert.deepStrictEqual(s.gh.calls.map((c) => c.args), [LOGIN_ARGS], 'GitHub\'s sign-in, with no terminal');
+  assert.deepStrictEqual(s.ui.terminals || [], []);
   await s.extension.deactivate();
 });
 

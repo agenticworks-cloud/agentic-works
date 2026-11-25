@@ -83,10 +83,38 @@ button(step('github'), 'Sign In to GitHub').click();
 assert.deepStrictEqual(out.pop(), { type: 'github' });
 // a waiting line in its step
 const waiting = step('github').querySelector('.waiting');
-assert.strictEqual(waiting.textContent, 'Waiting for the sign-in in the terminal…');
+assert.strictEqual(waiting.textContent, 'Waiting for the sign-in in the terminal…');   // any waiting text, as the host sends it
 assert.ok(shown(waiting));
 host({ type: 'state', state: st({ steps: [S('github', 'Sign in to GitHub')] }) });
 assert.ok(!shown(step('github').querySelector('.waiting')));
+// GitHub's sign-in on the page: while it starts, no buttons; its code in place with Copy code & open and Cancel
+const ghStep = (github, waitingText = '') => host({ type: 'state', state: st({ github: { logins: [], running: false, code: null, note: '', ...github }, steps: [S('github', 'Sign in to GitHub', false, waitingText)] }) });
+ghStep({ running: true }, "Starting GitHub's sign-in…");
+assert.ok(!button(step('github'), 'Sign In to GitHub'), 'running: no Sign In');
+assert.ok(!button(step('github'), 'Cancel'), 'no code yet: nothing to cancel on the page');
+assert.ok(!shown(step('github').querySelector('.signInCode')));
+ghStep({ running: true, code: { userCode: 'AB12-CD34', verificationUri: 'https://github.com/login/device' } }, 'Copy the code, then enter it on GitHub in your browser.');
+const ghCode = step('github').querySelector('.signInCode');
+assert.ok(shown(ghCode));
+assert.strictEqual(ghCode.querySelector('.userCode').textContent, 'AB12-CD34');
+assert.ok(ghCode.textContent.includes('https://github.com/login/device') && !ghCode.querySelector('a'), 'the address is text');
+button(step('github'), 'Copy code & open').click();
+assert.deepStrictEqual(out.pop(), { type: 'githubCopyCode' });
+button(step('github'), 'Cancel').click();
+assert.deepStrictEqual(out.pop(), { type: 'githubCancel' });
+// it failed: the reason, and Sign In to GitHub to try again
+ghStep({ note: "GitHub's sign-in didn't finish: error: access_denied" });
+assert.ok(!shown(ghCode), 'the code goes');
+const ghNote = step('github').querySelector('.note');
+assert.ok(shown(ghNote));
+assert.strictEqual(ghNote.textContent, "GitHub's sign-in didn't finish: error: access_denied");
+assert.ok(button(step('github'), 'Sign In to GitHub'));
+ghStep({});
+assert.ok(!shown(ghNote));
+// signed in with a note (git not set up): the note shows beside who is signed in
+host({ type: 'state', state: st({ github: { logins: ['octocat'], running: false, code: null, note: "Signed in, but git isn't set up to use it: run gh auth setup-git in a terminal." }, steps: [S('github', 'Sign in to GitHub', true)] }) });
+step('github').querySelector('.name').click();   // a done step opens when its name is clicked
+assert.ok(shown(ghNote) && step('github').textContent.includes('Signed in as octocat.'));
 
 // ---- no company gateway: the four ways inline
 out.length = 0;

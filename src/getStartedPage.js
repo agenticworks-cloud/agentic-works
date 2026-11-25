@@ -52,17 +52,34 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
 
   // ---- the steps' controls
   const BUILD = {
+    // GitHub's own device sign-in, with no terminal: while it runs no buttons but its code, in place, with Copy code &
+    // open and Cancel (as Teams'); a sign-in that didn't finish leaves its reason
     github(v) {
       v.signedIn = el('p', '');
       v.signIn = button('Sign In to GitHub', '', () => post({ type: 'github' }));
       v.another = button('Add Another Account', 'secondary', () => post({ type: 'github' }));
-      v.body.append(v.signedIn, row(v.signIn, v.another));
+      v.buttons = row(v.signIn, v.another);
+      v.code = el('div', 'signInCode'); v.code.hidden = true;
+      v.codeText = el('p', 'userCode');
+      v.codeUrl = el('p', 'muted');
+      v.code.append(v.codeText, v.codeUrl,
+        row(button('Copy code & open', '', () => post({ type: 'githubCopyCode' })), button('Cancel', 'secondary', () => post({ type: 'githubCancel' }))));
+      v.note = el('p', 'muted note'); v.note.hidden = true;
+      v.body.append(v.signedIn, v.buttons, v.code, v.note);
       v.update = (s) => {
-        const logins = (s.github && Array.isArray(s.github.logins)) ? s.github.logins : [];
+        const g = s.github || {};
+        const logins = Array.isArray(g.logins) ? g.logins : [];
         v.signedIn.textContent = logins.length ? 'Signed in as ' + logins.join(', ') + '.' : '';
         v.signedIn.hidden = !logins.length;
         v.signIn.hidden = logins.length > 0;
         v.another.hidden = !logins.length;
+        v.buttons.hidden = !!g.running;
+        const c = g.code && typeof g.code.userCode === 'string' && g.code.userCode ? g.code : null;
+        v.code.hidden = !c;
+        v.codeText.textContent = c ? c.userCode : '';
+        v.codeUrl.textContent = c && typeof c.verificationUri === 'string' ? 'Enter it at ' + c.verificationUri : '';
+        v.note.textContent = typeof g.note === 'string' ? g.note : '';
+        v.note.hidden = !v.note.textContent;
       };
     },
 

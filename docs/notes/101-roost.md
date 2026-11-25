@@ -217,7 +217,7 @@ In order (the walkthrough's steps, which the page above replaces at first start)
 | Search your code (optional) | Roost: Turn On Codebase Search, or Not Now | either runs; on goes through Agents: Toggle Codebase Search (which checks for a Python) and never turns it off; the installer leaves it off *(Sean, 2026-11-24)* |
 | Sign in to Teams | Sign In to Teams (`roost.teamsSignIn`, hidden): with a company file and a tools row whose `doneWhen.file` is the expanded `teams.signIn.tokenFile`, the Connect Your Tools panel opens and runs that row's sign-in (unless it is connected already); else Teams: Sign In (`chirp.signIn`) | Teams is signed in (`chirp.signedIn`): chirp watches its token file, so a tools row's sign-in ticks it by itself |
 | Connect Jira and Confluence | Connect Jira (`roost.jiraSignIn`, hidden: the matching tools row for `jira.signIn.tokenFile` as Teams does, else Jira: Sign In, `jay.signIn`, which opens the Jira view, whose sign-in form asks for the site URL, email and API token, with a Create one link to Atlassian's API tokens page) | Jira is signed in (`jay.signedIn`) *(Sean, 2026-11-24: no input box at the top)* |
-| Sign in to GitHub (without a company file) | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). The button opens a terminal running `gh auth login --hostname github.com && exit`; when that terminal closes Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
+| Sign in to GitHub (without a company file) | Roost: Sign In to GitHub | gh has a login (`kestrel.signedIn`). Since 0.5.18 no terminal: the button runs `gh auth login --hostname github.com --git-protocol https --web` with no terminal and no input (`src/githubSignIn.js`), shows gh's one-time code on the step with Copy code & open and Cancel (from the Command Palette or Connect Your Tools, in a notification), then runs `gh auth setup-git`; once it ends Roost runs `kestrel.refresh` (a failure, the PRs part being off, is ignored), so the PRs tab and the step pick up the login at once, not at kestrel's 30 s retry |
 | Choose your parts | Roost: Settings | that command runs |
 
 "Done" follows VS Code's own completion events. The Choose your parts step, and Search your code's two buttons, are
@@ -998,6 +998,16 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   New Codex Tab) with `{ fill: 'Hello' }`; Agents' `perch.openGatewayTab`, `perch.newClaude` and `perch.newCodex` take
   it as the new tab's prefill, which the page types in the box with the focus there, so Enter sends it. A tab already
   open is only shown, nothing typed; any other argument (a menu's URI) opens an empty tab.
+- **GitHub's sign-in without a terminal — Built (0.5.18).** *(Sean, 2026-11-25, at the terminal's "Authenticate Git
+  with your GitHub credentials? (Y/n)": "do we have to use the terminal? no way to make it easier?")* gh run with no
+  terminal and no input asks nothing (checked with gh 2.45): it prints a one-time code and GitHub's device page and
+  waits. `src/githubSignIn.js` runs it (argv, `GH_PROMPT_DISABLED=1`, `GH_BROWSER=true` so gh opens nothing itself),
+  reads the code, and once gh is done runs `gh auth setup-git` (that question's yes). The step shows the code with
+  **Copy code & open** (only GitHub's own device page is opened) and **Cancel**, as Teams' step does; a failure leaves
+  gh's last line, never the code; the code's 15 minutes run out with "try again". One sign-in at a time, shared by the
+  page and **Roost: Sign In to GitHub** (which shows the code in a notification). Not VS Code's own GitHub sign-in:
+  its token belongs to VS Code's app, which can revoke it on sign-out and which a company's GitHub organization would
+  have to approve on its own.
 
 ## Left to the builder
 

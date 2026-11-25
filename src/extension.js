@@ -15,6 +15,7 @@ const { Tools } = require('./tools');
 const { getToolsHtml } = require('./toolsPage');
 const { watchContexts } = require('./contextWatch');
 const { GetStarted } = require('./getStarted');
+const { GithubSignIn, DEVICE_URL } = require('./githubSignIn');
 
 const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
@@ -50,12 +51,17 @@ class Roost {
   // `makeTools`: for tests, a stand-in for Connect Your Tools' Tools (src/tools.js); `ghLogins`: the accounts gh is
   // signed in to (tests never run this machine's gh: under ROOST_TEST_HARNESS_STRICT_GH, set by the test stubs and
   // `make test`, a Roost made without one throws; the name is one nobody sets by accident)
-  constructor(base, parts, output, { makeTools = (opts) => new Tools(opts), ghLogins } = {}) {
+  // `spawnGh`: child_process.spawn for GitHub's sign-in (a fake in tests; under the same flag, the real one throws)
+  constructor(base, parts, output, { makeTools = (opts) => new Tools(opts), ghLogins, spawnGh } = {}) {
     if (!ghLogins && process.env.ROOST_TEST_HARNESS_STRICT_GH) throw new Error("Roost: tests must stub ghLogins (activate(base, { ghLogins }))");
     this.base = base;
     this.output = output;
     this.makeTools = makeTools;
     this.ghLogins = ghLogins || defaultGhLogins;
+    this.spawnGh = spawnGh || (process.env.ROOST_TEST_HARNESS_STRICT_GH
+      ? () => { throw new Error('Roost: tests must stub spawnGh (activate(base, { spawnGh }))'); }
+      : require('node:child_process').spawn);
+    this.github = null;                // GitHub's sign-in while it runs: { flow, done, codeShown } (startGithubSignIn)
     this.getStarted = null;            // the Get started page's host (src/getStarted.js), made once startAll has begun
     this.tools = null;                 // made the first time Connect Your Tools (or a sign-in that uses it) needs it
     this.toolsPanel = null;
@@ -301,7 +307,10 @@ class Roost {
       else if (m.type === 'openPage') { if (isWeb(row.page)) await vscode.env.openExternal(vscode.Uri.parse(row.page)); }
       else if (m.type === 'copyAndOpen') await this.copyAndOpen(row);
       else if (m.type === 'replace') await tools.replaceRegistration(row.id);
-      else if (m.type === 'githubSignIn') { if (row.action === 'githubSignIn') await vscode.commands.executeCommand('roost.githubSignIn'); }
+      // not awaited: the sign-in waits on GitHub, up to the code's 15 minutes; it says how it went itself
+      else if (m.type === 'githubSignIn') {
+        if (row.action === 'githubSignIn') Promise.resolve(vscode.commands.executeCommand('roost.githubSignIn')).catch((err) => this.log(`GitHub sign-in: ${errorText(err)}`));
+      }
     } catch (err) {
       this.log(`Connect Your Tools: ${row.name || row.id}: ${err && err.message}`);
     }
@@ -366,25 +375,46 @@ class Roost {
     return undefined;
   }
 
-  // gh's sign-in, in a terminal: straight to the browser over HTTPS, without gh's protocol and SSH-key questions
-  // (Sean's first-time run, 2026-11-24). The terminal closes once gh is done; then the PRs part looks for the new
-  // login (not at its next 30 s retry), and `closed` resolves.
+  // GitHub's sign-in, with no terminal (src/githubSignIn.js): gh's device sign-in over HTTPS, its one-time code for
+  // the Get started page (or, from the command, a notification), then git set up to use it. One at a time: asked
+  // again while it runs, the same one. Once it ends the PRs part looks for the new login (not at its next 30 s retry)
+  // and the page hears how it went.
   startGithubSignIn() {
-    const terminal = vscode.window.createTerminal({ name: 'GitHub sign-in' });
-    let listener;
-    const closed = new Promise((resolve) => {
-      listener = vscode.window.onDidCloseTerminal((t) => {
-        if (t !== terminal) return;
-        listener.dispose();
-        Promise.resolve(vscode.commands.executeCommand('kestrel.refresh')).catch(() => { /* the PRs part is off */ });
-        resolve();
-      });
+    if (this.github) return this.github;
+    let shown;
+    const codeShown = new Promise((resolve) => { shown = resolve; });
+    const flow = new GithubSignIn({
+      spawn: this.spawnGh,
+      onUpdate: (st) => {
+        if (st.phase === 'code') shown(st.code);
+        if (this.getStarted) this.getStarted.refresh();
+      },
     });
-    this.base.subscriptions.push(listener);
-    terminal.show();
-    terminal.sendText('gh auth login --hostname github.com --git-protocol https --web && exit');
-    return { terminal, closed };
+    const g = { flow, codeShown };
+    this.github = g;
+    g.done = flow.run().then((r) => {
+      shown(null);
+      if (this.github === g) this.github = null;
+      if (r.ok) this.log(`GitHub sign-in: done${r.gitSetUp ? '' : '; gh auth setup-git failed'}`);
+      else if (!r.cancelled) this.log(`GitHub sign-in: ${r.error}`);
+      Promise.resolve(vscode.commands.executeCommand('kestrel.refresh')).catch(() => { /* the PRs part is off */ });
+      if (this.getStarted) this.getStarted.githubDone(r);
+      return r;
+    });
+    if (this.getStarted) this.getStarted.refresh();
+    return g;
   }
+
+  // The code to the clipboard and GitHub's device page in the browser (only GitHub's own page)
+  async copyGithubCode() {
+    const c = this.github && this.github.flow.state.code;
+    if (!c) return;
+    await vscode.env.clipboard.writeText(c.userCode);
+    const url = c.verificationUri.startsWith(DEVICE_URL) ? c.verificationUri : DEVICE_URL;
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  cancelGithubSignIn() { if (this.github) this.github.flow.cancel(); }
 
   // Every failed key false first (one can be left from before an extension host restart); a part that fails sets
   // its own true after that. The parts start side by side: one whose activate never ends holds up none of the
@@ -449,6 +479,7 @@ class Roost {
   // thread), and no serializer is left behind.
   async stopAll() {
     this.closed = true;
+    this.cancelGithubSignIn();
     if (this.getStarted) this.getStarted.dispose();
     if (this.tools) this.tools.dispose();
     if (this.toolsPanel) this.toolsPanel.dispose();
@@ -526,16 +557,32 @@ function activate(context, options = {}) {
   // the Get started talk step with gateway.openTabOnTalk: a Claude tab on the gateway, an open one shown rather than
   // another opened (perch.openGatewayTab), not perch.newClaude, whose saved backend may lag a gateway just saved
   context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeGatewayTab', (spec) => besideWalkthrough('perch.openGatewayTab', spec)));
-  // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal (startGithubSignIn).
-  // Already signed in, it says so first and offers another account.
+  // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, without a terminal (startGithubSignIn).
+  // Already signed in, it says so first and offers another account. From here (the Command Palette, Connect Your
+  // Tools) the code comes in a notification with Copy Code & Open GitHub; the Get started page shows its own.
   context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', async () => {
-    const logins = await Promise.resolve().then(() => r.ghLogins()).catch(() => []);
-    if (logins.length) {
-      const ANOTHER = 'Add Another Account';
-      const pick = await vscode.window.showInformationMessage(`GitHub is signed in as ${logins.join(', ')}.`, ANOTHER);
-      if (pick !== ANOTHER) return;
+    if (!r.github) {
+      const logins = await Promise.resolve().then(() => r.ghLogins()).catch(() => []);
+      if (logins.length) {
+        const ANOTHER = 'Add Another Account';
+        const pick = await vscode.window.showInformationMessage(`GitHub is signed in as ${logins.join(', ')}.`, ANOTHER);
+        if (pick !== ANOTHER) return;
+      }
     }
-    r.startGithubSignIn();
+    const g = r.startGithubSignIn();
+    const code = await g.codeShown;
+    if (code) {
+      const COPY = 'Copy Code & Open GitHub', CANCEL = 'Cancel';
+      const pick = await vscode.window.showInformationMessage(`Your GitHub sign-in code is ${code.userCode}. Enter it on GitHub in your browser.`, COPY, CANCEL);
+      if (pick === COPY) await r.copyGithubCode();
+      else if (pick === CANCEL) r.cancelGithubSignIn();
+    }
+    const result = await g.done;
+    if (result.ok) {
+      vscode.window.showInformationMessage(result.gitSetUp ? 'Signed in to GitHub.' : "Signed in to GitHub, but git isn't set up to use it: run gh auth setup-git in a terminal.");
+    } else if (!result.cancelled) {
+      vscode.window.showErrorMessage(result.error);
+    }
   }));
   // the company file, read before the parts start; a file that is there but invalid is logged once, as is each value
   // it drops (its notes)

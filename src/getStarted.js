@@ -47,7 +47,10 @@ const PART_OF = { github: 'pullRequests', claude: 'agents', agents: 'agents', co
 const NOT_NOW = { claude: 'roost.connectClaudeNotNow', tools: 'roost.toolsNotNow', codebase: 'roost.codebaseSearchNotNow' };
 const NEW_TAB = { claude: 'roost.newClaudeTab', codex: 'roost.newCodexTab' };
 const GREETING = { fill: 'Hello' };   // typed in the talk step's new tab, whose box takes the focus: Enter sends it
-const WAIT_TERMINAL = 'Finish signing in in the terminal.';
+// GitHub's sign-in, by its phase (src/githubSignIn.js)
+const WAIT_GITHUB = { starting: "Starting GitHub's sign-in…", code: 'Copy the code, then enter it on GitHub in your browser.',
+  finishing: 'Setting up git to use your sign-in…' };
+const GIT_NOT_SET_UP = "Signed in, but git isn't set up to use it: run gh auth setup-git in a terminal.";
 const WAIT_BROWSER = 'Finish signing in in your browser.';
 const WAIT_CLAUDE = 'Signing in to Claude in the terminal…';
 // the company's key helper is running (Get a key, with gateway.keyCommand): in the Agents part, which keeps the key
@@ -72,8 +75,8 @@ class GetStarted {
     this.logins = [];
     // claude: how many subscription logins are out (perch.connectClaude.request answers only once one ends)
     // key: how many Get a key requests with the company's key helper are out
-    this.waiting = { github: false, teams: false, claude: 0, key: 0 };
-    this.notes = { teams: '' };
+    this.waiting = { teams: false, claude: 0, key: 0 };
+    this.notes = { teams: '', github: '' };
     // the talk step's tab (gateway.openTabOnTalk): an open out, a retry's timer, how many tried, done for this window
     this.autoTab = { inFlight: false, timer: null, tries: 0, settled: false };
     this.autoTabRetriesMs = AUTO_TAB_RETRIES_MS;   // a test makes them short
@@ -215,7 +218,8 @@ class GetStarted {
     const autoTab = this.autoTabOn();
     // the code shows while the page's own sign-in waits on it, and goes once signed in or cancelled
     const teamsCode = !teamsSigned && this.waiting.teams && this.ctx('chirp.signInCodeWaiting') ? this.teamsCode : null;
-    const waiting = { github: this.waiting.github ? WAIT_TERMINAL : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
+    const gh = this.roost.github ? this.roost.github.flow.state : null;
+    const waiting = { github: gh ? WAIT_GITHUB[gh.phase] || '' : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
       claude: this.waiting.claude > 0 ? WAIT_CLAUDE : this.waiting.key > 0 && gwName ? waitKey(gwName) : '' };
     // the details in the company file's words; the gateway step's are the company gateway's while one is named
     const words = { gateway: gwName, title: str(c && c.title) };
@@ -236,7 +240,7 @@ class GetStarted {
       email: c && c.email ? { domain: c.email.domain, example: c.email.example, value: saved } : null,
       claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
       agents: { autoTab, openTab: autoTab && this.offerTab() },
-      github: { logins: [...this.logins] },
+      github: { logins: [...this.logins], running: !!gh, code: gh && gh.code ? { ...gh.code } : null, note: this.notes.github },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams, code: teamsCode ? { ...teamsCode } : null },
       jira: { rowId: this.rowFor('jira'), site: jiraSite, email: saved || str(c && c.jira && c.jira.email), form: !(typeof jiraFile === 'string' && jiraFile) },
       parts: [...this.roost.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.roost.isEnabled(e.part.id) })),
@@ -315,6 +319,8 @@ class GetStarted {
           break;
         }
         case 'github': this.githubSignIn(); break;
+        case 'githubCopyCode': await this.roost.copyGithubCode(); break;
+        case 'githubCancel': this.roost.cancelGithubSignIn(); break;
         case 'newTab': if (NEW_TAB[m.kind]) await run(NEW_TAB[m.kind], GREETING); break;
         case 'openTab': if (this.autoTabOn() && this.running('agents')) await this.openTabNow(); break;
         case 'teamsCopyCode':
@@ -377,16 +383,18 @@ class GetStarted {
     }
   }
 
-  // gh's sign-in in its terminal: the step waits while it is open, and the logins are read again once it closes
+  // GitHub's sign-in on the page (Roost's startGithubSignIn): the step shows its phase and code while it runs
   githubSignIn() {
-    const { closed } = this.roost.startGithubSignIn();
-    this.waiting.github = true;
+    if (!this.roost.github) this.notes.github = '';
+    this.roost.startGithubSignIn();
     this.refresh();
-    Promise.resolve(closed).then(() => {
-      this.waiting.github = false;
-      this.refresh();
-      this.readLogins();
-    });
+  }
+
+  // How it went, from Roost, whoever started it: a reason left on the step, unless cancelled; the logins read again
+  githubDone(r) {
+    this.notes.github = r.ok ? (r.gitSetUp ? '' : GIT_NOT_SET_UP) : r.cancelled ? '' : r.error || '';
+    this.refresh();
+    this.readLogins();
   }
 
   // With a tools row for teams.signIn.tokenFile, that row signs in in the page; else Teams' own sign-in in the

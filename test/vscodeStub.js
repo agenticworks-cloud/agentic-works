@@ -73,7 +73,11 @@ function install() {
         (ui.terminals = ui.terminals || []).push(t);
         return t;
       },
-      showInformationMessage: (m) => { (ui.infos = ui.infos || []).push(m); return Promise.resolve(undefined); },
+      // ui.infoChoice: the button picked (or a function of the message and buttons); undefined, as dismissed
+      showInformationMessage: (m, ...items) => {
+        (ui.infos = ui.infos || []).push(m);
+        return Promise.resolve(typeof ui.infoChoice === 'function' ? ui.infoChoice(m, items) : ui.infoChoice);
+      },
       showErrorMessage: (m, ...items) => { ui.errors.push({ message: m, items }); return Promise.resolve(ui.errorChoice); },
       registerWebviewPanelSerializer: (viewType, z) => {
         if (ui.serializers[viewType]) throw new Error(`A serializer for '${viewType}' is already registered`);

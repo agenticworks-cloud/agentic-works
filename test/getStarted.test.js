@@ -8,6 +8,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const stub = require('./vscodeStub');
+const { fakeSpawn, CODE_TEXT } = require('./fakeGh');
+const { LOGIN_ARGS, SETUP_GIT_ARGS } = require('../src/githubSignIn');
 
 const src = path.join(__dirname, '..', 'src');
 const tests = [];
@@ -134,7 +136,7 @@ function fakeTools() {
 
 // Roost activated (its first start already recorded), with a company file or none; Roost: Get Started run and the
 // page's ready sent. stateOf(): a tick later, the last state posted.
-async function pageSetup(company, config = {}, saved = {}) {
+async function pageSetup(company, config = {}, saved = {}, options = {}) {
   const env = setup(config);
   if (company) {
     const file = path.join(env.root, 'company.json');
@@ -146,7 +148,7 @@ async function pageSetup(company, config = {}, saved = {}) {
   // an unfinished walkthrough opens the page and the Perch view at start
   env.ui.commands['workbench.view.extension.perch'] = () => {};
   const fakes = fakeTools();
-  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
+  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [], ...options });
   await roost.ready;
   await roost.firstStarted;
   await env.ui.vscode.commands.executeCommand('roost.getStarted');
@@ -254,7 +256,7 @@ test('no company file: Roost\'s words and order', async () => {
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
   assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code by meaning', 'Choose your parts']);
-  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [] }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
+  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [], running: false, code: null, note: '' }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
   await s.extension.deactivate();
 });
 
@@ -764,22 +766,84 @@ test('part {id, on} writes roost.<id>.enabled for the user; a stop that is refus
   await s.extension.deactivate();
 });
 
-test('github opens the GitHub sign-in terminal, waiting until it closes; then the logins are read again', async () => {
-  const s = await pageSetup(null);
+test('github signs in on the page: gh with no terminal, its code shown with Copy code & open, then git set up and the logins read', async () => {
+  const gh = fakeSpawn();
+  const s = await pageSetup(null, {}, {}, { spawnGh: gh.spawn });
   let logins = [];
   s.roost.getStarted.ghLogins = async () => logins;
+  const refreshed = [];
+  s.ui.commands['kestrel.refresh'] = () => { refreshed.push(1); };
   await s.page.receive({ type: 'github' });
-  const term = s.ui.terminals.find((x) => x.name === 'GitHub sign-in');
-  assert.ok(term && term.shown);
-  assert.deepStrictEqual(term.sent, ['gh auth login --hostname github.com --git-protocol https --web && exit']);
-  assert.strictEqual((await s.step('github')).waiting, 'Finish signing in in the terminal.');
-  assert.deepStrictEqual(s.ui.infos || [], [], 'no question first: the page already says who is signed in');
+  assert.deepStrictEqual(gh.calls.map((c) => c.args), [LOGIN_ARGS], 'gh auth login, once');
+  assert.deepStrictEqual(s.ui.terminals || [], [], 'no terminal');
+  let st = await s.stateOf();
+  assert.strictEqual(st.steps.find((x) => x.id === 'github').waiting, "Starting GitHub's sign-in…");
+  assert.deepStrictEqual([st.github.running, st.github.code], [true, null]);
+  await s.page.receive({ type: 'github' });
+  assert.strictEqual(gh.calls.length, 1, 'pressed again while it runs: the same sign-in');
+  gh.calls[0].child.err(CODE_TEXT);
+  st = await s.stateOf();
+  assert.deepStrictEqual(st.github.code, { userCode: 'AB12-CD34', verificationUri: 'https://github.com/login/device' });
+  assert.strictEqual(st.steps.find((x) => x.id === 'github').waiting, 'Copy the code, then enter it on GitHub in your browser.');
+  await s.page.receive({ type: 'githubCopyCode' });
+  assert.deepStrictEqual(s.ui.clipboard, ['AB12-CD34']);
+  assert.deepStrictEqual(s.ui.opened, ['https://github.com/login/device']);
   logins = ['octocat'];
-  s.ui.closeTerminal(term);
+  gh.calls[0].child.exit(0);
   await tick();
-  const st = await s.stateOf();
-  assert.deepStrictEqual([st.steps.find((x) => x.id === 'github').waiting, st.github.logins], ['', ['octocat']]);
+  assert.deepStrictEqual(gh.calls[1].args, SETUP_GIT_ARGS, 'then git is set up to use it');
+  gh.calls[1].child.exit(0);
+  for (let i = 0; i < 5; i++) await tick();
+  st = await s.stateOf();
+  assert.deepStrictEqual([st.steps.find((x) => x.id === 'github').waiting, st.github.logins, st.github.code, st.github.running, st.github.note],
+    ['', ['octocat'], null, false, '']);
+  assert.deepStrictEqual(refreshed, [1], 'the PRs look for the new login');
+  assert.deepStrictEqual(s.ui.infos || [], [], 'the page says it all: no notifications');
   await s.extension.deactivate();
+});
+
+test('github: a failed sign-in leaves its reason on the step; Cancel stops gh and leaves none', async () => {
+  const gh = fakeSpawn();
+  const s = await pageSetup(null, {}, {}, { spawnGh: gh.spawn });
+  await s.page.receive({ type: 'github' });
+  gh.calls[0].child.err('error: failed to authenticate via web browser: access_denied\n');
+  gh.calls[0].child.exit(1);
+  for (let i = 0; i < 5; i++) await tick();
+  let st = await s.stateOf();
+  assert.strictEqual(st.github.note, "GitHub's sign-in didn't finish: error: failed to authenticate via web browser: access_denied");
+  assert.strictEqual(st.github.running, false);
+  await s.page.receive({ type: 'github' });
+  st = await s.stateOf();
+  assert.strictEqual(st.github.note, '', 'tried again: the old reason goes');
+  gh.calls[1].child.err(CODE_TEXT);
+  await s.page.receive({ type: 'githubCancel' });
+  assert.strictEqual(gh.calls[1].child.killed, true);
+  for (let i = 0; i < 5; i++) await tick();
+  st = await s.stateOf();
+  assert.deepStrictEqual([st.github.note, st.github.code, st.github.running, st.steps.find((x) => x.id === 'github').waiting], ['', null, false, '']);
+  await s.page.receive({ type: 'githubCopyCode' });
+  assert.deepStrictEqual(s.ui.clipboard, [], 'no code: nothing copied');
+  await s.extension.deactivate();
+});
+
+test('github: signed in but git not set up: the step says how to set it up', async () => {
+  const gh = fakeSpawn();
+  const s = await pageSetup(null, {}, {}, { spawnGh: gh.spawn });
+  await s.page.receive({ type: 'github' });
+  gh.calls[0].child.exit(0);
+  await tick();
+  gh.calls[1].child.exit(1);
+  for (let i = 0; i < 5; i++) await tick();
+  assert.strictEqual((await s.stateOf()).github.note, "Signed in, but git isn't set up to use it: run gh auth setup-git in a terminal.");
+  await s.extension.deactivate();
+});
+
+test('github: the window closing stops a sign-in that is waiting', async () => {
+  const gh = fakeSpawn();
+  const s = await pageSetup(null, {}, {}, { spawnGh: gh.spawn });
+  await s.page.receive({ type: 'github' });
+  await s.extension.deactivate();
+  assert.strictEqual(gh.calls[0].child.killed, true);
 });
 
 test('Roost: Sign In to GitHub still asks first when signed in', async () => {
