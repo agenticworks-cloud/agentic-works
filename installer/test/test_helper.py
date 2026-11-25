@@ -285,6 +285,40 @@ class LayoutTests(_Case):
         self.assertEqual(json.loads(value), self.h.layout_entry([], []))
         self.assertIsNotNone(marker)
 
+    def _hidden_commands(self) -> dict:
+        con = self._db()
+        row = con.execute("SELECT value FROM ItemTable WHERE key=?", ("menu.hiddenCommands",)).fetchone()
+        con.close()
+        return json.loads(row[0]) if row else {}
+
+    def test_vendor_title_buttons_hidden_with_the_layout(self) -> None:
+        # Claude Code's and Codex's "open" buttons sit on every editor's title bar (Get started included); hidden as
+        # a right-click in the title bar would, in the same one-time write as the icons
+        self.assertEqual(self._layout()[0], 0)
+        self.assertEqual(self._hidden_commands(), {"EditorTitle": [
+            "claude-vscode.editor.openLast", "claude-vscode.terminal.open", "chatgpt.openSidebar"]})
+
+    def test_hidden_title_buttons_merge_with_what_is_there(self) -> None:
+        mine = {"EditorTitle": ["workbench.action.splitEditor", "chatgpt.openSidebar"], "ViewTitle": ["x.y"]}
+        self._make_db({"menu.hiddenCommands": json.dumps(mine)})
+        self.assertEqual(self._layout()[0], 0)
+        self.assertEqual(self._hidden_commands(), {"EditorTitle": [
+            "workbench.action.splitEditor", "chatgpt.openSidebar", "claude-vscode.editor.openLast",
+            "claude-vscode.terminal.open"], "ViewTitle": ["x.y"]})
+
+    def test_hidden_title_buttons_left_alone_when_not_json(self) -> None:
+        self._make_db({"menu.hiddenCommands": "not json"})
+        self.assertEqual(self._layout()[0], 0)
+        con = self._db()
+        (value,) = con.execute("SELECT value FROM ItemTable WHERE key=?", ("menu.hiddenCommands",)).fetchone()
+        con.close()
+        self.assertEqual(value, "not json")
+
+    def test_title_buttons_not_touched_on_a_used_vscode(self) -> None:
+        self._make_db({KEY: json.dumps([{"id": "workbench.view.scm", "pinned": True, "visible": True}])})
+        self.assertEqual(self._layout()[0], 2)
+        self.assertEqual(self._hidden_commands(), {}, "a VS Code already in use keeps its title bar")
+
     def test_first_window_maximized_only_when_absent(self) -> None:
         storage = self.user / "globalStorage" / "storage.json"
         self.assertEqual(self._layout()[0], 0)

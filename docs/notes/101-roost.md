@@ -976,6 +976,9 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   (`roost-test-reset`, outside this repo).
   The pinned prompt lies over the top of the transcript instead of taking its own space, so two prompts close
   together no longer flicker (ported from Perch 0.7.52).
+- **Vendor buttons off the editor title bar — Built (0.5.13).** Claude Code and Codex each put an "open" button on
+  every editor's title bar, Get started included. On a VS Code that has never been started, the installer's Icons step
+  now hides them too, the way a right-click in the title bar does (note 102, step 6).
 
 ## Left to the builder
 

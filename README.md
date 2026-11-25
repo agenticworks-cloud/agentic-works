@@ -28,7 +28,8 @@ Run it without `sudo`: it asks for your password when it needs it, after listing
 - installs Roost (checked against its SHA-256) and its companions, Claude Code, ChatGPT and perch-audio;
 - installs the GitHub CLI, for the PRs panel (you sign in to GitHub from the Get started page, not the terminal);
 - sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
-  and trims the activity-bar icons on a VS Code that has never been started;
+  and trims the activity-bar icons and the Claude Code and Codex buttons on editor title bars, on a VS Code that
+  has never been started;
 - opens VS Code, where Roost's first start opens its Get started page (again any time: Roost: Get Started).
 
 It prints a ✓ / – / ✗ checklist and is safe to run again; a second run changes nothing that is in place. Running

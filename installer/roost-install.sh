@@ -1183,10 +1183,10 @@ apply_settings() {  # the look's keys, and codebase search when asked for, each 
   fi
 }
 
-apply_icons() {  # the activity bar's icons, only on a VS Code never started (its state.vscdb has no layout yet)
-  look_step icons "Icons" vscode-layout "activity bar trimmed" "couldn't write the icon layout; see $LOG"
+apply_icons() {  # the activity bar's icons and the vendor buttons on editor title bars, only on a VS Code never started (its state.vscdb has no layout yet)
+  look_step icons "Icons" vscode-layout "activity bar and editor title bar trimmed" "couldn't write the icon layout; see $LOG"
   case $STEP_RESULT:$HELPER_OUT in
-    skipped:*"already has an icon layout"*) step_say "to hide an icon yourself, right-click it in the activity bar" ;;
+    skipped:*"already has an icon layout"*) step_say "to hide an icon or a title-bar button yourself, right-click it" ;;
   esac
 }
 

@@ -158,6 +158,11 @@ Each GitHub release of `seanahn/roost` carries two assets: `roost-install.sh` an
    VS Code keeps its own layout, and the checklist says how to hide icons by hand. VS Code running during the run:
    the icons step is skipped with "quit VS Code and rerun" (VS Code would overwrite the file on exit); the other
    steps go through the `code` CLI and are fine. *(my calls: never undo someone's own layout)*
+   In the same write, Claude Code's and Codex's "open" buttons, which they put on every editor's title bar, are
+   hidden: `claude-vscode.editor.openLast`, `claude-vscode.terminal.open` and `chatgpt.openSidebar` are added to
+   `EditorTitle` in `menu.hiddenCommands`, which is where VS Code keeps a right-click hide (there is no setting).
+   Whatever is already listed stays; a value that isn't that JSON is left alone. Their diff buttons stay.
+   *(0.5.13; Sean, 2026-11-25: the buttons showed on the Get started page)*
    In the same step, on that same never-started VS Code, the first window is made maximized: `windowsState` in
    `User/globalStorage/storage.json` (mode 0 with a size to un-maximize to), only when absent. A fresh install
    otherwise opens a window about 60% of the screen, too narrow for the walkthrough's detail column beside the side

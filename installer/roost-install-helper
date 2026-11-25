@@ -50,6 +50,25 @@ HIDDEN_VIEWLETS = [
     "workbench.view.extension.claude-sessions-sidebar",
 ]
 
+# Claude Code's and Codex's "open" buttons, which they put on every editor's title bar (Get started included; Sean,
+# 2026-11-25). Hidden as a right-click in the title bar would: VS Code keeps that per profile in state.vscdb, as
+# {menu id: [command ids]}; there is no setting for it. Their diff buttons (accept, reject) are left alone.
+HIDDEN_COMMANDS_KEY = "menu.hiddenCommands"
+HIDDEN_TITLE_COMMANDS = ["claude-vscode.editor.openLast", "claude-vscode.terminal.open", "chatgpt.openSidebar"]
+
+
+def hidden_commands(value: Optional[str]) -> Optional[str]:
+    """menu.hiddenCommands with the vendor title buttons added to EditorTitle; None when the value isn't such JSON."""
+    try:
+        data = json.loads(value) if value else {}
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("EditorTitle", []), list):
+        return None
+    title = data.get("EditorTitle", [])
+    data["EditorTitle"] = title + [c for c in HIDDEN_TITLE_COMMANDS if c not in title]
+    return json.dumps(data)
+
 
 def user_dir() -> Path:
     override = os.environ.get("ROOST_VSCODE_USER_DIR")
@@ -271,6 +290,10 @@ def cmd_vscode_layout(_args: argparse.Namespace) -> int:
         entry = layout_entry([], codex_container_ids())
         written = datetime.now(timezone.utc).isoformat(timespec="seconds")
         con.execute("INSERT INTO ItemTable (key, value) VALUES (?, ?)", (PINNED_KEY, json.dumps(entry)))
+        row = con.execute("SELECT value FROM ItemTable WHERE key = ?", (HIDDEN_COMMANDS_KEY,)).fetchone()
+        hidden = hidden_commands(row[0] if row else None)
+        if hidden is not None:
+            con.execute("INSERT INTO ItemTable (key, value) VALUES (?, ?)", (HIDDEN_COMMANDS_KEY, hidden))
         con.execute("INSERT INTO ItemTable (key, value) VALUES (?, ?)", (LAYOUT_RECORD_KEY, written))
         con.commit()
     finally:

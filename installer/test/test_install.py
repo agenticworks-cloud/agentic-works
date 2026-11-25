@@ -1478,7 +1478,7 @@ class TestLook(_Installer):
         self.assertEqual(self.python3_calls(), [f"python3 {HELPER} vscode-settings",
                                                 f"python3 {HELPER} vscode-layout"])
         self.assertIn("  ✓ Settings (added to settings.json)", out)
-        self.assertIn("  ✓ Icons (activity bar trimmed)", out)
+        self.assertIn("  ✓ Icons (activity bar and editor title bar trimmed)", out)
         lines = out.splitlines()
         self.assertTrue(_index(lines, "✓ GitHub") < _index(lines, "✓ Settings") < _index(lines, "✓ Icons"), out)
 
@@ -1655,7 +1655,7 @@ class TestLook(_Installer):
                 if used:
                     self.assertEqual(len(self.logged("platform-python ")), 2, self.stub_log())
                     self.assertIn("  ✓ Settings (added to settings.json)", out)
-                    self.assertIn("  ✓ Icons (activity bar trimmed)", out)
+                    self.assertIn("  ✓ Icons (activity bar and editor title bar trimmed)", out)
                 else:
                     self.assertEqual(self.logged("platform-python "), [])
                     self.assertIn("  – Settings: python3 is not installed; ", out)
