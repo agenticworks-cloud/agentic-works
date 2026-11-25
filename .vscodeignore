@@ -5,6 +5,7 @@ parts/*/node_modules/**
 parts/*/*.vsix
 parts/agents/audio/**
 scripts/**
+parts/*/scripts/**
 Makefile
 **/Makefile
 .superpowers/**

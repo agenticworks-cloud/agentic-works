@@ -966,6 +966,10 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   brighter with a focus-coloured edge and is only redrawn when its prompt changes (Perch 0.7.50). `jira.ticketView`
   defaults to `"jay"`. A subscription or API tab restarts on its own backend when `~/.claude/settings.json` gains or
   loses a gateway pin while it runs, since a running Claude Code takes up the file's new gateway (Perch 0.7.51).
+- **Reactions in Teams — Built (0.5.11)** *(Sean, 2026-11-25: "the chirp does not have a way to tag with reaction";
+  "full emoji pickers")*. A click on a reaction adds Sean's or takes it back; hovering a message shows six quick
+  reactions and a picker with every emoji, a search, recent ones and a skin tone (parts/teams note 101, "Reacting").
+  jay's ticket keys: someone else's in purple, unassigned ones plain, and closer to the expand arrow (jay 0.2.9).
 
 ## Left to the builder
 

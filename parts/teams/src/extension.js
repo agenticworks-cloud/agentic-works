@@ -373,7 +373,7 @@ function activate(context, deps = {}) {
   const saved = createSavedTabs({ state: context.workspaceState, key: OPEN_TABS_KEY, viewType: VIEW_TYPE, tabGroups: vscode.window.tabGroups, graceMs: deps.restoreGraceMs });
   let switchingOff = false;   // confirmStop said yes: dispose closes the tabs, which a window closing leaves to VS Code
   const conversations = new Conversations({
-    saved, api, g, mirror, log, isFocused, extensionUri: context.extensionUri,
+    saved, prefs: context.globalState, api, g, mirror, log, isFocused, extensionUri: context.extensionUri,
     me: ensureMe, meId: () => (s.me ? s.me.id : null), tenantId: () => auth.tenantId(),
     getChat: (id) => s.chats.find((c) => c.id === id), getChannel,
     addPoller: (run, everyMs) => addPoller(run, everyMs),
