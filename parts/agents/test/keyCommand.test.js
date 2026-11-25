@@ -24,6 +24,7 @@ const KEY = 'sk-example-0123456789abcdefghijklmnop';
   const big = await runKeyCommand(fake('big'));
   assert.deepStrictEqual(big, { ok: false, text: "Couldn't get a key automatically: the key helper printed more than a key." }, 'stdout capped');
   assert.deepStrictEqual(await runKeyCommand(fake('stdin')), { ok: true, key: 'closed' }, 'stdin is closed');
+  assert.deepStrictEqual(await runKeyCommand(fake('env', 'EXAMPLE_EMAIL'), { env: { ...process.env, EXAMPLE_EMAIL: 'me@example.com' } }), { ok: true, key: 'me@example.com' }, 'the env given');
   // a helper that leaves a child behind (a browser, a refresher) holding its pipes: answered at its exit, the child stopped
   if (process.platform !== 'win32') {
     const fs = require('fs'), os = require('os');

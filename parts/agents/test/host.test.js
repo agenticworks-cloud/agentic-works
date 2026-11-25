@@ -2362,6 +2362,23 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert.deepStrictEqual(m.ui.external, [], 'the key page is not opened');
       assert.strictEqual(m.globalState._dump()['perch.claude.connection'], 'gateway');
 
+      // the company's email section: the address the Get started page saved goes to the helper in email.env only
+      const withEmail = (email) => fs.writeFileSync(company, JSON.stringify({ name: 'Example Co', email, gateway: { name: 'Example Gateway', baseUrls: [PUBLIC], keyPage: KEY_PAGE, keyFiles: [keyFile], keyCommand: [process.execPath, FAKE, 'env', 'EXAMPLE_EMAIL'] } }));
+      withEmail({ domain: 'example.com', env: 'EXAMPLE_EMAIL' });
+      await ask({ type: 'getKey' });
+      assert.strictEqual(sent.pop(), 'unset', 'nothing saved: no address');
+      await m.globalState.update('roost.email', 'me.name@example.com');
+      await ask({ type: 'getKey' });
+      assert.strictEqual(sent.pop(), 'me.name@example.com', 'the saved address, in the env named');
+      await m.globalState.update('roost.email', 'me@other.com');
+      await ask({ type: 'getKey' });
+      assert.strictEqual(sent.pop(), 'unset', 'not on the company\'s domain: none');
+      await m.globalState.update('roost.email', 'me.name@example.com');
+      withEmail({ domain: 'example.com' });
+      await ask({ type: 'getKey' });
+      assert.strictEqual(sent.pop(), 'unset', 'no email.env: none');
+      await m.globalState.update('roost.email', undefined);
+
       // a key the gateway refuses: the usual verdict
       writeCompany('ok', BAD);
       assert.deepStrictEqual(await ask({ type: 'getKey' }), [{ type: 'gatewayVerdict', text: 'Example Gateway rejected the key.', canForce: false }]);

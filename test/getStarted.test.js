@@ -201,6 +201,50 @@ test('steps.talk names the talk step (Sean, 2026-11-24)', async () => {
   await s.extension.deactivate();
 });
 
+test('email: a step of its own after GitHub when the company file asks; saved, kept for the tools, never logged', async () => {
+  const company = { ...EXAMPLE, email: { domain: 'example.com', env: 'EXAMPLE_EMAIL' }, steps: { email: 'Your work email' }, jira: { email: 'old@example.com' } };
+  const s = await pageSetup(company);
+  let st = await s.stateOf();
+  assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts']);
+  const step = st.steps.find((x) => x.id === 'email');
+  assert.deepStrictEqual([step.name, step.done], ['Your work email', false]);
+  assert.ok(step.details, 'it has details');
+  assert.deepStrictEqual(st.email, { domain: 'example.com', value: '' });
+  assert.strictEqual(st.jira.email, 'old@example.com', 'nothing saved yet: the company file\'s');
+  // not on the company's domain, or not an address: refused, nothing saved
+  for (const bad of ['me@other.com', '@example.com', 'me', 'a b@example.com', 42]) {
+    await s.page.receive({ type: 'emailSave', email: bad });
+    assert.deepStrictEqual(s.page.posted.pop(), { type: 'email', error: 'Enter your address ending in @example.com.' }, String(bad));
+  }
+  assert.strictEqual(s.store.get('roost.email'), undefined);
+  assert.strictEqual((await s.step('email')).done, false);
+  await s.page.receive({ type: 'emailSave', email: '  Me.Name@Example.com ' });
+  assert.ok(s.page.posted.some((m) => m.type === 'email' && m.error === null));
+  assert.strictEqual(s.store.get('roost.email'), 'me.name@example.com');
+  st = await s.stateOf();
+  assert.strictEqual(st.steps.find((x) => x.id === 'email').done, true);
+  assert.deepStrictEqual(st.email, { domain: 'example.com', value: 'me.name@example.com' });
+  assert.strictEqual(st.jira.email, 'me.name@example.com', 'the saved address fills the Jira form');
+  // still editable once done
+  await s.page.receive({ type: 'emailSave', email: 'other.name@example.com' });
+  assert.strictEqual(s.store.get('roost.email'), 'other.name@example.com');
+  assert.ok(!s.ui.out.some((l) => /name@example\.com/i.test(l)), s.ui.out.join('\n'));
+  await s.extension.deactivate();
+  // Not Now ticks it with nothing saved
+  const n = await pageSetup(company);
+  await n.page.receive({ type: 'notNow', step: 'email' });
+  assert.strictEqual((await n.step('email')).done, true);
+  assert.strictEqual(n.store.get('roost.email'), undefined);
+  await n.extension.deactivate();
+  // no email section: no step, no state, and emailSave does nothing
+  const x = await pageSetup(EXAMPLE);
+  assert.ok(!(await x.stateOf()).steps.some((y) => y.id === 'email'));
+  assert.strictEqual((await x.stateOf()).email, null);
+  await x.page.receive({ type: 'emailSave', email: 'me@example.com' });
+  assert.strictEqual(x.store.get('roost.email'), undefined);
+  await x.extension.deactivate();
+});
+
 test('no company file: Roost\'s words and order', async () => {
   const s = await pageSetup(null);
   const st = await s.stateOf();

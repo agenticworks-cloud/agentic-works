@@ -18,9 +18,14 @@
 // The Teams step's own sign-in is started in place ({ inPlace: true }): the device code (chirp.signInCode, read
 // while chirp.signInCodeWaiting) shows in the step with Copy code & open (chirp.copyCode) and Cancel
 // (chirp.cancelSignIn), and is never logged.
+// With the company file's email section (0.5.7), the email step after GitHub asks for the user's address on the
+// company's domain (emailSave), kept in globalState EMAIL_KEY, which Roost's parts share: the Agents part gives it to
+// the gateway's key helper and Connect Your Tools to its sign-in commands, in the environment variable email.env. It
+// fills the Jira form's email too. It is never logged. Not Now ticks the step with nothing saved.
 const { randomBytes } = require('node:crypto');
 const { getStartedHtml } = require('./getStartedPage');
 const { stepDetails, httpsUrl } = require('./stepDetails');
+const { companyEmail, EMAIL_KEY } = require('./company');
 
 const VIEW_TYPE = 'roost.getStarted';
 const DONE_KEY = 'roost.getStarted.done';
@@ -30,7 +35,7 @@ const AUTO_TAB_KEY = 'roost.getStarted.autoTabOpened';
 const AUTO_TAB_RETRIES_MS = [1000, 3000, 10000];
 const OPEN_GATEWAY_TAB = 'roost.newClaudeGatewayTab';
 const TAB_OPEN = ['opened', 'revealed'];   // perch.openGatewayTab's answers when a tab is there
-const ORDER_COMPANY = ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
+const ORDER_COMPANY = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
 const ORDER_ROOST = ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts'];
 const STEP_IDS = [...new Set([...ORDER_COMPANY, ...ORDER_ROOST])];
 const NAMES = {
@@ -155,6 +160,7 @@ class GetStarted {
       teams: ctx('chirp.signedIn'),
       jira: ctx('jay.signedIn'),
       codebase: this.vscode.workspace.getConfiguration('agents').get('codebaseIndex.enabled') === true,
+      email: !!this.email(),
       parts: false,
     };
   }
@@ -176,8 +182,12 @@ class GetStarted {
     return this.markDone(...Object.keys(s).filter((id) => s[id]));
   }
 
+  // the address the email step saved, while it is still one on the company's domain
+  email() { return companyEmail(this.company(), this.store.get(EMAIL_KEY)); }
+
   shown(id) {
     if (id === 'tools') return this.roost.hasTools();
+    if (id === 'email') { const c = this.company(); return !!(c && c.email); }
     if (id === 'parts') return true;
     return this.on(PART_OF[id]);
   }
@@ -189,6 +199,7 @@ class GetStarted {
     if (teamsSigned) this.waiting.teams = false;
     const names = {
       ...NAMES,
+      email: (c && c.steps.email) || 'Your email',
       claude: (c && c.steps.gateway) || 'Connect Claude',
       tools: (c && c.steps.tools) || 'Connect your tools',
       agents: (c && c.steps.talk) || NAMES.agents,
@@ -207,17 +218,20 @@ class GetStarted {
     const jira = this.vscode.workspace.getConfiguration('jira');
     const jiraFile = jira.get('signIn.tokenFile', '');
     // the site the user set (user scope only, as the Jira part reads it: never a workspace's), else the company file's;
-    // the email is the company file's. The page fills both in unless the user has typed another.
+    // the email is the one the email step saved, else the company file's. The page fills both in unless the user has
+    // typed another.
     const userSite = (jira.inspect('site') || {}).globalValue;
     const jiraSite = str(userSite) || str(c && c.jira && c.jira.site);
+    const saved = this.email();
     return {
       title: `Get started with ${(c && c.title) || 'Roost'}`,
       steps,
+      email: c && c.email ? { domain: c.email.domain, value: saved } : null,
       claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
       agents: { autoTab, openTab: autoTab && this.offerTab() },
       github: { logins: [...this.logins] },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams, code: teamsCode ? { ...teamsCode } : null },
-      jira: { rowId: this.rowFor('jira'), site: jiraSite, email: str(c && c.jira && c.jira.email), form: !(typeof jiraFile === 'string' && jiraFile) },
+      jira: { rowId: this.rowFor('jira'), site: jiraSite, email: saved || str(c && c.jira && c.jira.email), form: !(typeof jiraFile === 'string' && jiraFile) },
       parts: [...this.roost.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.roost.isEnabled(e.part.id) })),
     };
   }
@@ -301,7 +315,19 @@ class GetStarted {
           if (this.teamsCode && httpsUrl(this.teamsCode.verificationUri) && this.running('teams')) await run('chirp.copyCode');
           break;
         case 'teamsCancel': if (this.running('teams')) await run('chirp.cancelSignIn'); break;
+        case 'emailSave': {
+          const c = this.company();
+          if (!c || !c.email) break;
+          const value = companyEmail(c, m.email);
+          if (!value) { this.post({ type: 'email', error: `Enter your address ending in @${c.email.domain}.` }, panel); break; }
+          await this.store.update(EMAIL_KEY, value);
+          this.markDone('email');
+          this.post({ type: 'email', error: null }, panel);
+          this.refresh();
+          break;
+        }
         case 'notNow':
+          if (m.step === 'email' && this.shown('email')) { this.markDone('email'); this.refresh(); break; }
           if (!NOT_NOW[m.step]) break;
           this.markDone(m.step);
           this.refresh();

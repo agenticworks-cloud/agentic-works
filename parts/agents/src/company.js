@@ -2,7 +2,7 @@
 // The company file: ~/.config/roost/company.json, written by a company's installer (ROOST_COMPANY_FILE overrides the
 // path). It names an LLM gateway and the MCP servers the company offers. readCompany validates it whole: any error
 // makes the file invalid, and the error starts with the path of the offending value (mcpServers[1].connect.kind: ...).
-// The exceptions are the optional jira section and a server's connect.button: a bad value there is dropped with a note
+// The exceptions are the optional jira and email sections and a server's connect.button: a bad value there is dropped with a note
 // (readCompany's notes), and the rest of the file still loads.
 // This file is copied byte for byte to parts/agents/src/company.js (a part never requires Roost's src/); a Roost test
 // checks the copies match.
@@ -244,18 +244,40 @@ function jira(j, notes) {
   return out;
 }
 
+// email: the Get started page asks for the user's address on the company's domain, and the company's tools get it in
+// the environment variable named here (never on a command line): { domain, env }, env optional. A bad section is
+// dropped with a note: no email step then.
+const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
+const RESERVED_ENV = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|NODE_OPTIONS|NODE_PATH|PYTHONPATH|LD_.*|DYLD_.*)$/;
+function email(e, notes) {
+  if (e === undefined || e === null) return null;
+  if (!isObject(e)) { notes.push('email: must be an object; it is ignored'); return null; }
+  const domain = isString(e.domain) ? e.domain.trim().toLowerCase() : '';
+  if (!DOMAIN.test(domain) || domain.length > 253) { notes.push('email.domain: must be a domain name, such as example.com; the email section is ignored'); return null; }
+  let env = '';
+  if (e.env !== undefined) {
+    if (!isString(e.env) || !ENV_NAME.test(e.env) || RESERVED_ENV.test(e.env)) {
+      notes.push('email.env: must be an upper-case environment variable name, not one the system uses; the email section is ignored');
+      return null;
+    }
+    env = e.env;
+  }
+  return { domain, env };
+}
+
 function validate(data, home, notes = [], dir = home) {
   if (!isObject(data)) throw new Invalid('', 'the file must hold a JSON object');
   if (!isString(data.name) || !data.name) throw new Invalid('name', 'must be a non-empty string');
-  const company = { name: data.name, title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] };
-  // optional wording for the Get started page: its title, and the names of its gateway, tools and talk steps
+  const company = { name: data.name, title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] };
+  // optional wording for the Get started page: its title, and the names of its email, gateway, tools and talk steps
   if (data.title !== undefined) {
     if (!isString(data.title) || !data.title) throw new Invalid('title', 'must be a non-empty string');
     company.title = data.title;
   }
   if (data.steps !== undefined) {
     if (!isObject(data.steps)) throw new Invalid('steps', 'must be an object');
-    for (const k of ['gateway', 'tools', 'talk']) {
+    for (const k of ['email', 'gateway', 'tools', 'talk']) {
       const v = data.steps[k];
       if (v === undefined) continue;
       if (!isString(v) || !v) throw new Invalid(`steps.${k}`, 'must be a non-empty string');
@@ -263,6 +285,7 @@ function validate(data, home, notes = [], dir = home) {
     }
   }
   company.jira = jira(data.jira, notes);
+  company.email = email(data.email, notes);
   if (data.gateway !== undefined && data.gateway !== null) company.gateway = gateway(data.gateway, home);
   if (data.mcpServers !== undefined) {
     if (!Array.isArray(data.mcpServers)) throw new Invalid('mcpServers', 'must be an array');
@@ -315,4 +338,19 @@ function readCompany(file, { home = os.homedir() } = {}) {
   }
 }
 
-module.exports = { companyFile, readCompany };
+// The user's address saved by the Get started page's email step (globalState EMAIL_KEY, which Roost and its parts
+// share): normalized, or '' when the company asks for none or it isn't an address on the company's domain.
+const EMAIL_KEY = 'roost.email';
+function companyEmail(company, value) {
+  if (!company || !company.email || !isString(value)) return '';
+  const v = value.trim().toLowerCase();
+  if (v.length > 254 || !EMAIL.test(v) || !v.endsWith(`@${company.email.domain}`)) return '';
+  return v;
+}
+// The environment the company's tools get it in: { [email.env]: address }, or {} with no env or no address.
+function companyEmailEnv(company, value) {
+  const v = companyEmail(company, value);
+  return v && company.email.env ? { [company.email.env]: v } : {};
+}
+
+module.exports = { companyFile, readCompany, companyEmail, companyEmailEnv, EMAIL_KEY };

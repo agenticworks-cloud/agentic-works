@@ -18,7 +18,7 @@ const { checkKey, probeBaseUrls } = require('./gatewayCheck');
 const KeyCommand = require('./keyCommand');
 const KEY_ALREADY_RUNNING = 'A key is already being fetched; wait for it to finish.';
 const TerminalClaude = require('./terminalClaude');
-const { companyFile, readCompany } = require('./company');
+const { companyFile, readCompany, companyEmailEnv, EMAIL_KEY } = require('./company');
 const { chooseFirstTab } = require('./firstTab');
 const Prices = require('./prices');
 const { shortModel } = require('./relay');
@@ -1548,7 +1548,9 @@ class PerchView {
    * prints goes straight to saveGatewayForm, as a pasted one would; it is never posted, logged or put on a command
    * line. A helper that can't is answered keyFailed {text}, its reason made safe for the page. Without a keyCommand,
    * the key page opens. One helper at a time: a second Get a key while one runs is answered keyFailed, so the page that
-   * asked doesn't wait on a run that isn't its own.
+   * asked doesn't wait on a run that isn't its own. With the company file's email section, the address Roost's Get
+   * started page saved (globalState EMAIL_KEY, shared with Roost) goes to the helper in the environment variable
+   * email.env, never on its command line; it is never logged.
    */
   async getCompanyKey(cg, post, { from = 'panel', where = 'gateway form' } = {}) {
     if (!cg.keyCommand) { await this.openKeyPage(cg, where); return null; }
@@ -1556,7 +1558,9 @@ class PerchView {
     this.keyCommandRunning = true;
     let got;
     try {
-      got = await KeyCommand.runKeyCommand(cg.keyCommand, { timeoutMs: this.keyCommandTimeoutMs });
+      const c = this.company();
+      const email = c.ok ? companyEmailEnv(c.company, this.context.globalState.get(EMAIL_KEY)) : {};
+      got = await KeyCommand.runKeyCommand(cg.keyCommand, { timeoutMs: this.keyCommandTimeoutMs, env: { ...process.env, ...email } });
     } finally { this.keyCommandRunning = false; }
     if (!got.ok) {
       this.trace(`${where}: the key helper: ${got.text}`);   // the reason only, masked as the page has it

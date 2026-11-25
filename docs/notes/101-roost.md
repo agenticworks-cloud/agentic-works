@@ -939,6 +939,19 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - *Nothing tried yet:* a row not installed, with no token, or not signed in says so in the ordinary colour, without
     "Not connected:" (`notYet` on the row); a check that ran and failed is still red.
 
+- **An email step that the company's sign-ins get — Built (0.5.7)** *(Sean, 2026-11-25: the gateway's sign-in
+  window asked for the address; "can we have email entry box in the walk through?", the domain prefilled, and "as a
+  separate step, in case, someone opts out from" the gateway)*.
+  - *The file:* `email: { domain, env }` and `steps.email` (`src/company.js`; a bad section is dropped with a note).
+  - *The step* (company order, after GitHub, only with the section): a box ending in `@<domain>` with the cursor
+    before the `@`, **Save** (an address on the domain, kept lowercase) and **Not Now**; still editable once ticked.
+  - *Where it goes:* globalState `roost.email`, which the parts share (a part's context is made from Roost's); never
+    logged. A setting was the other choice, but Roost contributes none of its own today. The Jira form's email starts
+    with it. The gateway's `keyCommand` (the Agents part, page and panel alike) and each `command` sign-in's terminal
+    get it in the environment variable `env`; a helper may use it to fill in the sign-in page.
+  - *Later:* on a managed Mac the address may be known already (Intune or Platform SSO): to look at when the company
+    install is tried there.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of

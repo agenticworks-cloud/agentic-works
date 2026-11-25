@@ -19,6 +19,7 @@ for (const f of [
   'extension/parts/agents/src/extension.js',
   // the Get started page's step details, read at runtime (src/stepDetails.js)
   'extension/media/getstarted/github.md',
+  'extension/media/getstarted/email.md',
   'extension/media/getstarted/claude-company-gateway.md',
   'extension/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
   // licences: Roost's own (vsce renames LICENSE), and the dependencies' that are .md files

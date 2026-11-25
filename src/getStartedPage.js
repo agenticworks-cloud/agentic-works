@@ -7,18 +7,19 @@
 // and calls the parts' commands; the page holds no saved key or token, and empties a typed one as it sends it.
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
-// Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting, details }], claude: { companyGateway,
-//   keyCommand }, agents: { autoTab, openTab }, github: { logins }, teams: { rowId, note, code }, jira: { rowId, site,
-//   email, form }, parts: [{ id, title, on }] }
+// Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting, details }], email: { domain, value }
+//   or null, claude: { companyGateway, keyCommand }, agents: { autoTab, openTab }, github: { logins }, teams: { rowId,
+//   note, code }, jira: { rowId, site, email, form }, parts: [{ id, title, on }] }
 //   (agents.autoTab: the talk step's Claude tab opens by itself, so no New Claude Tab / New Codex Tab; openTab: offer
 //   Open Claude Tab, no Perch tab being open. teams.code: { userCode, verificationUri } while the page's Teams sign-in
 //   waits on its code, else null; the address is shown as text, never a link)
 //   (details: HTML the host rendered from media/getstarted/, src/stepDetails.js, every word escaped there; the page
 //   shows it as it is); rows {rows} (the tools rows, src/toolsRows.js); agents {replies, of}
-//   (perch.connectClaude.request's replies; of: the request's type) or agents {error}; jira {error} (null once signed in).
+//   (perch.connectClaude.request's replies; of: the request's type) or agents {error}; jira {error} (null once signed in);
+//   email {error} (null once saved).
 // Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message: getKey runs the company's
 //   key helper when there is one; keyPage opens its key page); github; newTab {kind}; openTab; teamsCopyCode; teamsCancel;
-//   notNow {step}; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; part {id, on}; partsDone;
+//   notNow {step}; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; emailSave {email}; part {id, on}; partsDone;
 //   openSettings; tool {message} (a tools row's message, {type, id, ...}); openLink {url} (a link clicked in the
 //   details: the host opens it if it is https). No VS Code dependency.
 
@@ -63,6 +64,28 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
         v.signIn.hidden = logins.length > 0;
         v.another.hidden = !logins.length;
       };
+    },
+
+    // the company's email step: the box ends in @<domain> until something is typed or saved, the cursor before the @
+    email(v) {
+      // text, not email: an email input has no selection to put the cursor before the @
+      v.box = input('text', 'email', '');
+      v.box.autocomplete = 'email'; v.box.inputMode = 'email';
+      v.save = button('Save', '', () => post({ type: 'emailSave', email: v.box.value.trim() }));
+      onEnter(v.box, v.save);
+      // the cursor before the @ when the box is still only the domain; again after a click has placed it
+      const before = () => { if (v.box.value === v.prefill && v.box.value.startsWith('@')) v.box.setSelectionRange(0, 0); };
+      v.box.addEventListener('focus', () => { before(); setTimeout(before, 0); });
+      v.error = el('p', 'error'); v.error.hidden = true; v.error.setAttribute('role', 'alert');
+      v.prefill = '';   // what the box was last filled with
+      v.body.append(field('Email', v.box), row(v.save, button('Not Now', 'secondary', () => post({ type: 'notNow', step: 'email' }))), v.error);
+      v.update = (s) => {
+        const e = s.email || {};
+        const domain = typeof e.domain === 'string' ? e.domain : '';
+        const value = typeof e.value === 'string' && e.value ? e.value : domain ? '@' + domain : '';
+        if (v.box.value === '' || v.box.value === v.prefill) { v.box.value = value; v.prefill = value; }
+      };
+      v.emailError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; };
     },
 
     claude(v) { buildClaude(v); },
@@ -495,6 +518,9 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     } else if (m.type === 'jira') {
       const v = views.get('jira');
       if (v) v.jiraError(m.error ? String(m.error) : '');
+    } else if (m.type === 'email') {
+      const v = views.get('email');
+      if (v) v.emailError(m.error ? String(m.error) : '');
     }
   });
   post({ type: 'ready' });

@@ -54,8 +54,35 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 
 // a minimal file, and defaults
 const min = read({ name: 'Min' });
-assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] });
+assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] });
 assert.deepStrictEqual(min.notes, []);
+// email: the Get started page asks for the user's address on the company's domain; tools get it in the env named
+{
+  const em = read({ name: 'E', email: { domain: 'Example.com', env: 'EXAMPLE_EMAIL' }, steps: { email: 'Your work email' } });
+  assert.strictEqual(em.ok, true, em.error);
+  assert.deepStrictEqual(em.company.email, { domain: 'example.com', env: 'EXAMPLE_EMAIL' });
+  assert.strictEqual(em.company.steps.email, 'Your work email');
+  assert.deepStrictEqual(em.notes, []);
+  assert.deepStrictEqual(read({ name: 'E', email: { domain: 'example.com' } }).company.email, { domain: 'example.com', env: '' });
+  invalid({ name: 'E', steps: { email: '' } }, 'steps.email');
+  // a bad section is dropped with a note: no email step
+  for (const [email, note] of [
+    ['example.com', 'email:'],
+    [{}, 'email.domain:'],
+    [{ domain: 'example' }, 'email.domain:'],
+    [{ domain: 'ex ample.com' }, 'email.domain:'],
+    [{ domain: '@example.com' }, 'email.domain:'],
+    [{ domain: 'example.com', env: 'lower' }, 'email.env:'],
+    [{ domain: 'example.com', env: '1X' }, 'email.env:'],
+    [{ domain: 'example.com', env: 'PATH' }, 'email.env:'],
+  ]) {
+    const r = read({ ...EXAMPLE, email });
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.company.email, null, JSON.stringify(email));
+    assert.strictEqual(r.notes.length, 1, JSON.stringify(r.notes));
+    assert.ok(r.notes[0].startsWith(note), r.notes[0]);
+  }
+}
 // jira: the site and email the Get started page fills in; never a token (one there is ignored)
 const jr = read({ name: 'J', jira: { site: 'https://example.atlassian.net', email: 'you@example.com', token: 'tok-1' } });
 assert.strictEqual(jr.ok, true, jr.error);
@@ -110,7 +137,7 @@ for (const [jira, want, note] of [
   }
 }
 // steps.talk: the Talk to Claude or Codex step's name (Sean, 2026-11-24)
-assert.deepStrictEqual(read({ name: 'T', steps: { talk: 'Talk to Example Gateway' } }).company.steps, { gateway: '', tools: '', talk: 'Talk to Example Gateway' });
+assert.deepStrictEqual(read({ name: 'T', steps: { talk: 'Talk to Example Gateway' } }).company.steps, { email: '', gateway: '', tools: '', talk: 'Talk to Example Gateway' });
 const g = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k' } }).company.gateway;
 assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false, openTabOnTalk: false, routerPrefixes: [], keyCommand: null });
 // gateway.openTabOnTalk: Get started's Talk step opens a Claude tab on the gateway itself; off unless true
@@ -192,10 +219,10 @@ const extra = mut((d) => { d.future = 1; d.mcpServers[0].extra = { a: 1 }; });
 assert.strictEqual(read(extra).ok, true);
 
 // title and steps: optional wording for the Get started page
-{ const r = read(EXAMPLE); assert.strictEqual(r.company.title, ''); assert.deepStrictEqual(r.company.steps, { gateway: '', tools: '', talk: '' }); }
+{ const r = read(EXAMPLE); assert.strictEqual(r.company.title, ''); assert.deepStrictEqual(r.company.steps, { email: '', gateway: '', tools: '', talk: '' }); }
 { const r = read({ ...clone(EXAMPLE), title: 'Example Works', steps: { gateway: 'Connect Example Gateway', tools: 'Connect Example tools', other: 1 } });
   assert.strictEqual(r.company.title, 'Example Works');
-  assert.deepStrictEqual(r.company.steps, { gateway: 'Connect Example Gateway', tools: 'Connect Example tools', talk: '' }); }
+  assert.deepStrictEqual(r.company.steps, { email: '', gateway: 'Connect Example Gateway', tools: 'Connect Example tools', talk: '' }); }
 invalid({ ...clone(EXAMPLE), title: '' }, 'title');
 invalid({ ...clone(EXAMPLE), title: 3 }, 'title');
 invalid({ ...clone(EXAMPLE), steps: [] }, 'steps');

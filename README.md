@@ -94,8 +94,14 @@ files. Required keys are marked **required**.
 
 - `name` (**required**): the company's name.
 - `title` (optional): a non-empty string; the Get started page reads "Get started with <title>" (default Roost).
-- `steps` (optional): `gateway`, `tools` and `talk`, each an optional non-empty string naming that step of the Get
-  started page (defaults Connect Claude, Connect your tools, Talk to Claude or Codex).
+- `steps` (optional): `email`, `gateway`, `tools` and `talk`, each an optional non-empty string naming that step of
+  the Get started page (defaults Your email, Connect Claude, Connect your tools, Talk to Claude or Codex).
+- `email` (optional): `domain` (**required**, such as `example.com`) and `env` (an upper-case environment variable
+  name, not one the system uses). The Get started page then has an email step after GitHub's: a box that ends in
+  `@<domain>`, **Save** (only an address on that domain) and **Not Now**. The address stays in Roost's own storage,
+  is never logged, starts the Jira step's email, and goes in `env` to the gateway's `keyCommand` and to the
+  `command` sign-ins of `mcpServers` (their terminal's environment, never their command line), so they can fill it in.
+  A bad section is dropped with a note, as `jira`'s is.
 - `gateway` (optional): `name` (**required**), `baseUrls` (**required**, a non-empty list of http(s) URLs, tried in
   order, so a VPN address can come first), `keyPage` (**required**, an http(s) URL where a person makes a key), and
   optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved), `terminal` (true, so

@@ -260,6 +260,42 @@ step('a2').querySelector('.name').click();
 host({ type: 'state', state: st({ steps: [S('a1', 'A1', true), S('a2', 'A2', true), S('a3', 'A3')] }) });
 assert.deepStrictEqual(open(), ['a3']);
 
+// ---- email: the box ends in @<domain>, the cursor before it; Save sends it; a refresh keeps what is typed
+host({ type: 'state', state: st({ email: { domain: 'example.com', value: '' }, steps: [S('email', 'Your work email')] }) });
+{
+  const e = step('email');
+  assert.deepStrictEqual(open(), ['email']);
+  const box = e.querySelector('input[name=email]');
+  assert.ok(shown(box));
+  assert.strictEqual(box.value, '@example.com');
+  box.dispatchEvent(new w.Event('focus'));
+  assert.deepStrictEqual([box.selectionStart, box.selectionEnd], [0, 0], 'the cursor before @');
+  const sent = out.length;
+  host({ type: 'state', state: st({ email: { domain: 'example.com', value: '' }, steps: [S('email', 'Your work email')] }) });
+  assert.strictEqual(out.length, sent, 'a refresh sends nothing');
+  box.value = 'me.name@example.com';
+  host({ type: 'state', state: st({ email: { domain: 'example.com', value: '' }, steps: [S('email', 'Your work email')] }) });
+  assert.strictEqual(box.value, 'me.name@example.com', 'what is typed stays');
+  button(e, 'Save').click();
+  assert.deepStrictEqual(out.pop(), { type: 'emailSave', email: 'me.name@example.com' });
+  host({ type: 'email', error: 'Enter your address ending in @example.com.' });
+  assert.ok(shown(e.querySelector('.error')) && e.textContent.includes('ending in @example.com'));
+  host({ type: 'email', error: null });
+  assert.ok(!shown(e.querySelector('.error')));
+  host({ type: 'state', state: st({ email: { domain: 'example.com', value: 'me.name@example.com' }, steps: [S('email', 'Your work email', true)] }) });
+  assert.strictEqual(box.value, 'me.name@example.com');
+  e.querySelector('.name').click();
+  box.value = 'x@example.com';
+  box.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter' }));
+  assert.deepStrictEqual(out.pop(), { type: 'emailSave', email: 'x@example.com' });
+  button(e, 'Not Now').click();
+  assert.deepStrictEqual(out.pop(), { type: 'notNow', step: 'email' });
+}
+// a saved address fills an untouched box
+host({ type: 'state', state: st({ steps: [] }) });
+host({ type: 'state', state: st({ email: { domain: 'example.com', value: 'saved@example.com' }, steps: [S('email', 'Your work email', true)] }) });
+assert.strictEqual(step('email').querySelector('input[name=email]').value, 'saved@example.com');
+
 // ---- teams and jira
 out.length = 0;
 host({ type: 'state', state: st({ teams: { rowId: 'mail' }, jira: { rowId: '', site: 'https://example.atlassian.net', form: true },

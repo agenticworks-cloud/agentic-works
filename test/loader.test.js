@@ -773,11 +773,12 @@ function fakeTools() {
   };
   return { made, makeTools };
 }
-async function toolsSetup(company = EXAMPLE, config = {}) {
+async function toolsSetup(company = EXAMPLE, config = {}, saved = {}) {
   const env = company ? withCompanyFile(company) : setup();
   Object.assign(env.ui.config, config);
   // first start already recorded: its Get started page would open a panel of its own
-  env.base.globalState = { get: (k) => (k === 'roost.firstStart.done' ? true : undefined), update: async () => {} };
+  const state = { 'roost.firstStart.done': true, ...saved };
+  env.base.globalState = { get: (k) => state[k], update: async () => {} };
   const fakes = fakeTools();
   const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
   await roost.ready;
@@ -886,6 +887,33 @@ test('a command sign-in runs in a terminal named after the server, argv shell-qu
   await tick();
   assert.strictEqual(closed, true);
   assert.strictEqual(s.ui.closeListeners(), listeners, 'the listener is disposed');
+  await s.extension.deactivate();
+});
+
+test('a command sign-in gets the address the email step saved in email.env, in its terminal\'s environment only', async () => {
+  const company = { ...EXAMPLE, email: { domain: 'example.com', env: 'EXAMPLE_EMAIL' } };
+  for (const [saved, want] of [
+    [{ 'roost.email': 'me.name@example.com' }, { EXAMPLE_EMAIL: 'me.name@example.com' }],
+    [{ 'roost.email': 'me@other.com' }, undefined],
+    [{}, undefined],
+  ]) {
+    const s = await toolsSetup(company, {}, saved);
+    await s.run('roost.connectTools');
+    const [t] = s.fakes.made;
+    await s.ui.panels[0].receive({ type: 'connect', id: 'tickets' });
+    t.runInTerminal(['/opt/t/login']);
+    const [term] = s.ui.terminals;
+    assert.deepStrictEqual(term.env, want, JSON.stringify(saved));
+    assert.deepStrictEqual(term.sent, ['/opt/t/login && exit'], 'never on the command line');
+    assert.ok(!s.ui.out.some((l) => l.includes('me.name@example.com')));
+    await s.extension.deactivate();
+  }
+  // no email.env: nothing passed
+  const s = await toolsSetup({ ...EXAMPLE, email: { domain: 'example.com' } }, {}, { 'roost.email': 'me.name@example.com' });
+  await s.run('roost.connectTools');
+  await s.ui.panels[0].receive({ type: 'connect', id: 'tickets' });
+  s.fakes.made[0].runInTerminal(['/opt/t/login']);
+  assert.strictEqual(s.ui.terminals[0].env, undefined);
   await s.extension.deactivate();
 });
 

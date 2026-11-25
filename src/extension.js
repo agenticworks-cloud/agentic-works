@@ -9,7 +9,7 @@ const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const vscode = require('vscode');
 const { readParts, partContext } = require('./parts');
-const { companyFile, readCompany } = require('./company');
+const { companyFile, readCompany, companyEmailEnv, EMAIL_KEY } = require('./company');
 const { syncSkills } = require('./skills');
 const { Tools } = require('./tools');
 const { getToolsHtml } = require('./toolsPage');
@@ -320,9 +320,13 @@ class Roost {
   }
 
   // A command sign-in, in a VS Code terminal named after the server; `closed` resolves when that terminal closes
-  // (the shell exits once the command succeeds; one that fails stays open, to be read, until it is closed).
+  // (the shell exits once the command succeeds; one that fails stays open, to be read, until it is closed). With the
+  // company file's email section, the address the Get started page saved is in the terminal's environment (email.env),
+  // never on its command line.
   runInTerminal(name, argv) {
-    const terminal = vscode.window.createTerminal({ name });
+    const c = this.company;
+    const env = c && c.ok ? companyEmailEnv(c.company, this.base.globalState.get(EMAIL_KEY)) : {};
+    const terminal = vscode.window.createTerminal(Object.keys(env).length ? { name, env } : { name });
     const closed = new Promise((resolve) => {
       const listener = vscode.window.onDidCloseTerminal((t) => {
         if (t !== terminal) return;

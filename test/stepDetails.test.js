@@ -10,7 +10,7 @@ const { stepDetails, renderDetails, detailsFile, httpsUrl, DETAILS_DIR } = requi
 const { STEP_IDS } = require(path.join(src, 'getStarted'));
 
 // ---- every step id has a details file; the gateway step has both of its own; no file is left over
-assert.deepStrictEqual([...STEP_IDS].sort(), ['agents', 'claude', 'codebase', 'github', 'jira', 'parts', 'teams', 'tools']);
+assert.deepStrictEqual([...STEP_IDS].sort(), ['agents', 'claude', 'codebase', 'email', 'github', 'jira', 'parts', 'teams', 'tools']);
 const wanted = new Set();
 for (const id of STEP_IDS) {
   for (const companyGateway of [false, true]) for (const autoTab of [false, true]) {
