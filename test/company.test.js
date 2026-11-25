@@ -54,7 +54,7 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 
 // a minimal file, and defaults
 const min = read({ name: 'Min' });
-assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' } });
+assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] });
 assert.deepStrictEqual(min.notes, []);
 // jira: the site and email the Get started page fills in; never a token (one there is ignored)
 const jr = read({ name: 'J', jira: { site: 'https://example.atlassian.net', email: 'you@example.com', token: 'tok-1' } });
@@ -94,6 +94,19 @@ for (const [jira, want, note] of [
     assert.strictEqual(btn(r, id || 'tickets'), '', JSON.stringify(b));
     assert.strictEqual(r.notes.length, 1);
     assert.ok(r.notes[0].startsWith(`mcpServers[${id === 'docs' ? 0 : 2}].connect.button:`), r.notes[0]);
+  }
+}
+// skills: id and source; ~ expands, a relative source is from the company file's folder; a bad one makes the file invalid
+{
+  assert.deepStrictEqual(read(EXAMPLE).company.skills, []);
+  const sk = read({ name: 'S', skills: [{ id: 'ms-teams', source: '~/pkg/ms-teams' }, { id: 'b2', source: 'skills/b2' }, { id: 'c', source: '/abs/c' }] });
+  assert.strictEqual(sk.ok, true, sk.error);
+  assert.deepStrictEqual(sk.company.skills, [{ id: 'ms-teams', source: '/h/pkg/ms-teams' }, { id: 'b2', source: path.join(dir, 'skills/b2') }, { id: 'c', source: '/abs/c' }]);
+  for (const [skills, at] of [['x', 'skills:'], [[1], 'skills[0]:'], [[{ id: 'Teams', source: 'a' }], 'skills[0].id:'], [[{ id: 'a--b', source: 'a' }], 'skills[0].id:'],
+    [[{ id: '../x', source: 'a' }], 'skills[0].id:'], [[{ id: 'a', source: '' }], 'skills[0].source:'], [[{ id: 'a', source: 'x' }, { id: 'a', source: 'y' }], 'skills[1].id:']]) {
+    const r = read({ name: 'S', skills });
+    assert.strictEqual(r.ok, false, JSON.stringify(skills));
+    assert.ok(r.error.startsWith(at), r.error);
   }
 }
 // steps.talk: the Talk to Claude or Codex step's name (Sean, 2026-11-24)

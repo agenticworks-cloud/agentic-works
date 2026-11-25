@@ -244,10 +244,10 @@ function jira(j, notes) {
   return out;
 }
 
-function validate(data, home, notes = []) {
+function validate(data, home, notes = [], dir = home) {
   if (!isObject(data)) throw new Invalid('', 'the file must hold a JSON object');
   if (!isString(data.name) || !data.name) throw new Invalid('name', 'must be a non-empty string');
-  const company = { name: data.name, title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' } };
+  const company = { name: data.name, title: '', steps: { gateway: '', tools: '', talk: '' }, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] };
   // optional wording for the Get started page: its title, and the names of its gateway, tools and talk steps
   if (data.title !== undefined) {
     if (!isString(data.title) || !data.title) throw new Invalid('title', 'must be a non-empty string');
@@ -269,7 +269,26 @@ function validate(data, home, notes = []) {
     const seen = new Set();
     company.mcpServers = data.mcpServers.map((s, i) => server(s, i, seen, home, notes));
   }
+  if (data.skills !== undefined) company.skills = skills(data.skills, home, dir);
   return company;
+}
+
+// skills: the agent skills that come with the company's tools, each a folder holding SKILL.md, copied by src/skills.js
+// to ~/.claude/skills/<id>/ and ~/.agents/skills/<id>/. The id is the skill's name (Agent Skills: lowercase letters,
+// digits and single hyphens, at most 64); source is a folder, ~ expanded, a relative one from the company file's folder.
+const SKILL_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+function skills(v, home, dir) {
+  if (!Array.isArray(v)) throw new Invalid('skills', 'must be an array');
+  const seen = new Set();
+  return v.map((k, i) => {
+    const at = `skills[${i}]`;
+    if (!isObject(k)) throw new Invalid(at, 'must be an object');
+    if (!isString(k.id) || !SKILL_ID.test(k.id) || k.id.length > 64) throw new Invalid(`${at}.id`, 'must be lowercase letters, digits and single hyphens, at most 64');
+    if (seen.has(k.id)) throw new Invalid(`${at}.id`, `${k.id} appears twice`);
+    seen.add(k.id);
+    if (!isString(k.source) || !k.source) throw new Invalid(`${at}.source`, 'must be a non-empty string');
+    return { id: k.id, source: path.resolve(dir, expand(k.source, home)) };
+  });
 }
 
 function readCompany(file, { home = os.homedir() } = {}) {
@@ -289,7 +308,7 @@ function readCompany(file, { home = os.homedir() } = {}) {
   // notes: the values dropped from the optional sections, each starting with its path (jira.site: ...)
   const notes = [];
   try {
-    return { ok: true, company: validate(data, home, notes), notes };
+    return { ok: true, company: validate(data, home, notes, path.dirname(path.resolve(file))), notes };
   } catch (e) {
     if (e instanceof Invalid) return { ok: false, missing: false, error: e.message };
     throw e;

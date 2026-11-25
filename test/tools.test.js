@@ -91,6 +91,9 @@ test('checkAll: each row says why it is not connected', async () => {
   assert.strictEqual(mail.state, 'notConnected');
   assert.strictEqual(mail.reason, 'Not signed in. Call login first.');
   assert.strictEqual(row(s.tools, 'tickets').reason, 'Not signed in yet.', 'no sign-in file: the check is not run');
+  assert.strictEqual(row(s.tools, 'tickets').notYet, true, 'nothing tried yet');
+  assert.strictEqual(row(s.tools, 'docs').notYet, true, 'no token yet');
+  assert.strictEqual(mail.notYet, false, 'a check that ran and failed');
   assert.ok(!s.runs.some((a) => a[0].endsWith('t-login')), 'its error would only say to run the sign-in command');
   assert.strictEqual(row(s.tools, 'docs').state, 'notConnected');
   assert.strictEqual(s.fetches.length, 0, 'no request without a token');
@@ -105,6 +108,7 @@ test('check: a command row signed in before runs its check; a failed check gives
   await s.tools.check('tickets');
   assert.deepStrictEqual(s.runs[0], [path.join(s.home, '.local/bin/t-login'), '--status']);
   assert.strictEqual(row(s.tools, 'tickets').reason, 'not signed in', 'the command\'s last stderr line');
+  assert.strictEqual(row(s.tools, 'tickets').notYet, false);
 });
 
 test('connect.button: the row carries the company file\'s label, else none', async () => {

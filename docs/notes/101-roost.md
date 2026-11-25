@@ -924,6 +924,21 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   - *A finished step closes:* a step that turns done closes, whether Get started opened it or the user did, and the
     details follow the next open step. A step done from the start, or reopened by hand, is left alone.
 
+- **Skills from the company file; a row with nothing tried yet isn't an error — Built (0.5.6)** *(Sean, 2026-11-25:
+  the company installs and registers an MCP server whose release has a bug the agents must work around, so it ships
+  the rules too; and "why not connected error message right away, is this intended?")*.
+  - *The file:* `skills`, each `{ id, source }` (`src/company.js`; a bad entry makes the file invalid, as a server's).
+  - *The pass* (`src/skills.js`, at each start with a valid company file; a missing one changes nothing, so a file
+    briefly absent removes nothing): each skill copied to `~/.claude/skills/<id>/` and `~/.agents/skills/<id>/`
+    (Codex's user skills); `~/.config/roost/skills.json` holds each copy's file hashes (and executable bits). A copy
+    still as recorded is replaced by a new version or removed once dropped; one edited (a link or odd file inside
+    counts) or one Roost never wrote is left, with a line in the output. A copy that already matches the source is
+    Roost's, record or not, so a pass cut short or another window's loses nothing; the record is saved after each
+    change, and a lock file (taken over after a minute) keeps windows from running passes at once. A source with a
+    link, no `SKILL.md`, over 200 entries or 1 MB isn't used.
+  - *Nothing tried yet:* a row not installed, with no token, or not signed in says so in the ordinary colour, without
+    "Not connected:" (`notYet` on the row); a check that ran and failed is still red.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of

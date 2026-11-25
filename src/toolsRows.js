@@ -42,6 +42,7 @@ function ToolsList(container, post) {
       if (/^Signed in\b/.test(r.reason)) return r.reason;
       return 'Signed in, but couldn\'t register' + (r.reason ? ': ' + r.reason : '');
     }
+    if (r.notYet && r.reason) return r.reason;   // nothing tried yet: no fault to report
     return r.reason ? 'Not connected: ' + r.reason : 'Not connected';
   }
 
@@ -95,7 +96,7 @@ function ToolsList(container, post) {
     v.about.textContent = r.about || '';
     v.about.hidden = !r.about;
     v.state.textContent = stateText(r);
-    v.state.className = 'state' + (r.state === 'notConnected' ? ' bad' : '');
+    v.state.className = 'state' + (r.state === 'notConnected' && !r.notYet ? ' bad' : '');
     v.root.className = 'tool' + (r.state === 'connected' ? ' connected' : '');
     const busy = r.state === 'checking' || r.state === 'connecting';
     for (const b of v.buttons) b.disabled = busy;

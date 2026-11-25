@@ -139,6 +139,13 @@ files. Required keys are marked **required**.
     first downloads this computer's asset with `gh release download` (the person's GitHub sign-in, so a private
     repository works), puts it at `to` with mode 0755, then signs in. Not signed in to GitHub: the row says so, with
     a **Sign In to GitHub** button. A platform with no asset: the row says so.
+- `skills` (optional): agent skills that come with the company's tools, each `{ "id", "source" }`. `id` is the
+  skill's name (lowercase letters, digits and single hyphens, at most 64); `source` is a folder holding `SKILL.md`
+  (`~` expands; a relative path is from the company file's folder). At each start Roost copies each to
+  `~/.claude/skills/<id>/` (Claude Code) and `~/.agents/skills/<id>/` (Codex), and records what it copied in
+  `~/.config/roost/skills.json`. It replaces or removes only a copy still as it left it: one the user edited, or a
+  folder of that name it never wrote, is left alone, with a line in the Roost output channel. A skill dropped from
+  the file is removed at the next start. A source holding a link isn't used.
 
 ```json
 {

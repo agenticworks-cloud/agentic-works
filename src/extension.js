@@ -10,6 +10,7 @@ const { randomBytes } = require('node:crypto');
 const vscode = require('vscode');
 const { readParts, partContext } = require('./parts');
 const { companyFile, readCompany } = require('./company');
+const { syncSkills } = require('./skills');
 const { Tools } = require('./tools');
 const { getToolsHtml } = require('./toolsPage');
 const { watchContexts } = require('./contextWatch');
@@ -529,6 +530,15 @@ function activate(context, options = {}) {
   r.company = readCompany(file);
   if (!r.company.ok && !r.company.missing) r.log(`${file} is not a valid company file: ${r.company.error}`);
   if (r.company.ok) for (const note of r.company.notes || []) r.log(`${file}: ${note}`);
+  // the company's skills, copied (or, once dropped from the file, removed) at each start; a missing or invalid file
+  // changes none (one briefly absent mustn't remove them)
+  if (r.company.ok) {
+    try {
+      r.skills = syncSkills(r.company.company.skills, { log: (l) => r.log(l) });
+    } catch (err) {
+      r.log(`Skills: the pass failed: ${errorText(err)}`);
+    }
+  }
   const companyKeys = r.setCompanyContexts();
   // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
   const started = r.startAll();

@@ -34,6 +34,8 @@ const DOWNLOAD_MS = 5 * 60000;
 const GITHUB_FIRST = 'Sign in to GitHub first.';
 /** A check's reason for a server whose program isn't downloaded yet (a check never downloads). */
 const NOT_INSTALLED = 'Not installed yet: Connect downloads it.';
+const NOT_SIGNED_IN = 'Not signed in yet.';
+const NO_TOKEN = 'No token saved yet.';
 
 /** process.platform and process.arch as the company file's asset keys: darwin-arm64, linux-x64, ... */
 const platformKey = (platform = process.platform, arch = process.arch) => `${platform}-${arch}`;
@@ -95,7 +97,7 @@ class Tools {
     this.servers = new Map(((company && company.mcpServers) || []).map((s) => [s.id, s]));
     this.state = new Map([...this.servers.values()].map((s) => [s.id, {
       id: s.id, name: s.name, about: s.about, kind: s.connect.kind, page: s.connect.page || '', button: s.connect.button || '',
-      state: 'unknown', reason: '', prompt: null, conflict: false, signedIn: false, action: '',
+      state: 'unknown', reason: '', prompt: null, conflict: false, signedIn: false, action: '', notYet: false,
     }]));
     this.clients = new Set();
     this.disposed = false;
@@ -115,7 +117,7 @@ class Tools {
 
   async check(id) {
     if (this._busy(id)) return { ...this._row(id) };
-    if (this._needsInstall(this._server(id))) return this._set(id, { state: 'notConnected', reason: NOT_INSTALLED });
+    if (this._needsInstall(this._server(id))) return this._set(id, { state: 'notConnected', reason: NOT_INSTALLED, notYet: true });
     return this._checkAndRegister(id);
   }
 
@@ -234,6 +236,8 @@ class Tools {
     const row = this._row(id);
     if (patch.state === 'notConnected' && patch.signedIn === undefined) patch = { ...patch, signedIn: false };
     if (patch.state !== undefined && patch.action === undefined) patch = { ...patch, action: '' };
+    // notYet: nothing has been tried yet (not installed, no token, not signed in): the row says so plainly, not as a fault
+    if (patch.state !== undefined && patch.notYet === undefined) patch = { ...patch, notYet: false };
     Object.assign(row, patch);
     if (!this.disposed) { try { this.onChange(this.rows()); } catch (_) { /* a listener's error isn't ours */ } }
     return { ...row };
@@ -350,16 +354,16 @@ class Tools {
     if (c.kind === 'command' && c.doneWhen && !fs.existsSync(c.doneWhen.file)) {
       // nothing to check before the first sign-in: the check's own error would tell the user to run the sign-in
       // command, which this row's button does
-      failed = 'Not signed in yet.';
+      failed = NOT_SIGNED_IN;
     } else if (c.check) {
-      failed = c.kind === 'tokenPage' && !token ? 'No token saved yet.' : await this._runCheck(server, token);
+      failed = c.kind === 'tokenPage' && !token ? NO_TOKEN : await this._runCheck(server, token);
     } else if (c.kind === 'tokenPage') {
-      failed = token ? null : 'No token saved yet.';
+      failed = token ? null : NO_TOKEN;
     } else {
       failed = null;
     }
     if (this.disposed) return { ...this._row(id) };
-    if (failed) return this._set(id, { state: 'notConnected', reason: failed });
+    if (failed) return this._set(id, { state: 'notConnected', reason: failed, notYet: failed === NOT_SIGNED_IN || failed === NO_TOKEN });
     return this._passed(server, token);
   }
 

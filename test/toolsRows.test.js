@@ -48,4 +48,17 @@ assert.strictEqual(d.querySelector('#a .tool[data-id="docs"] input'), field, 'th
   assert.deepStrictEqual(out.pop(), ['connect', 't1', undefined]);
 }
 
+// nothing tried yet: the reason alone, not shown as a fault; a failed check: "Not connected: ..." in red
+{
+  const c = d.createElement('div'); d.body.appendChild(c);
+  const l = new w.ToolsList(c, post);
+  l.show([row({ id: 'n1', kind: 'command', state: 'notConnected', reason: 'Not signed in yet.', notYet: true }),
+    row({ id: 'n2', kind: 'command', state: 'notConnected', reason: 'token expired' })]);
+  const st = (id) => c.querySelector(`.tool[data-id="${id}"] .state`);
+  assert.strictEqual(st('n1').textContent, 'Not signed in yet.');
+  assert.ok(!st('n1').classList.contains('bad'));
+  assert.strictEqual(st('n2').textContent, 'Not connected: token expired');
+  assert.ok(st('n2').classList.contains('bad'));
+}
+
 console.log('toolsRows.test.js passed');
