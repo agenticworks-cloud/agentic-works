@@ -974,6 +974,8 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   pill reads "Build 5/9" and the card's Build row "Build — 5 of 9 tasks done", from the SDD ledger the session last
   named. Roost's Get started tests no longer add "hello" sessions to the real session list: the test home keeps its own
   (`roost-test-reset`, outside this repo).
+  The pinned prompt lies over the top of the transcript instead of taking its own space, so two prompts close
+  together no longer flicker (ported from Perch 0.7.52).
 
 ## Left to the builder
 
