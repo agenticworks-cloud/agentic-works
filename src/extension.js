@@ -19,7 +19,9 @@ const settingKey = (id) => `roost.${id}.enabled`;
 const failedKey = (id) => `roost.${id}.failed`;
 const FIRST_START_KEY = 'roost.firstStart.done';
 // The parts' context keys the Get started page ticks on: VS Code cannot read one back, so Roost notes their setContext
-const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn'];
+// (and perch.sessionOpen, whether a Perch tab is open, and chirp.signInCodeWaiting, a Teams code waiting, which it shows)
+const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn',
+  'perch.sessionOpen', 'chirp.signInCodeWaiting'];
 const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
 const AGENTS_VIEW_COMMAND = 'workbench.view.extension.perch';  // Perch's activity-bar container id: opens the side bar on it
 // The Agents part was called perch in 0.1.0: while roost.agents.enabled is set nowhere, a roost.perch.enabled the
@@ -343,10 +345,11 @@ class Roost {
   // The walkthrough's Teams and Jira buttons: with a company file, a tools row that writes the part's token file
   // (<part>.signIn.tokenFile) signs in in the panel, and the part picks the file up; else the part's own sign-in.
   // `panel: false` (the Get started page, which shows the row itself): the row signs in without opening the panel.
-  async toolSignIn(section, fallback, { panel = true } = {}) {
+  // `args`: for the part's own sign-in (the Get started page's { inPlace: true } for chirp.signIn).
+  async toolSignIn(section, fallback, { panel = true, args = [] } = {}) {
     const file = vscode.workspace.getConfiguration(section).get('signIn.tokenFile', '');
     const id = this.hasTools() && typeof file === 'string' && file ? this.toolsNow().rowForTokenFile(file) : null;
-    if (!id) return vscode.commands.executeCommand(fallback);
+    if (!id) return vscode.commands.executeCommand(fallback, ...args);
     if (panel) await this.openTools();
     const row = this.tools.rows().find((r) => r.id === id);
     if (!row || row.state === 'connected') return undefined;
@@ -491,18 +494,24 @@ function activate(context, options = {}) {
   // the walkthrough's first step: the Claude tab first start opened (Agents' own Open: the last tab, or a picker)
   context.subscriptions.push(vscode.commands.registerCommand('roost.goToClaude', () => vscode.commands.executeCommand('perch.open')));
   // the walkthrough's first step opens the tab, Claude or Codex, beside the walkthrough, which keeps most of the width
-  // (no tab is opened on first start: Sean, 2026-11-24)
+  // (no tab is opened on first start: Sean, 2026-11-24). Resolves to the command's answer; one that says no new tab
+  // opened (perch.openGatewayTab's 'revealed', 'notReady', 'failed') waits for no new group.
   const besideWalkthrough = async (command) => {
     const groups = () => (vscode.window.tabGroups && vscode.window.tabGroups.all) || [];
     const before = groups().length;
-    await vscode.commands.executeCommand(command);
+    const result = await vscode.commands.executeCommand(command);
+    if (typeof result === 'string' && result !== 'opened') return result;
     for (let n = 0; n < 20 && groups().length === before; n++) await new Promise((r) => setTimeout(r, 50));
     if (before === 1 && groups().length === 2) {
       await Promise.resolve(vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: [{ size: 0.7 }, { size: 0.3 }] })).catch(() => {});
     }
+    return result;
   };
   context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeTab', () => besideWalkthrough('perch.newClaude')));
   context.subscriptions.push(vscode.commands.registerCommand('roost.newCodexTab', () => besideWalkthrough('perch.newCodex')));
+  // the Get started talk step with gateway.openTabOnTalk: a Claude tab on the gateway, an open one shown rather than
+  // another opened (perch.openGatewayTab), not perch.newClaude, whose saved backend may lag a gateway just saved
+  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeGatewayTab', () => besideWalkthrough('perch.openGatewayTab')));
   // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, in a terminal (startGithubSignIn).
   // Already signed in, it says so first and offers another account.
   context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', async () => {

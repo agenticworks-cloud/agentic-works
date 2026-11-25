@@ -99,7 +99,8 @@ files. Required keys are marked **required**.
 - `gateway` (optional): `name` (**required**), `baseUrls` (**required**, a non-empty list of http(s) URLs, tried in
   order, so a VPN address can come first), `keyPage` (**required**, an http(s) URL where a person makes a key), and
   optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved), `terminal` (true, so
-  terminal `claude` is set up by default too) and `routerPrefixes` (non-empty strings: the gateway's model names that
+  terminal `claude` is set up by default too), `openTabOnTalk` (true: once the gateway is ready, the Get started page's
+  talk step opens a Claude tab on it by itself, in place of its New Claude Tab and New Codex Tab buttons) and `routerPrefixes` (non-empty strings: the gateway's model names that
   start with one are its routers, which pick a model for each request, and get a menu group of their own; none by
   default), and `keyCommand` (a non-empty array of strings, the program and its arguments, its first word an
   absolute path or starting with `~/`: a key helper that prints a fresh key on stdout and nothing else, progress and

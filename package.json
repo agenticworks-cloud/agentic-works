@@ -2,7 +2,7 @@
   "name": "roost",
   "displayName": "Roost",
   "publisher": "seanahn",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
@@ -113,6 +113,14 @@
       {
         "command": "perch.connectClaude.request",
         "title": "Agents: Connect Claude (request)"
+      },
+      {
+        "command": "perch.sessionCount",
+        "title": "Agents: Count the Open Tabs"
+      },
+      {
+        "command": "perch.openGatewayTab",
+        "title": "Agents: Open a Claude Tab on the Gateway"
       },
       {
         "command": "perch.newCodex",
@@ -363,6 +371,10 @@
         "title": "Teams: Copy Sign-in Code and Open the Sign-in Page"
       },
       {
+        "command": "chirp.signInCode",
+        "title": "Teams: The Sign-in Code Waiting"
+      },
+      {
         "command": "roost.openSettings",
         "title": "Roost: Settings",
         "icon": "$(gear)"
@@ -414,6 +426,10 @@
       {
         "command": "roost.newCodexTab",
         "title": "Roost: New Codex Tab Beside"
+      },
+      {
+        "command": "roost.newClaudeGatewayTab",
+        "title": "Roost: Claude Tab on the Gateway Beside"
       }
     ],
     "menus": {
@@ -436,6 +452,14 @@
         },
         {
           "command": "perch.connectClaude.request",
+          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+        },
+        {
+          "command": "perch.sessionCount",
+          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+        },
+        {
+          "command": "perch.openGatewayTab",
           "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
         },
         {
@@ -639,6 +663,10 @@
           "when": "config.roost.teams.enabled && !roost.teams.failed && (false)"
         },
         {
+          "command": "chirp.signInCode",
+          "when": "config.roost.teams.enabled && !roost.teams.failed && (false)"
+        },
+        {
           "command": "chirp.refresh",
           "when": "config.roost.teams.enabled && !roost.teams.failed"
         },
@@ -700,6 +728,10 @@
         },
         {
           "command": "roost.newCodexTab",
+          "when": "false"
+        },
+        {
+          "command": "roost.newClaudeGatewayTab",
           "when": "false"
         }
       ],

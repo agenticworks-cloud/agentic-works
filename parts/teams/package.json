@@ -82,6 +82,10 @@
       {
         "command": "chirp.copyCode",
         "title": "Teams: Copy Sign-in Code and Open the Sign-in Page"
+      },
+      {
+        "command": "chirp.signInCode",
+        "title": "Teams: The Sign-in Code Waiting"
       }
     ],
     "menus": {
@@ -92,6 +96,10 @@
         },
         {
           "command": "chirp.copyCode",
+          "when": "false"
+        },
+        {
+          "command": "chirp.signInCode",
           "when": "false"
         }
       ],

@@ -1666,6 +1666,55 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     r.perch.dispose();
   }
 
+  // ---- perch.sessionCount and perch.openGatewayTab (Roost's Get started, with the company file's gateway.openTabOnTalk):
+  // each answers once the wait for restored tabs is over; perch.sessionOpen says whether any tab is open
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gwtab-')), gwFile = path.join(dir, 'env');
+    fs.writeFileSync(gwFile, 'export ANTHROPIC_BASE_URL=https://gw.example/llm-api\nexport ANTHROPIC_AUTH_TOKEN=t\n');
+    const opened = (m) => m.ui.contexts.filter((c) => c[0] === 'perch.sessionOpen').map((c) => c[1]);
+    // no usable gateway: notReady, and nothing opens
+    {
+      const m = install();
+      assert.strictEqual(await within(m.commands['perch.openGatewayTab']()), 'notReady');
+      assert.strictEqual(m.perch.sessions.length, 0, 'no tab without a gateway');
+      m.perch.dispose();
+    }
+    {
+      const m = install(undefined, { config: { 'claude.gatewayEnv': gwFile } });
+      let answered = false;
+      const count = m.commands['perch.sessionCount']().then((c) => { answered = true; return c; });
+      await flush();
+      assert.strictEqual(answered, false, 'the count waits for the restored tabs');
+      assert.strictEqual(await within(count), 0, 'no tab yet');
+      assert.deepStrictEqual(opened(m), [false], 'perch.sessionOpen: false from the start');
+      assert.strictEqual(await within(m.commands['perch.openGatewayTab']()), 'opened');
+      assert.deepStrictEqual(m.perch.sessions.map((s) => [s.kind, s.location, s.gateway]), [['claude', 'editor', true]], 'a Claude tab on the gateway, in an editor though new tabs go to the sidebar');
+      assert.deepStrictEqual(opened(m), [false, true], 'perch.sessionOpen: true once it is open');
+      assert.strictEqual(await within(m.commands['perch.openGatewayTab']()), 'revealed', 'asked again: the open tab is shown');
+      assert.strictEqual(m.perch.sessions.length, 1, 'no second tab');
+      assert.strictEqual(await within(m.commands['perch.sessionCount']()), 1);
+      m.perch.closeSession(m.perch.sessions[0].id);
+      assert.deepStrictEqual(opened(m), [false, true, false], 'perch.sessionOpen: false once it is closed');
+      m.perch.dispose();
+    }
+    // a restored tab in the sidebar counts
+    {
+      const saved = { 'perch.sessions.v1': { active: 'back', counters: { claude: 1, codex: 0 }, sessions: [{ id: 'back', kind: 'claude', title: 'Came back', titled: true, resume: 'sess-back', location: 'sidebar' }] } };
+      const m = install(saved, { config: { 'claude.gatewayEnv': gwFile } });
+      assert.strictEqual(await within(m.commands['perch.sessionCount']()), 1, 'a restored sidebar tab is a tab');
+      assert.deepStrictEqual(opened(m), [true]);
+      m.perch.dispose();
+    }
+    // disposed before the wait is over: the count still answers
+    {
+      const m = install();
+      const count = m.commands['perch.sessionCount']();
+      m.perch.dispose();
+      assert.strictEqual(await within(count), 0);
+    }
+  }
+
   // ---- agents.firstStart.openClaudeTab: one Claude tab on the right, once; false is written first, at the scope that held true
   {
     const KEY = 'firstStart.openClaudeTab', settle = async () => { await wait(150); await flush(); };
@@ -3956,7 +4005,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
       // no file yet: nothing offers a tab on the gateway, but the command and the footer's menu still lead to one
       assert.deepStrictEqual(v.lastTabs().gateway, { file, exists: false, ok: false }, 'every tabs message says where the file is and whether there is one');
-      assert.deepStrictEqual(m.ui.contexts, [['perch.claudeConnected', true], ['perch.gateway', false], ['perch.gatewayReady', false]], 'the title menus are told to hide their gateway entry, and the walkthrough that no gateway is ready (Claude can run: connected)');
+      assert.deepStrictEqual(m.ui.contexts.filter((c) => c[0] !== 'perch.sessionOpen'), [['perch.claudeConnected', true], ['perch.gateway', false], ['perch.gatewayReady', false]], 'the title menus are told to hide their gateway entry, and the walkthrough that no gateway is ready (Claude can run: connected)');
       m.picks.push((i) => i.gateway); assert.strictEqual(await m.commands['perch.new'](), null, 'the quick pick has no gateway entry');
       await m.commands['perch.newClaudeGateway']();
       let t = v.lastTabs(); const g = t.tabs[0].id;

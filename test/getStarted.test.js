@@ -134,14 +134,14 @@ function fakeTools() {
 
 // Roost activated (its first start already recorded), with a company file or none; Roost: Get Started run and the
 // page's ready sent. stateOf(): a tick later, the last state posted.
-async function pageSetup(company, config = {}) {
+async function pageSetup(company, config = {}, saved = {}) {
   const env = setup(config);
   if (company) {
     const file = path.join(env.root, 'company.json');
     fs.writeFileSync(file, JSON.stringify(company));
     process.env.ROOST_COMPANY_FILE = file;
   }
-  const store = memento({ 'roost.firstStart.done': true });
+  const store = memento({ 'roost.firstStart.done': true, ...saved });
   env.base.globalState = store;
   const fakes = fakeTools();
   const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
@@ -208,7 +208,7 @@ test('no company file: Roost\'s words and order', async () => {
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
   assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code by meaning', 'Choose your parts']);
-  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [] }, { rowId: '', note: '' }, { rowId: '', site: '', email: '', form: true }]);
+  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [] }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
   await s.extension.deactivate();
 });
 
@@ -482,6 +482,180 @@ test('teamsSignIn that resolves without signing in (cancelled, failed, offline, 
   assert.strictEqual((await s.stateOf()).teams.note, NOTE);
   await s.run('setContext', 'chirp.signedIn', true);
   assert.deepStrictEqual([(await s.step('teams')).done, (await s.stateOf()).teams.note], [true, '']);
+  await s.extension.deactivate();
+});
+
+test('the Teams sign-in from the page is in place: its code shows in the step, Copy code & open and Cancel go to Teams; never logged', async () => {
+  const s = await pageSetup(null);
+  const calls = []; let finish;
+  s.ui.commands['chirp.signIn'] = (...a) => { calls.push(['signIn', ...a]); return new Promise((r) => { finish = r; }); };
+  s.ui.commands['chirp.signInCode'] = async () => ({ userCode: 'WXYZ-9876', verificationUri: 'https://microsoft.com/devicelogin' });
+  s.ui.commands['chirp.copyCode'] = async () => { calls.push(['copyCode']); };
+  s.ui.commands['chirp.cancelSignIn'] = async () => { calls.push(['cancelSignIn']); finish(); };
+  const pending = s.page.receive({ type: 'teamsSignIn' });
+  assert.deepStrictEqual(calls, [['signIn', { inPlace: true }]], 'chirp.signIn in place');
+  assert.strictEqual((await s.stateOf()).teams.code, null, 'no code yet');
+  await s.run('setContext', 'chirp.signInCodeWaiting', true);
+  await tick();
+  const st = await s.stateOf();
+  assert.deepStrictEqual(st.teams.code, { userCode: 'WXYZ-9876', verificationUri: 'https://microsoft.com/devicelogin' });
+  assert.strictEqual(st.steps.find((x) => x.id === 'teams').waiting, 'Finish signing in in your browser.', 'the waiting line stays');
+  await s.page.receive({ type: 'teamsCopyCode' });
+  await s.page.receive({ type: 'teamsCancel' });
+  assert.deepStrictEqual(calls.slice(1), [['copyCode'], ['cancelSignIn']]);
+  await s.run('setContext', 'chirp.signInCodeWaiting', false);
+  await pending;
+  assert.strictEqual((await s.stateOf()).teams.code, null, 'cancelled: the code goes');
+  assert.ok(!s.ui.out.some((l) => l.includes('WXYZ-9876')), 'the code is never logged');
+  // signed in while the code still waits: it goes too
+  const again = s.page.receive({ type: 'teamsSignIn' });
+  await s.run('setContext', 'chirp.signInCodeWaiting', true);
+  await tick();
+  assert.strictEqual((await s.stateOf()).teams.code.userCode, 'WXYZ-9876');
+  await s.run('setContext', 'chirp.signedIn', true);
+  assert.strictEqual((await s.stateOf()).teams.code, null, 'signed in: no code');
+  finish(); await again;
+  // Roost: Sign In to Teams elsewhere (the walkthrough, the palette): Teams' own, not in place
+  calls.length = 0;
+  const palette = s.run('roost.teamsSignIn');
+  assert.deepStrictEqual(calls, [['signIn']], 'not in place');
+  finish(); await palette;
+  await s.extension.deactivate();
+});
+
+test('a code waiting for a sign-in the page did not start is not shown in it', async () => {
+  const s = await pageSetup(null);
+  s.ui.commands['chirp.signInCode'] = async () => ({ userCode: 'WXYZ-9876', verificationUri: 'https://microsoft.com/devicelogin' });
+  await s.run('setContext', 'chirp.signInCodeWaiting', true);
+  await tick();
+  assert.strictEqual((await s.stateOf()).teams.code, null);
+  await s.page.receive({ type: 'teamsCopyCode' });   // nothing waits for the page: no copy
+  await s.extension.deactivate();
+});
+
+// ---- gateway.openTabOnTalk: the talk step's Claude tab opens by itself
+const AUTO = { ...EXAMPLE, gateway: { ...EXAMPLE.gateway, openTabOnTalk: true } };
+// perch.sessionCount and perch.openGatewayTab, faked: `count` and `answer` are what they say, each call recorded
+function fakePerch(s, { count = 0, answer = 'opened' } = {}) {
+  const f = { calls: [], count, answer };
+  s.ui.commands['perch.sessionCount'] = () => { f.calls.push('sessionCount'); return typeof f.count === 'function' ? f.count() : f.count; };
+  s.ui.commands['perch.openGatewayTab'] = () => { f.calls.push('openGatewayTab'); return typeof f.answer === 'function' ? f.answer() : f.answer; };
+  return f;
+}
+const settle = async () => { for (let i = 0; i < 10; i++) await tick(); };
+// a tab 'opened' waits up to a second for its editor group (besideWalkthrough), which the stub never makes
+const until = async (pred) => { for (let i = 0; i < 300 && !pred(); i++) await new Promise((r) => setTimeout(r, 10)); };
+
+test('openTabOnTalk: no tab before the gateway is ready, nor after a Not Now; one once it is ready, then never again', async () => {
+  const s = await pageSetup(AUTO);
+  const f = fakePerch(s);
+  let st = await s.stateOf();
+  assert.deepStrictEqual(st.agents, { autoTab: true, openTab: false }, 'the step says a tab opens; not ready, so no Open Claude Tab');
+  assert.ok(st.steps.find((x) => x.id === 'agents').details.includes('by itself'), 'the details say so too');
+  await s.page.receive({ type: 'notNow', step: 'claude' });
+  await settle();
+  assert.strictEqual((await s.step('claude')).done, true);
+  assert.deepStrictEqual(f.calls, [], 'skipped with Not Now: no tab');
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await until(() => s.store.get('roost.getStarted.autoTabOpened'));
+  assert.deepStrictEqual(f.calls, ['sessionCount', 'openGatewayTab'], 'the gateway ready: the tab opens');
+  assert.strictEqual(s.store.get('roost.getStarted.autoTabOpened'), true, 'and that is recorded');
+  await s.run('setContext', 'perch.sessionOpen', true);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await s.run('setContext', 'perch.sessionOpen', false);
+  await settle();
+  assert.deepStrictEqual(f.calls, ['sessionCount', 'openGatewayTab'], 'once only, even once it is closed');
+  st = await s.stateOf();
+  assert.strictEqual(st.agents.openTab, true, 'closed: Open Claude Tab');
+  await s.page.receive({ type: 'openTab' });
+  assert.deepStrictEqual(f.calls.slice(2), ['openGatewayTab'], 'Open Claude Tab: the same command');
+  await s.extension.deactivate();
+});
+
+test('openTabOnTalk: a Perch tab open already, the marker set, the step done, Agents off, or the page closed: no tab', async () => {
+  let s = await pageSetup(AUTO);
+  let f = fakePerch(s, { count: 1 });
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, ['sessionCount'], 'a tab is open (restored, the first start\'s, the side bar\'s): none opened');
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, ['sessionCount'], 'not asked again in this window');
+  assert.strictEqual(s.store.get('roost.getStarted.autoTabOpened'), undefined, 'nothing opened, nothing recorded');
+  await s.extension.deactivate();
+
+  s = await pageSetup(AUTO, {}, { 'roost.getStarted.autoTabOpened': true });
+  f = fakePerch(s);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, [], 'opened once before (a reload since): none');
+  await s.extension.deactivate();
+
+  s = await pageSetup(AUTO, {}, { 'roost.getStarted.done': { agents: true } });
+  f = fakePerch(s);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, [], 'the talk step done: none');
+  await s.extension.deactivate();
+
+  s = await pageSetup(AUTO, { 'roost.agents.enabled': false });
+  f = fakePerch(s);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, [], 'Agents off: none');
+  await s.extension.deactivate();
+
+  s = await pageSetup(AUTO);
+  f = fakePerch(s);
+  s.page.dispose();
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, [], 'the page closed: none');
+  await s.extension.deactivate();
+
+  // without the opt-in: as before
+  s = await pageSetup(EXAMPLE);
+  f = fakePerch(s);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual([f.calls, (await s.stateOf()).agents], [[], { autoTab: false, openTab: false }]);
+  assert.ok(!(await s.step('agents')).details.includes('by itself'));
+  await s.extension.deactivate();
+});
+
+test('openTabOnTalk: one open at a time; a failed one is tried again a few times, then Open Claude Tab is offered', async () => {
+  let s = await pageSetup(AUTO);
+  let f = fakePerch(s);
+  let release;
+  f.count = () => new Promise((r) => { release = r; });
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await s.run('setContext', 'perch.claudeConnected', true);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, ['sessionCount'], 'refreshes while one is out start no other');
+  assert.strictEqual((await s.stateOf()).agents.openTab, false, 'no Open Claude Tab while it is out');
+  release(0);
+  await settle();
+  assert.deepStrictEqual(f.calls, ['sessionCount', 'openGatewayTab']);
+  await s.extension.deactivate();
+
+  s = await pageSetup(AUTO);
+  f = fakePerch(s, { answer: 'failed' });
+  s.roost.getStarted.autoTabRetriesMs = [5, 5];
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.strictEqual((await s.stateOf()).agents.openTab, false, 'a retry waits: no Open Claude Tab yet');
+  await new Promise((r) => setTimeout(r, 60));
+  await settle();
+  assert.deepStrictEqual(f.calls.filter((c) => c === 'openGatewayTab').length, 3, 'tried, then tried again twice');
+  assert.strictEqual(s.store.get('roost.getStarted.autoTabOpened'), undefined, 'a failed open records nothing');
+  assert.strictEqual((await s.stateOf()).agents.openTab, true, 'Open Claude Tab');
+  f.answer = () => { throw new Error('no Perch'); };
+  await s.page.receive({ type: 'openTab' });
+  assert.strictEqual(s.store.get('roost.getStarted.autoTabOpened'), undefined);
+  f.answer = 'opened';
+  await s.page.receive({ type: 'openTab' });
+  assert.strictEqual(s.store.get('roost.getStarted.autoTabOpened'), true, 'Open Claude Tab opened it: recorded');
   await s.extension.deactivate();
 });
 

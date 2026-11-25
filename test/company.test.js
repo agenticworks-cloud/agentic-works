@@ -83,7 +83,11 @@ for (const [jira, want, note] of [
 // steps.talk: the Talk to Claude or Codex step's name (Sean, 2026-11-24)
 assert.deepStrictEqual(read({ name: 'T', steps: { talk: 'Talk to Example Gateway' } }).company.steps, { gateway: '', tools: '', talk: 'Talk to Example Gateway' });
 const g = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k' } }).company.gateway;
-assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false, routerPrefixes: [], keyCommand: null });
+assert.deepStrictEqual(g, { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', requiredModel: '', env: {}, keyFiles: [], terminal: false, openTabOnTalk: false, routerPrefixes: [], keyCommand: null });
+// gateway.openTabOnTalk: Get started's Talk step opens a Claude tab on the gateway itself; off unless true
+const ot = (openTabOnTalk) => read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', openTabOnTalk } });
+assert.strictEqual(ot(true).company.gateway.openTabOnTalk, true);
+assert.strictEqual(ot(false).company.gateway.openTabOnTalk, false);
 // router prefixes: optional, non-empty strings
 const rp = read({ name: 'G', gateway: { name: 'g', baseUrls: ['http://a.example.com'], keyPage: 'https://a.example.com/k', routerPrefixes: ['example-router'] } });
 assert.deepStrictEqual(rp.company.gateway.routerPrefixes, ['example-router']);
@@ -106,6 +110,7 @@ invalid(mut((d) => { delete d.name; }), 'name');
 invalid(mut((d) => { d.gateway.baseUrls = []; }), 'gateway.baseUrls');
 invalid(mut((d) => { d.gateway.baseUrls = ['ftp://x']; }), 'gateway.baseUrls[0]');
 invalid(mut((d) => { d.gateway.routerPrefixes = 'example-router'; }), 'gateway.routerPrefixes');
+invalid(mut((d) => { d.gateway.openTabOnTalk = 'yes'; }), 'gateway.openTabOnTalk');
 invalid(mut((d) => { d.gateway.routerPrefixes = ['ok', 3]; }), 'gateway.routerPrefixes[1]');
 invalid(mut((d) => { d.gateway.routerPrefixes = ['']; }), 'gateway.routerPrefixes[0]');
 invalid(mut((d) => { d.mcpServers[1].id = 'docs'; }), 'mcpServers[1].id');

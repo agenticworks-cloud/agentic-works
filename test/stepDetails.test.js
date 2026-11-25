@@ -13,15 +13,20 @@ const { STEP_IDS } = require(path.join(src, 'getStarted'));
 assert.deepStrictEqual([...STEP_IDS].sort(), ['agents', 'claude', 'codebase', 'github', 'jira', 'parts', 'teams', 'tools']);
 const wanted = new Set();
 for (const id of STEP_IDS) {
-  for (const companyGateway of [false, true]) {
-    const file = detailsFile(id, { companyGateway });
+  for (const companyGateway of [false, true]) for (const autoTab of [false, true]) {
+    const file = detailsFile(id, { companyGateway, autoTab });
     wanted.add(file);
     const text = fs.readFileSync(path.join(DETAILS_DIR, `${file}.md`), 'utf8');
     assert.ok(text.trim(), `${file}.md has text`);
-    assert.ok(stepDetails(id, { companyGateway, words: { gateway: 'Example Gateway', title: 'Example Works' } }).startsWith('<'), `${id} renders`);
+    assert.ok(stepDetails(id, { companyGateway, autoTab, words: { gateway: 'Example Gateway', title: 'Example Works' } }).startsWith('<'), `${id} renders`);
   }
 }
 assert.deepStrictEqual([detailsFile('claude', { companyGateway: true }), detailsFile('claude')], ['claude-company-gateway', 'claude-every-way']);
+// the talk step: a tab opening by itself (the company file's gateway.openTabOnTalk), or the two buttons
+assert.deepStrictEqual([detailsFile('agents', { autoTab: true }), detailsFile('agents')], ['agents-auto', 'agents']);
+const auto = stepDetails('agents', { autoTab: true, words: { gateway: 'Example Gateway' } });
+assert.ok(auto.includes('Example Gateway') && auto.includes('Open Claude Tab') && !auto.includes('New Codex Tab</strong> or'), 'the auto text: no choice of tab');
+assert.ok(stepDetails('agents').includes('<strong>New Codex Tab</strong>'), 'without it: the two buttons');
 assert.deepStrictEqual(fs.readdirSync(DETAILS_DIR).sort(), [...wanted].map((f) => `${f}.md`).sort(), 'one file per step, and no other');
 assert.strictEqual(stepDetails('../package'), '', 'only a step id names a file');
 assert.strictEqual(stepDetails('nope'), '', 'no file: no details');

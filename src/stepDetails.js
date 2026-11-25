@@ -2,7 +2,9 @@
 // The Get started page's step details: the longer text shown beside the steps (src/getStartedPage.js), one markdown
 // file per step in media/getstarted/, rendered here in the extension host and sent in the page's state. The gateway
 // step has two: the company's gateway alone (claude-company-gateway.md), or every way Claude can run
-// (claude-every-way.md); the page shows the first while a company gateway is named, as its controls do.
+// (claude-every-way.md); the page shows the first while a company gateway is named, as its controls do. The talk step
+// has two as well: a Claude tab opening by itself on the company gateway (agents-auto.md, with the company file's
+// gateway.openTabOnTalk), or the New Claude Tab and New Codex Tab buttons (agents.md).
 //
 // Not VS Code's markdown.api.render: it works from an extension, but its HTML isn't sanitized (raw HTML passes
 // through, and other extensions' markdown-it plugins run in it), it needs the built-in Markdown extension enabled, and
@@ -19,6 +21,7 @@ const path = require('node:path');
 const DIR = path.join(__dirname, '..', 'media', 'getstarted');
 const COMPANY_GATEWAY = 'claude-company-gateway';
 const EVERY_WAY = 'claude-every-way';
+const AGENTS_AUTO = 'agents-auto';
 // a word the company file doesn't give: what the sentence then says instead
 const DEFAULT_WORDS = { gateway: 'the gateway', title: 'your company' };
 // a marker for a placeholder: private-use characters, taken out of the texts and the values first
@@ -105,9 +108,13 @@ function renderDetails(markdown, words = {}) {
   return render(held).replace(/(\d+)/g, (_, i) => escapeHtml(values[Number(i)]));
 }
 
-/** The details file of a step: the gateway step's depends on whether a company gateway is named. */
-function detailsFile(id, { companyGateway = false } = {}) {
+/**
+ * The details file of a step: the gateway step's depends on whether a company gateway is named, the talk step's on
+ * whether its tab opens by itself (autoTab).
+ */
+function detailsFile(id, { companyGateway = false, autoTab = false } = {}) {
   if (id === 'claude') return companyGateway ? COMPANY_GATEWAY : EVERY_WAY;
+  if (id === 'agents' && autoTab) return AGENTS_AUTO;
   return id;
 }
 
@@ -122,8 +129,8 @@ function readText(file) {
 }
 
 /** A step's details as HTML ('' when it has no file). `words`: { gateway, title } from the company file. */
-function stepDetails(id, { companyGateway = false, words = {} } = {}) {
-  const text = /^[a-z-]+$/.test(id) ? readText(detailsFile(id, { companyGateway })) : '';
+function stepDetails(id, { companyGateway = false, autoTab = false, words = {} } = {}) {
+  const text = /^[a-z-]+$/.test(id) ? readText(detailsFile(id, { companyGateway, autoTab })) : '';
   return text ? renderDetails(text, words) : '';
 }
 

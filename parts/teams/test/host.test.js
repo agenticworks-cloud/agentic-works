@@ -818,6 +818,41 @@ test('a sign-in code opens the Teams view and a notification with a button; Sign
   await ui.commands['chirp.cancelSignIn'](); await settle();
 });
 
+test('in place (Roost\'s Get started): the code opens neither the Teams view nor a notification; chirp.signInCode has it while it waits', async () => {
+  ui.focused = true;
+  const world = chatWorld();
+  world.loginAnswers = { shift: () => ({ body: { error: 'authorization_pending' } }) };   // the code is never entered
+  start(world, { method: 'deviceCode', sleep: () => new Promise((r) => setTimeout(r, 10)) }); const view = ui.resolveSidebar(); await settle();
+  ui.executed.length = 0; ui.infos.length = 0; ui.out.length = 0;
+  const waitingKey = () => ui.executed.filter((c) => c[0] === 'setContext' && c[1] === 'chirp.signInCodeWaiting').map((c) => c[2]);
+  assert.strictEqual(await ui.commands['chirp.signInCode'](), null, 'no code before a sign-in');
+  ui.commands['chirp.signIn']({ inPlace: true }); await settle();
+  assert.strictEqual(signInState(view).stage, 'code', 'the Teams view still has the code');
+  const reveals = () => ui.executed.filter((x) => x[0] === 'workbench.view.extension.chirp').length;
+  assert.strictEqual(reveals(), 0, 'the Teams view is not opened');
+  assert.strictEqual(ui.infos.filter((m) => m.includes('ABCD-1234')).length, 0, 'no notification');
+  assert.deepStrictEqual(await ui.commands['chirp.signInCode'](), { userCode: 'ABCD-1234', verificationUri: 'https://microsoft.com/devicelogin' });
+  assert.deepStrictEqual(waitingKey(), [true], 'chirp.signInCodeWaiting: true while the code waits');
+  await ui.commands['chirp.signIn']({ inPlace: true }); await settle();
+  assert.deepStrictEqual([reveals(), ui.infos.length], [0, 0], 'in place again while it waits: still nothing opens');
+  await ui.commands['chirp.signIn'](); await settle();
+  assert.strictEqual(reveals(), 1, 'Sign In from elsewhere while it waits shows the Teams view, as before');
+  await ui.commands['chirp.cancelSignIn'](); await settle();
+  assert.strictEqual(await ui.commands['chirp.signInCode'](), null, 'no code once cancelled');
+  assert.deepStrictEqual(waitingKey(), [true, false], 'and the key goes false');
+  assert.ok(!ui.out.some((l) => String(l).includes('ABCD-1234')), 'the code is never logged');
+});
+
+test('in place, then signed in: the code goes', async () => {
+  ui.focused = true;
+  start(chatWorld(), { method: 'deviceCode' }); ui.resolveSidebar(); await settle();
+  ui.executed.length = 0; ui.infos.length = 0;
+  await ui.commands['chirp.signIn']({ inPlace: true }); await settle();
+  assert.strictEqual(ui.infos.filter((m) => m.includes('ABCD-1234')).length, 0, 'no notification');
+  assert.strictEqual(await ui.commands['chirp.signInCode'](), null, 'signed in: no code');
+  assert.deepStrictEqual(ui.executed.filter((c) => c[0] === 'setContext' && c[1] === 'chirp.signInCodeWaiting').map((c) => c[2]), [true, false]);
+});
+
 test('turning agent files off stops writing at once', async () => {
   ui.focused = true; ui.panels.length = 0;
   const h = start(chatWorld()); ui.resolveSidebar(); await settle();

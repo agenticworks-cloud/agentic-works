@@ -8,12 +8,16 @@
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
 // Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting, details }], claude: { companyGateway,
-//   keyCommand }, github: { logins }, teams: { rowId, note }, jira: { rowId, site, email, form }, parts: [{ id, title, on }] }
+//   keyCommand }, agents: { autoTab, openTab }, github: { logins }, teams: { rowId, note, code }, jira: { rowId, site,
+//   email, form }, parts: [{ id, title, on }] }
+//   (agents.autoTab: the talk step's Claude tab opens by itself, so no New Claude Tab / New Codex Tab; openTab: offer
+//   Open Claude Tab, no Perch tab being open. teams.code: { userCode, verificationUri } while the page's Teams sign-in
+//   waits on its code, else null; the address is shown as text, never a link)
 //   (details: HTML the host rendered from media/getstarted/, src/stepDetails.js, every word escaped there; the page
 //   shows it as it is); rows {rows} (the tools rows, src/toolsRows.js); agents {replies, of}
 //   (perch.connectClaude.request's replies; of: the request's type) or agents {error}; jira {error} (null once signed in).
 // Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message: getKey runs the company's
-//   key helper when there is one; keyPage opens its key page); github; newTab {kind};
+//   key helper when there is one; keyPage opens its key page); github; newTab {kind}; openTab; teamsCopyCode; teamsCancel;
 //   notNow {step}; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; part {id, on}; partsDone;
 //   openSettings; tool {message} (a tools row's message, {type, id, ...}); openLink {url} (a link clicked in the
 //   details: the host opens it if it is https). No VS Code dependency.
@@ -63,8 +67,24 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     claude(v) { buildClaude(v); },
 
     agents(v) {
-      v.body.append(el('p', 'muted', 'Open a tab and send a message.'),
+      v.choose = el('div');
+      v.choose.append(el('p', 'muted', 'Open a tab and send a message.'),
         row(button('New Claude Tab', '', () => post({ type: 'newTab', kind: 'claude' })), button('New Codex Tab', 'secondary', () => post({ type: 'newTab', kind: 'codex' }))));
+      // gateway.openTabOnTalk: the tab opens by itself; Open Claude Tab only while none is open
+      v.auto = el('div');
+      v.autoText = el('p', 'muted');
+      v.openTab = button('Open Claude Tab', '', () => post({ type: 'openTab' }));
+      v.openTabRow = row(v.openTab);
+      v.auto.append(v.autoText, v.openTabRow);
+      v.body.append(v.choose, v.auto);
+      v.update = (s) => {
+        const a = s.agents || {};
+        const gw = (s.claude && s.claude.companyGateway) || 'the gateway';
+        v.choose.hidden = !!a.autoTab;
+        v.auto.hidden = !a.autoTab;
+        v.autoText.textContent = 'A Claude tab opens on ' + gw + ' by itself. Send a message there.';
+        v.openTabRow.hidden = !a.openTab;
+      };
     },
 
     tools(v) {
@@ -80,13 +100,24 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       v.signIn = button('Sign In to Teams', '', () => post({ type: 'teamsSignIn' }));
       v.signInRow = row(v.signIn);
       v.note = el('p', 'muted note'); v.note.hidden = true;   // a sign-in that didn't finish
-      v.body.append(v.list, v.signInRow, v.note);
+      // the code of the page's own sign-in, in place: copied (and the page opened) by Teams' own Copy code
+      v.code = el('div', 'signInCode'); v.code.hidden = true;
+      v.codeText = el('p', 'userCode');
+      v.codeUrl = el('p', 'muted');
+      v.code.append(v.codeText, v.codeUrl,
+        row(button('Copy code & open', '', () => post({ type: 'teamsCopyCode' })), button('Cancel', 'secondary', () => post({ type: 'teamsCancel' }))));
+      v.body.append(v.list, v.signInRow, v.code, v.note);
       v.rows = () => { const id = state && state.teams ? state.teams.rowId : ''; v.tools.show(id ? rows.filter((r) => r.id === id) : []); };
       v.update = (s) => {
         const t = s.teams || {};
         v.signInRow.hidden = !!t.rowId;
         v.note.textContent = typeof t.note === 'string' ? t.note : '';
         v.note.hidden = !v.note.textContent;
+        const c = t.code && typeof t.code.userCode === 'string' && t.code.userCode ? t.code : null;
+        v.code.hidden = !c;
+        if (c) v.signInRow.hidden = true;   // signing in already: the code is what to use
+        v.codeText.textContent = c ? c.userCode : '';
+        v.codeUrl.textContent = c && typeof c.verificationUri === 'string' ? 'Enter it at ' + c.verificationUri : '';
         v.rows();
       };
     },
@@ -483,6 +514,7 @@ function getStartedHtml({ nonce, cspSource }) {
   .step.done .name { color: var(--vscode-descriptionForeground); }
   .step .body { margin-top: 8px; }
   .waiting { font-style: italic; color: var(--vscode-descriptionForeground); }
+  .signInCode .userCode { font-family: var(--vscode-editor-font-family, monospace); font-size: 1.8em; font-weight: 600; letter-spacing: 0.08em; margin: 8px 0 2px; user-select: all; }
   .way { margin: 10px 0; padding: 8px 10px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
   .way.current { border-color: var(--vscode-focusBorder); }
   .way h3 { font-size: 1em; font-weight: 600; margin: 0 0 4px; display: flex; gap: 8px; align-items: center; }

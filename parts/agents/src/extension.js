@@ -1244,6 +1244,10 @@ class PerchView {
     this.switchingOff = false;       // confirmStop said yes: the dispose that follows closes the editor tabs (closeTabs)
     this.graceTimer = null;
     this.firstStartTimer = null;     // agents.firstStart.openClaudeTab's look, once the wait for restored tabs is over
+    // settled: resolves once that wait is over and firstStart has had its go (or Perch is disposed first), so a caller
+    // that asks whether a tab is open (Roost's Get started, perch.sessionCount) counts the tabs VS Code brings back
+    this.settled = new Promise((resolve) => { this.settle = resolve; });
+    this.sessionOpenShown = undefined;   // what perch.sessionOpen was last set to
     this.leftGroups = new Set();     // editor groups a Perch tab has just left, looked at by unlockGroups
     this.unlockTimer = null;
     this.meter = new MeterHost(context, (state, why, codex) => this.onMeter(state, why, codex), { program: () => program('claude') });
@@ -1594,6 +1598,36 @@ class PerchView {
       if (changed) this.sendTabs();
     }, () => { this.gatewayFetching = false; });
   }
+  /** perch.sessionOpen: whether any Perch tab is open, in an editor or the sidebar (Roost's Get started offers one when none is). */
+  syncSessionContext() {
+    const open = this.sessions.length > 0;
+    if (open === this.sessionOpenShown) return;
+    this.sessionOpenShown = open;
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.sessionOpen', open)).catch(() => { /* an older VS Code */ });
+  }
+
+  /** perch.sessionCount: how many Perch tabs are open, once the wait for restored tabs (and firstStart) is over. */
+  async sessionCount() {
+    await this.settled;
+    return this.sessions.length;
+  }
+
+  /**
+   * perch.openGatewayTab (Roost's Get started, with the company file's gateway.openTabOnTalk): once the wait for restored
+   * tabs is over, 'notReady' while the gateway file isn't usable; else an open Claude tab on the gateway is shown
+   * ('revealed'), wherever it is; else a new one opens in an editor ('opened'), whatever the default for new tabs and
+   * the saved backend, which may lag a gateway just saved. 'failed' when none could be opened.
+   */
+  async openGatewayTab() {
+    await this.settled;
+    if (this.closing) return 'failed';
+    if (!this.gateway().ok) return 'notReady';
+    const open = this.sessions.find((s) => s.kind === 'claude' && s.gateway);
+    if (open) { this.focusTab(open); return 'revealed'; }
+    const s = this.addSession('claude', { gateway: true, location: 'editor' });
+    return s ? 'opened' : 'failed';
+  }
+
   /** What a page needs to know of the gateway, with the tabs: whether to offer it, and whether it is in order. */
   gatewayInfo() { const gw = this.gateway(); return { file: gw.file, exists: gw.exists, ok: gw.ok }; }
   /**
@@ -2677,7 +2711,7 @@ class PerchView {
   }
   sendEvent(sid, ev) { const f = this.surface(this.get(sid)); if (f && f.ready) f.webview.postMessage({ type: 'event', sid, ev }); }
   sendTabs() {
-    const gw = this.gatewayInfo(); this.syncGatewayContext();
+    const gw = this.gatewayInfo(); this.syncGatewayContext(); this.syncSessionContext();
     if (this.sidebar.ready && this.sidebar.view) this.sidebar.view.webview.postMessage({ type: 'tabs', tabs: this.sessions.filter((s) => s.location === 'sidebar').map((s) => s.toTab()), active: this.activeId, gateway: gw });
     for (const [sid, e] of this.panels) {
       const s = this.get(sid); if (!s) continue;
@@ -3207,6 +3241,7 @@ class PerchView {
     this.closing = true;             // the editor tabs are going away with the window, not being closed by the user
     clearTimeout(this.graceTimer);
     clearTimeout(this.firstStartTimer);
+    this.settle();                   // a caller waiting on the restored tabs is answered now
     if (this.gatewayPanel) { try { this.gatewayPanel.dispose(); } catch (_) { /* gone */ } }
     if (this.connectPanel) { try { this.connectPanel.dispose(); } catch (_) { /* gone */ } }
     clearTimeout(this.unlockTimer);
@@ -3240,6 +3275,8 @@ function activate(context) {
     vscode.commands.registerCommand('perch.newClaude', () => perch.addSession('claude')),
     vscode.commands.registerCommand('perch.newClaudeGateway', () => perch.addSession('claude', { gateway: true })),
     vscode.commands.registerCommand('perch.newCodex', () => perch.addSession('codex')),
+    vscode.commands.registerCommand('perch.sessionCount', () => perch.sessionCount()),
+    vscode.commands.registerCommand('perch.openGatewayTab', () => perch.openGatewayTab()),
     vscode.commands.registerCommand('perch.setUpGateway', () => { perch.setUpGateway(); }),
     vscode.commands.registerCommand('perch.connectClaude', () => { perch.connectClaude(); }),
     vscode.commands.registerCommand('perch.connectClaude.request', (msg) => perch.connectRequest(msg)),
@@ -3279,9 +3316,10 @@ function activate(context) {
     { dispose: () => perch.dispose() },
   );
   perch.start();
-  perch.syncGatewayContext();   // perch.gateway and perch.gatewayReady from the start: the walkthrough's gateway step is done when a gateway already is
+  perch.syncGatewayContext();
+  perch.syncSessionContext();   // perch.sessionOpen from the start: the tabs restored count   // perch.gateway and perch.gatewayReady from the start: the walkthrough's gateway step is done when a gateway already is
   // an installer's first start: after the wait for restored tabs, so a tab VS Code brings back counts as open
-  perch.firstStartTimer = setTimeout(() => { perch.firstStartTimer = null; perch.firstStart().catch((e) => perch.trace(`first start: ${(e && e.message) || e}`)); }, RESTORE_GRACE_MS);
+  perch.firstStartTimer = setTimeout(() => { perch.firstStartTimer = null; perch.firstStart().catch((e) => perch.trace(`first start: ${(e && e.message) || e}`)).then(() => perch.settle()); }, RESTORE_GRACE_MS);
   if (perch.firstStartTimer.unref) perch.firstStartTimer.unref();
   // jay's Jira projects: now, and again every few minutes, as jay learns of more (and as a page comes into view)
   perch.refreshTicketProjects();

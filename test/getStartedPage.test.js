@@ -198,6 +198,19 @@ button(step('agents'), 'New Claude Tab').click();
 assert.deepStrictEqual(out.pop(), { type: 'newTab', kind: 'claude' });
 button(step('agents'), 'New Codex Tab').click();
 assert.deepStrictEqual(out.pop(), { type: 'newTab', kind: 'codex' });
+// gateway.openTabOnTalk: the tab opens by itself, no choice of tab; Open Claude Tab while none is open
+const talk = (agents) => st({ claude: { companyGateway: 'Example Gateway' }, agents, steps: [S('claude', 'Connect Claude', true), S('agents', 'Talk to Claude or Codex'), S('tools', 'Connect your tools'), S('codebase', 'Search your code')] });
+host({ type: 'state', state: talk({ autoTab: true, openTab: false }) });
+assert.ok(!button(step('agents'), 'New Claude Tab') && !button(step('agents'), 'New Codex Tab'), 'no New Claude Tab or New Codex Tab');
+assert.ok(step('agents').textContent.includes('A Claude tab opens on Example Gateway by itself. Send a message there.'));
+assert.ok(!button(step('agents'), 'Open Claude Tab'), 'a tab is open: no Open Claude Tab');
+host({ type: 'state', state: talk({ autoTab: true, openTab: true }) });
+button(step('agents'), 'Open Claude Tab').click();
+assert.deepStrictEqual(out.pop(), { type: 'openTab' });
+assert.ok(!button(step('agents'), 'New Codex Tab'), 'the recovery is the one button');
+host({ type: 'state', state: talk({ autoTab: false, openTab: false }) });
+assert.ok(button(step('agents'), 'New Claude Tab') && button(step('agents'), 'New Codex Tab') && !button(step('agents'), 'Open Claude Tab'), 'without it: as before');
+assert.ok(![...step('agents').querySelectorAll('p')].some((x) => shown(x) && x.textContent.includes('by itself')), 'nor its text');
 // codebase: Turn On, Not Now
 step('codebase').querySelector('.name').click();
 button(step('codebase'), 'Turn On').click();
@@ -246,6 +259,21 @@ assert.strictEqual(step('teams').querySelector('.note').textContent, "Teams isn'
 assert.ok(!shown(step('teams').querySelector('.waiting')));
 host({ type: 'state', state: st({ teams: { rowId: '' }, steps: [S('teams', 'Sign in to Teams', false, 'Finish signing in in your browser.')] }) });
 assert.ok(!shown(step('teams').querySelector('.note')));
+// the page's own sign-in: its code in place, Copy code & open and Cancel; the address as text, not a link
+assert.ok(!shown(step('teams').querySelector('.signInCode')), 'no code: no code row');
+host({ type: 'state', state: st({ teams: { rowId: '', code: { userCode: 'ABCD-1234', verificationUri: 'https://microsoft.com/devicelogin' } }, steps: [S('teams', 'Sign in to Teams', false, 'Finish signing in in your browser.')] }) });
+const codeRow = step('teams').querySelector('.signInCode');
+assert.ok(shown(codeRow));
+assert.strictEqual(codeRow.querySelector('.userCode').textContent, 'ABCD-1234');
+assert.ok(codeRow.textContent.includes('https://microsoft.com/devicelogin') && !codeRow.querySelector('a'), 'the address is text');
+assert.ok(shown(step('teams').querySelector('.waiting')), 'the waiting line stays');
+assert.ok(!button(step('teams'), 'Sign In to Teams'), 'signing in already: no Sign In');
+button(step('teams'), 'Copy code & open').click();
+assert.deepStrictEqual(out.pop(), { type: 'teamsCopyCode' });
+button(step('teams'), 'Cancel').click();
+assert.deepStrictEqual(out.pop(), { type: 'teamsCancel' });
+host({ type: 'state', state: st({ teams: { rowId: '', code: null }, steps: [S('teams', 'Sign in to Teams', true)] }) });
+assert.ok(!shown(codeRow), 'signed in: the code row goes');
 // jira: the form, prefilled site and email (a company file's), and nothing sent until Sign in is pressed
 const sentBefore = out.length;
 host({ type: 'state', state: st({ jira: { rowId: '', site: 'https://example.atlassian.net', email: 'you@example.com', form: true }, steps: [S('jira', 'Sign in to Jira')] }) });

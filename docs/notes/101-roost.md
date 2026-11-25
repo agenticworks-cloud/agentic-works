@@ -894,6 +894,26 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     walkthrough; the step is unchanged (off by default, Turn On or Not Now), and its text still says the by-meaning
     model is installed separately.
 
+- **The talk step opens its own Claude tab; the Teams code in place — Built (0.5.4)** *(Sean, 2026-11-25: "for [the
+  company], can we not show the claude or codex button, instead, can we open up a new claude tab?" and "only during
+  the walkthrough, can we show the code and copy button in place?")*.
+  - *The opt-in:* the company file's `gateway.openTabOnTalk: true` (under `gateway`, beside `terminal`: `steps` holds
+    only the steps' names, and the tab is on the gateway). Without it nothing changes.
+  - *The talk step with it:* no New Claude Tab / New Codex Tab; its text (and `agents-auto.md`) says a Claude tab
+    opens on the gateway by itself. The host opens it (`roost.newClaudeGatewayTab`, beside the page, through the
+    Agents part's new `perch.openGatewayTab`: an open gateway tab is shown rather than another opened, and a new one
+    is on the gateway and in an editor whatever the saved backend, which may lag a gateway just saved) when the page
+    is open, `perch.gatewayReady` is true now (a Not Now is not it), the step isn't done, Agents is running and no
+    Perch tab is open (`perch.sessionCount`, which answers once the wait for restored tabs and the installer's first
+    start tab are over). One open at a time, once per window, and never again once one has opened
+    (`roost.getStarted.autoTabOpened`); a failed open is tried again after 1, 3 and 10 s while the page is open.
+    With no Perch tab open (`perch.sessionOpen`) and the gateway ready, the step offers **Open Claude Tab**.
+  - *The Teams code:* the page's Sign In to Teams calls `chirp.signIn` with `{ inPlace: true }`, so the code opens
+    neither the Teams view nor a notification. The Teams part sets `chirp.signInCodeWaiting` while a code waits and
+    answers `chirp.signInCode`; the step shows the code large, its address as text, **Copy code & open**
+    (`chirp.copyCode`) and **Cancel** (`chirp.cancelSignIn`), and hides them once signed in or cancelled. Only a code
+    of the page's own sign-in shows there, and it is never logged. The Teams view and the palette are as before.
+
 ## Left to the builder
 
 - Where each part's media lives and how its asset paths are resolved under `<part>/` (29 uses of

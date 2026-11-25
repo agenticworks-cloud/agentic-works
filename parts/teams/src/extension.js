@@ -65,11 +65,24 @@ function activate(context, deps = {}) {
     signedInKey = v;
     Promise.resolve(vscode.commands.executeCommand('setContext', 'chirp.signedIn', v)).catch(() => { /* an older VS Code */ });
   };
+  // chirp.signInCodeWaiting: true while a device code waits to be entered (Roost's Get started shows it in place, and
+  // reads it with chirp.signInCode); every change of s.signIn goes through setSignIn, so the key follows it
+  let codeWaitingKey;
+  const setSignIn = (v) => {
+    s.signIn = v;
+    const waiting = !!(v && v.stage === 'code');
+    if (codeWaitingKey === waiting) return;
+    codeWaitingKey = waiting;
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'chirp.signInCodeWaiting', waiting)).catch(() => { /* an older VS Code */ });
+  };
   const sidebar = new Sidebar(context.extensionUri, { meName: () => (s.me && s.me.displayName) || '' });
   const pollers = [];
 
   // ---- sign-in: the method from the settings, rebuilt when they change
   let tokenFile = '', auth = null, cancelSignIn = null, userCancelled = false;
+  // inPlace: this sign-in was started with { inPlace: true } (Roost's Get started, which shows the code itself): its
+  // code opens neither the Teams view nor a notification
+  let inPlace = false;
   // app: { clientId, tenant, company } — chirp's own app, or the company's from teams.signIn.clientId / .tenant
   let app = signInApp({}, defaultClientId), builtKey = null, configNote = null, writingApp = false;
   const signInKey = () => JSON.stringify(SIGN_IN_KEYS.map((k) => cfg('signIn.' + k) || ''));
@@ -106,9 +119,9 @@ function activate(context, deps = {}) {
   // notification was gone before it could be used, and a second click did nothing).
   const COPY_AND_OPEN = 'Copy Code and Open Sign-in Page';
   function showCode({ userCode, verificationUri }) {
-    s.signIn = { stage: 'code', userCode, verificationUri };
+    setSignIn({ stage: 'code', userCode, verificationUri });
     sidebar.update({ signIn: s.signIn });
-    revealCode();
+    if (!inPlace) revealCode();
   }
   function revealCode() {
     const c = s.signIn;
@@ -200,7 +213,7 @@ function activate(context, deps = {}) {
     s.signedOut = true;
     setSignedIn(false);
     for (const p of pollers) p.stop();
-    s.signIn = { stage: 'signedOut' };
+    setSignIn({ stage: 'signedOut' });
     const method = cfg('signIn.method') || 'auto';
     if (method === 'tokenFile' && !tokenFile) setStatus({ kind: 'signin', text: NO_TOKEN_FILE });
     else if (tokenFile && method !== 'editor' && method !== 'deviceCode') setStatus({ kind: 'signin', text: `Sign in with the tool that keeps ${tokenFile}` });
@@ -224,7 +237,7 @@ function activate(context, deps = {}) {
     s.signedOut = false;
     setSignedIn(true);
     stopWatching();
-    s.signIn = null;
+    setSignIn(null);
     if (s.status && s.status.kind === 'signin') s.status = null;
     // a token file or a company app carries whatever it was granted: channels are tried, and a 403 turns them off
     const granted = methodNow() === 'tokenFile' || app.company;
@@ -244,8 +257,9 @@ function activate(context, deps = {}) {
     sidebar.update({ chats: [], teams: [], chatsLoaded: false, teamsLoaded: false });
   }
 
-  async function signIn() {
-    if (cancelSignIn) {   // already signing in: show where it waits
+  async function signIn({ inPlace: here = false } = {}) {
+    if (cancelSignIn) {   // already signing in: show where it waits (in place: the page that asked shows it already)
+      if (here) return;
       if (s.signIn && s.signIn.stage === 'code') return revealCode();
       Promise.resolve(vscode.commands.executeCommand('workbench.view.extension.chirp')).catch(() => { /* no Teams view */ });
       return;
@@ -254,14 +268,15 @@ function activate(context, deps = {}) {
     const cancel = { isCancellationRequested: false, onCancellationRequested: (fn) => { listeners.push(fn); return { dispose() {} }; } };
     cancelSignIn = () => { userCancelled = true; cancel.isCancellationRequested = true; listeners.forEach((f) => f()); };
     userCancelled = false;
-    s.signIn = { stage: 'waiting' }; sidebar.update({ signIn: s.signIn });
+    inPlace = here;
+    setSignIn({ stage: 'waiting' }); sidebar.update({ signIn: s.signIn });
     try {
       await auth.signIn({ channels: false, newAccount: userOut(), cancel });
     } catch (e) {
       cancelSignIn = null;
       // the signed-out page then says what "Need admin approval" means, in case that's where Microsoft stopped
       const hint = e instanceof SignInCancelled || (e instanceof SignInFailed && HINT_KINDS.has(e.kind));
-      s.signIn = hint ? { stage: 'signedOut', hint: true } : { stage: 'signedOut' }; sidebar.update({ signIn: s.signIn });
+      setSignIn(hint ? { stage: 'signedOut', hint: true } : { stage: 'signedOut' }); sidebar.update({ signIn: s.signIn });
       if (e instanceof SignInCancelled) return;
       if (e instanceof SignInNeeded) { s.signedOut = false; return signedOut(); }   // says what to do: the token file, or none set
       if (e instanceof SignInFailed) { setStatus({ kind: 'error', text: e.message }); log(e); return; }
@@ -282,7 +297,8 @@ function activate(context, deps = {}) {
     const cancel = { isCancellationRequested: false, onCancellationRequested: (fn) => { listeners.push(fn); return { dispose() {} }; } };
     cancelSignIn = () => { userCancelled = true; cancel.isCancellationRequested = true; listeners.forEach((f) => f()); };
     userCancelled = false;
-    s.signIn = { stage: 'waiting' }; sidebar.update({ signIn: s.signIn });
+    inPlace = false;
+    setSignIn({ stage: 'waiting' }); sidebar.update({ signIn: s.signIn });
     try {
       await auth.signIn({ channels: true, cancel });
       s.channels = 'enabled';
@@ -295,7 +311,7 @@ function activate(context, deps = {}) {
       if (!(e instanceof SignInCancelled) && !(e instanceof SignInFailed)) log(e);
     } finally {
       cancelSignIn = null;
-      s.signIn = null;
+      setSignIn(null);
       sidebar.update({ signIn: null, channels: s.channels });
     }
   }
@@ -405,7 +421,11 @@ function activate(context, deps = {}) {
     vscode.commands.registerCommand('chirp.activeConversationFile', () => conversations.activeConversationFile()),
     vscode.commands.registerCommand('chirp.refresh', () => refresh()),
     vscode.commands.registerCommand('chirp.focusFilter', () => sidebar.focusFilter()),
-    vscode.commands.registerCommand('chirp.signIn', () => signIn()),
+    // { inPlace: true }: Roost's Get started, which shows the code itself (chirp.signInCode); anything else is ignored
+    vscode.commands.registerCommand('chirp.signIn', (o) => signIn({ inPlace: !!(o && o.inPlace === true) })),
+    // the device code while one waits to be entered, else null: for the page that shows it in place (never logged)
+    vscode.commands.registerCommand('chirp.signInCode', () => (s.signIn && s.signIn.stage === 'code'
+      ? { userCode: s.signIn.userCode, verificationUri: s.signIn.verificationUri } : null)),
     vscode.commands.registerCommand('chirp.signOut', () => signOut()),
     vscode.commands.registerCommand('chirp.enableChannels', () => enableChannels()),
     vscode.commands.registerCommand('chirp.cancelSignIn', () => { if (cancelSignIn) cancelSignIn(); }),

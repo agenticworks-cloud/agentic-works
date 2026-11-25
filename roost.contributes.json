@@ -52,6 +52,10 @@
     {
       "command": "roost.newCodexTab",
       "title": "Roost: New Codex Tab Beside"
+    },
+    {
+      "command": "roost.newClaudeGatewayTab",
+      "title": "Roost: Claude Tab on the Gateway Beside"
     }
   ],
   "menus": {
@@ -93,6 +97,10 @@
       },
       {
         "command": "roost.newCodexTab",
+        "when": "false"
+      },
+      {
+        "command": "roost.newClaudeGatewayTab",
         "when": "false"
       }
     ]

@@ -8,12 +8,28 @@
 // comes after the page closed is dropped. Each step carries its details, rendered here (src/stepDetails.js); a link
 // clicked in them is opened in the browser when it is https, and ignored otherwise. (Design: docs/notes/101-roost.md,
 // "Settled while planning 0.5", and the 0.5.2 bullet.)
+//
+// With the company file's gateway.openTabOnTalk (0.5.4), the talk step has no New Claude Tab / New Codex Tab: once
+// the gateway is ready (perch.gatewayReady now, not a Not Now), while this page is open, the step not done and the
+// Agents part running, a Claude tab on the gateway opens by itself beside the page (roost.newClaudeGatewayTab), unless
+// a Perch tab is already open (perch.sessionCount, which counts the tabs a reload brings back). One open at a time,
+// at most once per window, and never again once one has opened (AUTO_TAB_KEY); a failed open is tried again a few
+// times while the page is open. With no Perch tab open, the step offers Open Claude Tab.
+// The Teams step's own sign-in is started in place ({ inPlace: true }): the device code (chirp.signInCode, read
+// while chirp.signInCodeWaiting) shows in the step with Copy code & open (chirp.copyCode) and Cancel
+// (chirp.cancelSignIn), and is never logged.
 const { randomBytes } = require('node:crypto');
 const { getStartedHtml } = require('./getStartedPage');
 const { stepDetails, httpsUrl } = require('./stepDetails');
 
 const VIEW_TYPE = 'roost.getStarted';
 const DONE_KEY = 'roost.getStarted.done';
+// a Claude tab was opened by itself for the talk step (gateway.openTabOnTalk): never again, after a reload too
+const AUTO_TAB_KEY = 'roost.getStarted.autoTabOpened';
+// a failed open is tried again after these waits, while the page stays open
+const AUTO_TAB_RETRIES_MS = [1000, 3000, 10000];
+const OPEN_GATEWAY_TAB = 'roost.newClaudeGatewayTab';
+const TAB_OPEN = ['opened', 'revealed'];   // perch.openGatewayTab's answers when a tab is there
 const ORDER_COMPANY = ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
 const ORDER_ROOST = ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts'];
 const STEP_IDS = [...new Set([...ORDER_COMPANY, ...ORDER_ROOST])];
@@ -52,8 +68,17 @@ class GetStarted {
     // key: how many Get a key requests with the company's key helper are out
     this.waiting = { github: false, teams: false, claude: 0, key: 0 };
     this.notes = { teams: '' };
+    // the talk step's tab (gateway.openTabOnTalk): an open out, a retry's timer, how many tried, done for this window
+    this.autoTab = { inFlight: false, timer: null, tries: 0, settled: false };
+    this.autoTabRetriesMs = AUTO_TAB_RETRIES_MS;   // a test makes them short
+    // Teams' device code while the page's sign-in waits on it (chirp.signInCode); gen drops an answer that is stale
+    this.teamsCode = null;
+    this.teamsCodeGen = 0;
     this.subs = [];
-    if (roost.contexts) this.subs.push(roost.contexts.onChange(() => this.refresh()));
+    if (roost.contexts) this.subs.push(roost.contexts.onChange((key) => {
+      if (key === 'chirp.signInCodeWaiting') this.readTeamsCode();
+      this.refresh();
+    }));
     this.subs.push(vscode.workspace.onDidChangeConfiguration((e) => {
       if (WATCHED_SETTINGS.some((k) => e.affectsConfiguration(k))) this.refresh();
     }));
@@ -71,7 +96,7 @@ class GetStarted {
     const messages = panel.webview.onDidReceiveMessage((m) => this.onMessage(m));
     panel.onDidDispose(() => {
       messages.dispose();
-      if (this.panel === panel) this.panel = null;
+      if (this.panel === panel) { this.panel = null; this.stopAutoTabRetry(); }
     });
     panel.webview.html = getStartedHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
     // every row checked once, as Connect Your Tools' panel does when it opens
@@ -112,9 +137,14 @@ class GetStarted {
     return (typeof file === 'string' && file && this.roost.toolsNow().rowForTokenFile(file)) || '';
   }
 
+  ctx(k) { return !!(this.roost.contexts && this.roost.contexts.get(k) === true); }
+
+  // the company file's gateway.openTabOnTalk: the talk step's tab opens by itself
+  autoTabOn() { const c = this.company(); return !!(c && c.gateway && c.gateway.openTabOnTalk); }
+
   // Each step's signal now
   signals() {
-    const ctx = (k) => !!(this.roost.contexts && this.roost.contexts.get(k) === true);
+    const ctx = (k) => this.ctx(k);
     const c = this.company();
     const tools = this.roost.tools;
     return {
@@ -164,13 +194,16 @@ class GetStarted {
       agents: (c && c.steps.talk) || NAMES.agents,
     };
     const gwName = (c && c.gateway && c.gateway.name) || '';
+    const autoTab = this.autoTabOn();
+    // the code shows while the page's own sign-in waits on it, and goes once signed in or cancelled
+    const teamsCode = !teamsSigned && this.waiting.teams && this.ctx('chirp.signInCodeWaiting') ? this.teamsCode : null;
     const waiting = { github: this.waiting.github ? WAIT_TERMINAL : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
       claude: this.waiting.claude > 0 ? WAIT_CLAUDE : this.waiting.key > 0 && gwName ? waitKey(gwName) : '' };
     // the details in the company file's words; the gateway step's are the company gateway's while one is named
     const words = { gateway: gwName, title: str(c && c.title) };
     const steps = (c ? ORDER_COMPANY : ORDER_ROOST).filter((id) => this.shown(id))
       .map((id) => ({ id, name: names[id], done: !!done[id], waiting: waiting[id] || '',
-        details: stepDetails(id, { companyGateway: !!gwName, words }) }));
+        details: stepDetails(id, { companyGateway: !!gwName, autoTab, words }) }));
     const jira = this.vscode.workspace.getConfiguration('jira');
     const jiraFile = jira.get('signIn.tokenFile', '');
     // the site the user set (user scope only, as the Jira part reads it: never a workspace's), else the company file's;
@@ -181,8 +214,9 @@ class GetStarted {
       title: `Get started with ${(c && c.title) || 'Roost'}`,
       steps,
       claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
+      agents: { autoTab, openTab: autoTab && this.offerTab() },
       github: { logins: [...this.logins] },
-      teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams },
+      teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams, code: teamsCode ? { ...teamsCode } : null },
       jira: { rowId: this.rowFor('jira'), site: jiraSite, email: str(c && c.jira && c.jira.email), form: !(typeof jiraFile === 'string' && jiraFile) },
       parts: [...this.roost.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.roost.isEnabled(e.part.id) })),
     };
@@ -199,6 +233,7 @@ class GetStarted {
     if (this.disposed) return;
     try {
       if (!this.panel) { this.noteDone(); return; }
+      this.maybeOpenTab();
       this.post({ type: 'state', state: this.state() });
     } catch (err) {
       this.log(`Get started: the state could not be sent: ${errorMessage(err)}`);
@@ -260,6 +295,12 @@ class GetStarted {
         }
         case 'github': this.githubSignIn(); break;
         case 'newTab': if (NEW_TAB[m.kind]) await run(NEW_TAB[m.kind]); break;
+        case 'openTab': if (this.autoTabOn() && this.running('agents')) await this.openTabNow(); break;
+        case 'teamsCopyCode':
+          // chirp.copyCode copies the code and opens the page itself: only while a code with an https page waits
+          if (this.teamsCode && httpsUrl(this.teamsCode.verificationUri) && this.running('teams')) await run('chirp.copyCode');
+          break;
+        case 'teamsCancel': if (this.running('teams')) await run('chirp.cancelSignIn'); break;
         case 'notNow':
           if (!NOT_NOW[m.step]) break;
           this.markDone(m.step);
@@ -326,7 +367,7 @@ class GetStarted {
       this.refresh();
     }
     try {
-      await this.roost.toolSignIn('teams', 'chirp.signIn', { panel: false });
+      await this.roost.toolSignIn('teams', 'chirp.signIn', { panel: false, args: [{ inPlace: true }] });
     } catch (err) {
       this.waiting.teams = false;
       this.refresh();
@@ -340,8 +381,88 @@ class GetStarted {
     this.refresh();
   }
 
+  // ---- the talk step's tab (gateway.openTabOnTalk)
+
+  // Open Claude Tab is offered while no Perch tab is open, the gateway is ready and no open is out or waiting
+  offerTab() {
+    const a = this.autoTab;
+    return this.running('agents') && this.ctx('perch.gatewayReady') && !this.ctx('perch.sessionOpen') && !a.inFlight && !a.timer;
+  }
+
+  // Called with each refresh while the page is open: opens the tab when every condition holds (the header above)
+  maybeOpenTab() {
+    const a = this.autoTab;
+    if (!this.autoTabOn() || !this.panel || a.inFlight || a.timer || a.settled) return;
+    if (this.store.get(AUTO_TAB_KEY)) { a.settled = true; return; }
+    // the gateway ready now: the claude step done by Not Now alone is not it
+    if (!this.ctx('perch.gatewayReady') || !this.running('agents')) return;
+    if (this.done().agents || this.ctx('perch.messageSent')) return;
+    a.inFlight = true;
+    const panel = this.panel;
+    this.autoOpen(panel).catch((err) => this.log(`Get started: the Claude tab could not be opened: ${errorMessage(err)}`));
+  }
+
+  async autoOpen(panel) {
+    const a = this.autoTab;
+    const run = (id, ...args) => this.vscode.commands.executeCommand(id, ...args);
+    let result = 'failed';
+    try {
+      // a Perch tab open already (one the window brought back, one first start opened, one in the side bar): none opened
+      const count = await run('perch.sessionCount');
+      if (this.disposed || this.panel !== panel) return;
+      if (typeof count === 'number' && count > 0) { a.settled = true; return; }
+      result = await run(OPEN_GATEWAY_TAB);
+    } catch (err) {
+      this.log(`Get started: the Claude tab could not be opened: ${errorMessage(err)}`);
+      result = 'failed';
+    } finally {
+      a.inFlight = false;
+    }
+    if (this.disposed) return;
+    if (TAB_OPEN.includes(result)) this.tabOpened();
+    else if (this.panel === panel && a.tries < this.autoTabRetriesMs.length) {
+      a.timer = setTimeout(() => { a.timer = null; this.refresh(); }, this.autoTabRetriesMs[a.tries++]);
+      if (a.timer.unref) a.timer.unref();
+    } else a.settled = true;   // tried enough for this window: Open Claude Tab stays
+    this.refresh();
+  }
+
+  // Open Claude Tab: the same command, which shows a tab already open rather than opening another
+  async openTabNow() {
+    const result = await this.vscode.commands.executeCommand(OPEN_GATEWAY_TAB);
+    if (TAB_OPEN.includes(result)) this.tabOpened();
+    this.refresh();
+  }
+
+  tabOpened() {
+    this.autoTab.settled = true;
+    this.stopAutoTabRetry();
+    Promise.resolve(this.store.update(AUTO_TAB_KEY, true)).catch((err) => this.log(`Get started: could not record the Claude tab: ${errorMessage(err)}`));
+  }
+
+  stopAutoTabRetry() {
+    const a = this.autoTab;
+    clearTimeout(a.timer);
+    a.timer = null;
+    a.tries = 0;
+  }
+
+  // ---- Teams' device code, for the page's own sign-in
+
+  readTeamsCode() {
+    const gen = ++this.teamsCodeGen;
+    if (!this.ctx('chirp.signInCodeWaiting') || !this.running('teams')) { this.teamsCode = null; return; }
+    Promise.resolve().then(() => this.vscode.commands.executeCommand('chirp.signInCode')).then((c) => {
+      if (gen !== this.teamsCodeGen) return;
+      const ok = c && typeof c.userCode === 'string' && c.userCode && typeof c.verificationUri === 'string';
+      this.teamsCode = ok ? { userCode: c.userCode, verificationUri: c.verificationUri } : null;
+      this.refresh();
+    }, (err) => { if (gen === this.teamsCodeGen) { this.teamsCode = null; this.log(`Get started: the Teams code could not be read: ${errorMessage(err)}`); } });
+  }
+
   dispose() {
     this.disposed = true;
+    this.stopAutoTabRetry();
     for (const d of this.subs.splice(0)) d.dispose();
     if (this.panel) this.panel.dispose();
   }
