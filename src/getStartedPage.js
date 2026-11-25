@@ -92,7 +92,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
 
     agents(v) {
       v.choose = el('div');
-      v.choose.append(el('p', 'muted', 'Open a tab and send a message.'),
+      v.choose.append(el('p', 'muted', 'Open a tab and send "Hello".'),
         row(button('New Claude Tab', '', () => post({ type: 'newTab', kind: 'claude' })), button('New Codex Tab', 'secondary', () => post({ type: 'newTab', kind: 'codex' }))));
       // gateway.openTabOnTalk: the tab opens by itself; Open Claude Tab only while none is open
       v.auto = el('div');
@@ -106,7 +106,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
         const gw = (s.claude && s.claude.companyGateway) || 'the gateway';
         v.choose.hidden = !!a.autoTab;
         v.auto.hidden = !a.autoTab;
-        v.autoText.textContent = 'A Claude tab opens on ' + gw + ' by itself. Send a message there.';
+        v.autoText.textContent = 'A Claude tab opens on ' + gw + ' by itself. Send "Hello" there.';
         v.openTabRow.hidden = !a.openTab;
       };
     },
