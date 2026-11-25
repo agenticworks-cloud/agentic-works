@@ -804,6 +804,12 @@ test('each step carries its details, in the company file\'s words; the gateway s
   assert.ok(st.steps.every((x) => x.details.startsWith('<')));
   assert.ok(st.steps.find((x) => x.id === 'claude').details.includes('Claude subscription'), 'no company gateway: every way');
   await s.extension.deactivate();
+  // a company file's note heads its step's details
+  s = await pageSetup({ ...EXAMPLE, notes: { github: 'Create your own GitHub account first.' } });
+  st = await s.stateOf();
+  assert.ok(st.steps.find((x) => x.id === 'github').details.startsWith('<p>Create your own GitHub account first.</p>'));
+  assert.ok(!st.steps.find((x) => x.id === 'teams').details.includes('Create your own'), 'only on its own step');
+  await s.extension.deactivate();
   // a company file's words are escaped in them
   s = await pageSetup({ ...EXAMPLE, title: '<img src=x onerror=alert(1)>', gateway: { ...EXAMPLE.gateway, name: '**Gw** <b>x</b>' } });
   const html = (await s.stateOf()).steps.find((x) => x.id === 'claude').details;

@@ -220,7 +220,7 @@ class GetStarted {
     const words = { gateway: gwName, title: str(c && c.title) };
     const steps = (c ? ORDER_COMPANY : ORDER_ROOST).filter((id) => this.shown(id))
       .map((id) => ({ id, name: names[id], done: !!done[id], waiting: waiting[id] || '',
-        details: stepDetails(id, { companyGateway: !!gwName, autoTab, words }) }));
+        details: stepDetails(id, { companyGateway: !!gwName, autoTab, words, note: c && c.notes ? c.notes[id] : '' }) }));
     const jira = this.vscode.workspace.getConfiguration('jira');
     const jiraFile = jira.get('signIn.tokenFile', '');
     // the site the user set (user scope only, as the Jira part reads it: never a workspace's), else the company file's;

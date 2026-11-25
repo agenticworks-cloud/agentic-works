@@ -97,6 +97,9 @@ files. Required keys are marked **required**.
 - `title` (optional): a non-empty string; the Get started page reads "Get started with <title>" (default Roost).
 - `steps` (optional): `email`, `gateway`, `tools` and `talk`, each an optional non-empty string naming that step of
   the Get started page (defaults Your email, Connect Claude, Connect your tools, Talk to Claude or Codex).
+- `notes` (optional): the company's own text at the top of a step's details, such as how its people get GitHub
+  access: keys `github`, `email`, `gateway`, `talk`, `tools`, `teams`, `jira`, `codebase`, `parts`; each markdown of
+  up to 2000 characters, rendered like Roost's own (escaped, https links only). A bad one is ignored with a note.
 - `email` (optional): `domain` (**required**, such as `example.com`), `env` (an upper-case environment variable
   name, not one the system uses) and `example` (the name part shown in grey before `@<domain>`, such as `first.last`;
   `your.name` without one). The Get started page then has an email step after GitHub's: a box showing

@@ -54,7 +54,7 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 
 // a minimal file, and defaults
 const min = read({ name: 'Min' });
-assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] });
+assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [], notes: {} });
 assert.deepStrictEqual(min.notes, []);
 // email: the Get started page asks for the user's address on the company's domain; tools get it in the env named
 {
@@ -89,6 +89,20 @@ assert.deepStrictEqual(min.notes, []);
     assert.strictEqual(r.notes.length, 1, JSON.stringify(r.notes));
     assert.ok(r.notes[0].startsWith(note), r.notes[0]);
   }
+}
+// notes: the company's own text at the top of a step's details, keyed as steps is (gateway, talk) or by step id
+{
+  const r = read({ name: 'N', notes: { github: 'Create your own account.\n\nThen ask for access.', gateway: 'Ask IT.', talk: 'Say hi.' } });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.deepStrictEqual(r.company.notes, { github: 'Create your own account.\n\nThen ask for access.', claude: 'Ask IT.', agents: 'Say hi.' });
+  assert.deepStrictEqual(r.notes, []);
+  // a bad note is dropped with a note; the rest stay
+  const bad = read({ name: 'N', notes: { github: 'ok', nope: 'x', jira: '', teams: 7, parts: 'x'.repeat(2001), codebase: 'a\u0007b' } });
+  assert.deepStrictEqual(bad.company.notes, { github: 'ok' });
+  assert.strictEqual(bad.notes.length, 5, JSON.stringify(bad.notes));
+  assert.ok(bad.notes.every((x) => x.startsWith('notes.')), JSON.stringify(bad.notes));
+  const notObj = read({ name: 'N', notes: 'x' });
+  assert.deepStrictEqual([notObj.ok, notObj.company.notes, notObj.notes.length], [true, {}, 1]);
 }
 // jira: the site and email the Get started page fills in; never a token (one there is ignored)
 const jr = read({ name: 'J', jira: { site: 'https://example.atlassian.net', email: 'you@example.com', token: 'tok-1' } });

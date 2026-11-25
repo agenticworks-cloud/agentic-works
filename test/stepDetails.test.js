@@ -28,6 +28,14 @@ const auto = stepDetails('agents', { autoTab: true, words: { gateway: 'Example G
 assert.ok(auto.includes('Example Gateway') && auto.includes('Open Claude Tab') && !auto.includes('New Codex Tab</strong> or'), 'the auto text: no choice of tab');
 assert.ok(stepDetails('agents').includes('<strong>New Codex Tab</strong>'), 'without it: the two buttons');
 assert.deepStrictEqual(fs.readdirSync(DETAILS_DIR).sort(), [...wanted].map((f) => `${f}.md`).sort(), 'one file per step, and no other');
+// a company's note goes first, rendered by the same rules: escaped, https links only
+{
+  const plain = stepDetails('github');
+  const withNote = stepDetails('github', { note: 'Ask **IT** at [the desk](https://example.com/desk) <b>now</b> [x](http://example.com/x)' });
+  assert.ok(withNote.startsWith('<p>Ask <strong>IT</strong> at <a href="https://example.com/desk">the desk</a> &lt;b&gt;now&lt;/b&gt; x</p>'), withNote.slice(0, 200));
+  assert.ok(withNote.endsWith(plain), 'then the step\'s own text');
+  assert.strictEqual(stepDetails('nope', { note: 'x' }), '', 'no step file: no details, note or not');
+}
 assert.strictEqual(stepDetails('../package'), '', 'only a step id names a file');
 assert.strictEqual(stepDetails('nope'), '', 'no file: no details');
 

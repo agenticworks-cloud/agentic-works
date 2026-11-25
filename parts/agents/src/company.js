@@ -274,10 +274,31 @@ function email(e, notes) {
   return { domain, env, example };
 }
 
+// notes: the company's own text at the top of a step's details (the GitHub step's, say: how its people get access),
+// keyed as steps is (gateway, talk) or by step id; markdown, rendered by the page's details renderer (escaped, https
+// links only). A bad one is dropped with a note; the rest stay.
+const NOTE_KEYS = { github: 'github', email: 'email', gateway: 'claude', talk: 'agents', tools: 'tools', teams: 'teams',
+  jira: 'jira', codebase: 'codebase', parts: 'parts' };
+const NOTE_MAX = 2000;
+function stepNotes(n, notes) {
+  const out = {};
+  if (n === undefined || n === null) return out;
+  if (!isObject(n)) { notes.push('notes: must be an object; it is ignored'); return out; }
+  for (const [k, v] of Object.entries(n)) {
+    if (!Object.prototype.hasOwnProperty.call(NOTE_KEYS, k)) { notes.push(`notes.${k}: not a step (${Object.keys(NOTE_KEYS).join(', ')}); it is ignored`); continue; }
+    if (!isString(v) || !v.trim() || v.length > NOTE_MAX || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(v)) {
+      notes.push(`notes.${k}: must be text of 1 to ${NOTE_MAX} characters; it is ignored`);
+      continue;
+    }
+    out[NOTE_KEYS[k]] = v;
+  }
+  return out;
+}
+
 function validate(data, home, notes = [], dir = home) {
   if (!isObject(data)) throw new Invalid('', 'the file must hold a JSON object');
   if (!isString(data.name) || !data.name) throw new Invalid('name', 'must be a non-empty string');
-  const company = { name: data.name, title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [] };
+  const company = { name: data.name, title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [], notes: {} };
   // optional wording for the Get started page: its title, and the names of its email, gateway, tools and talk steps
   if (data.title !== undefined) {
     if (!isString(data.title) || !data.title) throw new Invalid('title', 'must be a non-empty string');
@@ -294,6 +315,7 @@ function validate(data, home, notes = [], dir = home) {
   }
   company.jira = jira(data.jira, notes);
   company.email = email(data.email, notes);
+  company.notes = stepNotes(data.notes, notes);
   if (data.gateway !== undefined && data.gateway !== null) company.gateway = gateway(data.gateway, home);
   if (data.mcpServers !== undefined) {
     if (!Array.isArray(data.mcpServers)) throw new Invalid('mcpServers', 'must be an array');

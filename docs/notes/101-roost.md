@@ -987,6 +987,12 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
   A company file can show its own format instead: `email.example` ("your.name for roost, but first.last for
   c3works"); a bad one is ignored with a note. A state refresh no longer moves steps that are already in place,
   which took the focus out of a box being typed in.
+- **A company's own words in a step's details — Built (0.5.16).** *(Sean, 2026-11-25: at his company a newcomer makes
+  their own GitHub account, then asks its git admins for access; "how will it work with the walkthrough?")* The
+  GitHub step ticks on any `gh` login, so a new account signs in at once; repo access is the admins' and shows only as
+  an empty PRs tab. The company file's optional `notes` puts the company's own text first in a step's details (keyed
+  as `steps` is), rendered by the same escaping renderer. Git runs over HTTPS with gh's sign-in
+  (`--git-protocol https`), so no SSH key is needed for the walkthrough.
 
 ## Left to the builder
 

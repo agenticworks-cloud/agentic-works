@@ -128,10 +128,15 @@ function readText(file) {
   return texts.get(file);
 }
 
-/** A step's details as HTML ('' when it has no file). `words`: { gateway, title } from the company file. */
-function stepDetails(id, { companyGateway = false, autoTab = false, words = {} } = {}) {
+/**
+ * A step's details as HTML ('' when it has no file). `words`: { gateway, title } from the company file; `note`: the
+ * company file's own text for this step, put first and rendered by the same rules (escaped, https links only).
+ */
+function stepDetails(id, { companyGateway = false, autoTab = false, words = {}, note = '' } = {}) {
   const text = /^[a-z-]+$/.test(id) ? readText(detailsFile(id, { companyGateway, autoTab })) : '';
-  return text ? renderDetails(text, words) : '';
+  if (!text) return '';
+  const own = typeof note === 'string' && note.trim() ? renderDetails(note, words) + '\n' : '';
+  return own + renderDetails(text, words);
 }
 
 module.exports = { stepDetails, renderDetails, detailsFile, httpsUrl, escapeHtml, DETAILS_DIR: DIR };
