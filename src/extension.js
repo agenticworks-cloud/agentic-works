@@ -407,20 +407,28 @@ class Roost {
   // fresh profile), the Get started page in the editor, and last the side bar on Perch's view (a fresh window
   // may have it closed, and with the activity bar on top its icons go with it). Then roost.firstStart.done is recorded,
   // whatever happened: a part that is off or failed, or a command that fails, is not retried later.
+  // Later starts, while the walkthrough has a step neither done nor Not Now'd, open the page and the Perch view again:
+  // the page isn't restored when VS Code restarts, and an empty window starts with the side bar hidden (Sean, 0.5.8).
   async firstStart() {
-    if (this.base.globalState.get(FIRST_START_KEY)) return;
+    const first = !this.base.globalState.get(FIRST_START_KEY);
+    if (!first) {
+      let left = false;
+      try { left = this.getStarted.unfinished(); } catch (err) { this.log(`Roost could not read the Get started steps: ${errorText(err)}`); }
+      if (!left) return;
+    }
     const open = async (what, run) => {
       try {
         await run();
       } catch (err) {
-        this.log(`Roost could not open ${what} on its first start: ${errorText(err)}`);
+        this.log(`Roost could not open ${what} ${first ? 'on its first start' : 'to finish Get started'}: ${errorText(err)}`);
       }
     };
     const on = (id) => this.parts.has(id) && this.state(id) === 'on';
-    if (on('pullRequests')) await open('the PRs tab', () => vscode.commands.executeCommand(PRS_VIEW_COMMAND));
+    if (first && on('pullRequests')) await open('the PRs tab', () => vscode.commands.executeCommand(PRS_VIEW_COMMAND));
     await open('its Get started page', () => this.getStarted.open());
     // last: opened first, the side bar ended on Explorer in a fresh window (installer run, 2026-11-24)
     if (on('agents')) await open('the Perch view', () => vscode.commands.executeCommand(AGENTS_VIEW_COMMAND));
+    if (!first) return;
     try {
       await this.base.globalState.update(FIRST_START_KEY, true);
     } catch (err) {

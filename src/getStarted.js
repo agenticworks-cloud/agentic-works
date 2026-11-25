@@ -192,6 +192,12 @@ class GetStarted {
     return this.on(PART_OF[id]);
   }
 
+  // a step shown and neither done nor Not Now'd: Roost reopens the page at each start until there is none
+  unfinished() {
+    const done = this.noteDone();
+    return (this.company() ? ORDER_COMPANY : ORDER_ROOST).some((id) => this.shown(id) && !done[id]);
+  }
+
   state() {
     const c = this.company();
     const done = this.noteDone();

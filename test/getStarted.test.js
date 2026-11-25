@@ -143,6 +143,8 @@ async function pageSetup(company, config = {}, saved = {}) {
   }
   const store = memento({ 'roost.firstStart.done': true, ...saved });
   env.base.globalState = store;
+  // an unfinished walkthrough opens the page and the Perch view at start
+  env.ui.commands['workbench.view.extension.perch'] = () => {};
   const fakes = fakeTools();
   const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
   await roost.ready;

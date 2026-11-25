@@ -951,6 +951,11 @@ Built: branch `feat/roost-0.1`; the plan's last commit: 6c40dd9. The plan
     get it in the environment variable `env`; a helper may use it to fill in the sign-in page.
   - *Later:* on a managed Mac the address may be known already (Intune or Platform SSO): to look at when the company
     install is tried there.
+- **Get started comes back until it's finished — Built (0.5.8)** *(Sean, 2026-11-25: closing VS Code mid-walkthrough
+  relaunched an empty window, "it becomes like this on next launch?"; and in a folder window too)*. The page isn't
+  restored when VS Code restarts, the installer sets `workbench.startupEditor` to none, and an empty window starts with
+  the side bar hidden. So each start, while a shown step is neither done nor Not Now'd, opens the Get started page and
+  the Perch view as the first start does (not the PRs tab, which stays first-start only).
 
 ## Left to the builder
 

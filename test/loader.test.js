@@ -556,10 +556,40 @@ test('first start: PRs on opens the PRs tab once and records it', async () => {
   await env.extension.deactivate();
   env.base.subscriptions.splice(0).forEach((d) => d.dispose());
   env.ui.commands = { 'workbench.view.extension.kestrel': env.ui.commands['workbench.view.extension.kestrel'], 'workbench.action.openWalkthrough': env.ui.commands['workbench.action.openWalkthrough'] };
+  env.order = [];
+  env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 1, 'a second activation does not open it');
-  assert.strictEqual(env.pages().length, 1, 'nor the Get started page');
+  assert.deepStrictEqual(env.order, ['page', 'perch'], 'the walkthrough is unfinished: Get started and the Perch view again');
   assert.deepStrictEqual(env.walkthroughs, [], 'and the walkthrough never');
+  await env.extension.deactivate();
+});
+
+test('a later start with every step done or Not Now opens nothing', async () => {
+  const env = firstStartSetup({});
+  await activateFirst(env);
+  await env.extension.deactivate();
+  env.base.subscriptions.splice(0).forEach((d) => d.dispose());
+  const all = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
+  env.store.set('roost.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));
+  env.order = [];
+  env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
+  await activateFirst(env);
+  assert.deepStrictEqual(env.order, []);
+  await env.extension.deactivate();
+});
+
+test('a later start with one step left opens Get started and the Perch view', async () => {
+  const env = firstStartSetup({});
+  await activateFirst(env);
+  await env.extension.deactivate();
+  env.base.subscriptions.splice(0).forEach((d) => d.dispose());
+  const all = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase'];
+  env.store.set('roost.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));   // parts left
+  env.order = [];
+  env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
+  await activateFirst(env);
+  assert.deepStrictEqual(env.order, ['page', 'perch']);
   await env.extension.deactivate();
 });
 
@@ -776,8 +806,9 @@ function fakeTools() {
 async function toolsSetup(company = EXAMPLE, config = {}, saved = {}) {
   const env = company ? withCompanyFile(company) : setup();
   Object.assign(env.ui.config, config);
-  // first start already recorded: its Get started page would open a panel of its own
-  const state = { 'roost.firstStart.done': true, ...saved };
+  // first start already recorded and every step done: the Get started page would open a panel of its own
+  const allDone = Object.fromEntries(['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'].map((id) => [id, true]));
+  const state = { 'roost.firstStart.done': true, 'roost.getStarted.done': allDone, ...saved };
   env.base.globalState = { get: (k) => state[k], update: async () => {} };
   const fakes = fakeTools();
   const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [] });
