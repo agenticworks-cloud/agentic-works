@@ -378,5 +378,109 @@ class LayoutTests(_Case):
         self.assertFalse((self.user / "globalStorage" / "state.vscdb").exists())
 
 
+class ProfileTests(_Case):
+    """--profile NAME: a VS Code profile of its own (a company's, beside the user's own); `vscode-profile NAME` makes
+    it, and the settings and layout then go into its folder rather than the user's."""
+
+    def _storage(self) -> Path:
+        return self.user / "globalStorage" / "storage.json"
+
+    def _profiles(self) -> list:
+        return json.loads(self._storage().read_text()).get("userDataProfiles", [])
+
+    def _make(self, name: str = "Acme Works", running: bool = False) -> Tuple[int, str]:
+        with mock.patch.object(self.h, "vscode_running", return_value=running):
+            return self.run_cli("vscode-profile", name)
+
+    def _dir(self, name: str = "Acme Works") -> Path:
+        (entry,) = [p for p in self._profiles() if p["name"] == name]
+        return self.user / "profiles" / entry["location"]
+
+    def test_made_with_the_users_settings_keybindings_and_snippets(self) -> None:
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text('{"editor.fontSize": 15}\n')
+        (self.user / "keybindings.json").write_text('[{"key": "ctrl+k"}]\n')
+        (self.user / "snippets").mkdir()
+        (self.user / "snippets" / "py.json").write_text("{}")
+        self._storage().parent.mkdir(parents=True)
+        self._storage().write_text(json.dumps({"theme": "dark", "userDataProfiles": [{"location": "abc", "name": "Mine"}]}))
+        code, out = self._make()
+        self.assertEqual((code, out.strip()), (0, "made, with your settings"))
+        self.assertEqual(json.loads(self._storage().read_text())["theme"], "dark", "the rest of storage.json kept")
+        self.assertEqual([p["name"] for p in self._profiles()], ["Mine", "Acme Works"])
+        folder = self._dir()
+        self.assertEqual((folder / "settings.json").read_text(), '{"editor.fontSize": 15}\n')
+        self.assertEqual((folder / "keybindings.json").read_text(), '[{"key": "ctrl+k"}]\n')
+        self.assertEqual((folder / "snippets" / "py.json").read_text(), "{}")
+        self.assertEqual((self.user / "settings.json").read_text(), '{"editor.fontSize": 15}\n', "the user's own untouched")
+
+    def test_made_on_a_vscode_never_started(self) -> None:
+        code, out = self._make()
+        self.assertEqual((code, out.strip()), (0, "made"))
+        self.assertTrue(self._dir().is_dir())
+
+    def test_there_already_is_left_alone(self) -> None:
+        self._make()
+        folder = self._dir()
+        (folder / "settings.json").write_text('{"mine": 1}')
+        (self.user / "settings.json").write_text('{"theirs": 2}')
+        self.assertEqual(self._make(running=True), (0, "already set\n"), "even with VS Code running")
+        self.assertEqual((folder / "settings.json").read_text(), '{"mine": 1}')
+        self.assertEqual(len(self._profiles()), 1)
+
+    def test_vscode_running_skips(self) -> None:
+        # a running VS Code rewrites storage.json from memory: a profile written beside it is lost (tried, 2026-11-27)
+        code, out = self._make(running=True)
+        self.assertEqual(code, 2)
+        self.assertIn("VS Code is running", out)
+        self.assertFalse(self._storage().exists())
+
+    def test_two_names_get_two_folders(self) -> None:
+        self._make("Acme Works")
+        self._make("Other")
+        self.assertNotEqual(self._dir("Acme Works"), self._dir("Other"))
+
+    def test_storage_that_isnt_json_is_an_error(self) -> None:
+        self._storage().parent.mkdir(parents=True)
+        self._storage().write_text("not json")
+        self.assertEqual(self._make()[0], 1)
+        self.assertEqual(self._storage().read_text(), "not json")
+
+    def test_settings_go_into_the_profile(self) -> None:
+        self._make()
+        self.assertEqual(self.run_cli("--profile", "Acme Works", "vscode-settings")[0], 0)
+        self.assertIn("workbench.startupEditor", json.loads((self._dir() / "settings.json").read_text()))
+        self.assertFalse((self.user / "settings.json").exists(), "the user's own settings untouched")
+
+    def test_layout_goes_into_the_profile(self) -> None:
+        self._make()
+        with mock.patch.object(self.h, "vscode_running", return_value=False):
+            self.assertEqual(self.run_cli("--profile", "Acme Works", "vscode-layout")[0], 0)
+        self.assertTrue(self.h.layout_recorded(self._dir() / "globalStorage" / "state.vscdb"))
+        self.assertFalse((self.user / "globalStorage" / "state.vscdb").exists())
+
+    def test_fill_copies_the_users_files_into_a_profile_vscode_made(self) -> None:
+        # VS Code, open, makes the profile itself (with an empty settings.json); the user's files go in after
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text('{"editor.fontSize": 15}')
+        (self.user / "keybindings.json").write_text("[1]")
+        self._storage().parent.mkdir(parents=True)
+        self._storage().write_text(json.dumps({"userDataProfiles": [{"location": "-3919205c", "name": "Acme Works"}]}))
+        folder = self.user / "profiles" / "-3919205c"
+        folder.mkdir(parents=True)
+        (folder / "settings.json").write_text("{}\n")
+        (folder / "keybindings.json").write_text('[{"key": "mine"}]')
+        self.assertEqual(self.run_cli("vscode-profile", "Acme Works", "--fill"), (0, "filled\n"))
+        self.assertEqual((folder / "settings.json").read_text(), '{"editor.fontSize": 15}', "an empty one is replaced")
+        self.assertEqual((folder / "keybindings.json").read_text(), '[{"key": "mine"}]', "one with something is kept")
+        self.assertEqual(self.run_cli("vscode-profile", "Acme Works", "--fill"), (0, "already set\n"))
+        self.assertEqual(self.run_cli("vscode-profile", "Nope", "--fill")[0], 1)
+
+    def test_a_profile_not_made_is_an_error(self) -> None:
+        code = self.run_cli("--profile", "Acme Works", "vscode-settings")[0]
+        self.assertEqual(code, 1)
+        self.assertFalse((self.user / "settings.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

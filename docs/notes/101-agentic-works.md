@@ -1154,6 +1154,22 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
   *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
   (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
+- **The installer's `--profile <name>` — Built (1.1.9)** *(Sean, 2026-11-27: "with c3 works, can we hide it? show
+  only what we agreed on")*. A company's installer can put Agentic Works in a VS Code profile of its own, beside the
+  user's: the extensions (`code --profile`), the settings and the icon layout go into that profile, and the user's own
+  profile is left as it is. The Profile step runs before any extension goes in, and a failure stops the run, so nothing
+  lands in the user's profile.
+  - VS Code closed: the helper (`vscode-profile <name>`) adds the profile to `storage.json` and makes its folder, with
+    the user's settings, keybindings, tasks and snippets copied in.
+  - VS Code open: it rewrites `storage.json` from memory, losing a profile written beside it (tried), so a window is
+    opened on the name, which makes it; once `storage.json` lists it (up to 30 s), the user's files are copied in
+    where the profile's own are blank (`--fill`).
+  - A name is letters, digits, spaces, dots, dashes and underscores, up to 40.
+  - Each profile has its own state, so it starts with a fresh walkthrough.
+- **The first terminal in the folder the installer was run in — Built (1.1.9)** *(Sean, 2026-11-27: "the current
+  directory in terminal, can it be the original directory?")*. The request file may hold
+  `{"terminalCwd": "<absolute folder>"}`; when it names a folder that's there, the first start's terminal opens in it,
+  else the usual one.
 - **That tab is empty when Talk is done — Built (1.1.8)** *(Sean, 2026-11-27: "do not enter hello message for the
   case")*. The first run's gateway tab has "Hello" typed in only while Talk to the gateway isn't done; someone who has
   talked to it gets an empty tab.

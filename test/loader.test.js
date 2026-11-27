@@ -626,6 +626,42 @@ test('a request file opens Get started once, even with every step done', async (
   }
 });
 
+// The request can name the folder the installer was run in: the terminal opens there rather than in the window's
+// folder (Sean, 2026-11-27: "the current directory in terminal, can it be the original directory?")
+test('a request file naming a folder opens the terminal there', async () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-request-'));
+  const file = path.join(dir, 'open-get-started');
+  const ranIn = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ran-in-'));
+  process.env.AGENTIC_WORKS_GET_STARTED_REQUEST = file;
+  try {
+    for (const [label, body, cwd] of [
+      ['a folder', JSON.stringify({ terminalCwd: ranIn }), ranIn],
+      ['a folder that is gone', JSON.stringify({ terminalCwd: path.join(ranIn, 'gone') }), null],
+      ['not JSON', 'nonsense', null],
+      ['a relative path', JSON.stringify({ terminalCwd: 'here' }), null],
+    ]) {
+      const env = firstStartSetup({});
+      fs.writeFileSync(file, body);
+      await activateFirst(env);
+      const made = env.ui.terminals || [];
+      if (cwd) {
+        assert.deepStrictEqual(made.map((t) => [t.cwd, t.shown]), [[cwd, true]], label);
+        assert.ok(!env.order.includes('terminal'), `${label}: no second terminal`);
+      } else {
+        assert.deepStrictEqual(made, [], label);
+        assert.ok(env.order.includes('terminal'), `${label}: the usual terminal`);
+      }
+      assert.strictEqual(fs.existsSync(file), false, `${label}: the request is used up`);
+      await env.extension.deactivate();
+    }
+  } finally {
+    delete process.env.AGENTIC_WORKS_GET_STARTED_REQUEST;
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(ranIn, { recursive: true, force: true });
+  }
+});
+
 test('a later start with one step left opens Get started and the Perch view', async () => {
   const env = firstStartSetup({});
   await activateFirst(env);

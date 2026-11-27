@@ -27,12 +27,19 @@ const FIRST_START_KEY = 'agenticWorks.firstStart.done';
 function getStartedRequestFile(env = process.env, home = os.homedir()) {
   return env.AGENTIC_WORKS_GET_STARTED_REQUEST || path.join(home, '.config', 'agentic-works', 'open-get-started');
 }
+// The file may hold {"terminalCwd": "<absolute folder>"}: the folder the installer was run in, where the terminal opens.
+// Returns false (no request), or the request: { terminalCwd } when it names a folder that is there, else {}.
 function claimGetStartedRequest() {
   const file = getStartedRequestFile();
   const claimed = `${file}.${process.pid}.${randomBytes(4).toString('hex')}`;
   try { fs.renameSync(file, claimed); } catch (_) { return false; }
+  let request = {};
+  try {
+    const cwd = JSON.parse(fs.readFileSync(claimed, 'utf8')).terminalCwd;
+    if (typeof cwd === 'string' && path.isAbsolute(cwd) && fs.statSync(cwd).isDirectory()) request = { terminalCwd: cwd };
+  } catch (_) { /* empty, not JSON, or no such folder: the usual terminal */ }
   try { fs.unlinkSync(claimed); } catch (_) { /* gone already */ }
-  return true;
+  return request;
 }
 // The parts' context keys the Get started page ticks on: VS Code cannot read one back, so Agentic Works notes their setContext
 // (and perch.sessionOpen, whether a Perch tab is open, and chirp.signInCodeWaiting, a Teams code waiting, which it shows)
@@ -475,7 +482,9 @@ class AgenticWorks {
     // a terminal, so the bottom panel shows one: VS Code remembers the panel per window and folder, and a fresh one may
     // start with it closed (Sean, 2026-11-27). Opened after the PRs tab, so the panel ends on Terminal, PRs beside it.
     // and on a company installer's first run too (the request file), however finished the walkthrough is (Sean, 2026-11-27)
-    if (first || requested) await open('a terminal', () => vscode.commands.executeCommand('workbench.action.terminal.focus'));
+    // in the folder the installer ran in, when the request names one (Sean, 2026-11-27: "can it be the original directory?")
+    if (requested && requested.terminalCwd) await open('a terminal', () => vscode.window.createTerminal({ cwd: requested.terminalCwd }).show());
+    else if (first || requested) await open('a terminal', () => vscode.commands.executeCommand('workbench.action.terminal.focus'));
     await open('its Get started page', () => this.getStarted.open());
     if (requested) this.getStarted.firstRun();   // a chat tab on the company gateway, once its key is known to work
     // last: opened first, the side bar ended on Explorer in a fresh window (installer run, 2026-11-24)

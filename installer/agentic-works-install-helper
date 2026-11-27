@@ -8,9 +8,11 @@ Runs on Python 3.6 (RHEL 8's python3), stdlib only: typing's List/Optional rathe
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -79,6 +81,106 @@ def user_dir() -> Path:
     return Path.home() / ".config" / "Code" / "User"
 
 
+PROFILE = None  # type: Optional[str]  # --profile NAME: the VS Code profile the settings and layout go into
+
+
+def _storage() -> Path:
+    """VS Code's storage.json: its profiles (userDataProfiles) and its windows."""
+    return user_dir() / "globalStorage" / "storage.json"
+
+
+def _read_storage() -> dict:
+    """storage.json as a dict ({} when absent); ValueError when it isn't a JSON object."""
+    path = _storage()
+    data = json.loads(path.read_text(encoding="utf-8") or "{}") if path.exists() else {}
+    if not isinstance(data, dict) or not isinstance(data.get("userDataProfiles", []), list):
+        raise ValueError(f"{path} isn't a JSON object of VS Code's")
+    return data
+
+
+def profile_location(name: str) -> Optional[str]:
+    """The folder under User/profiles of the profile named name; None when there is none."""
+    for entry in _read_storage().get("userDataProfiles", []):
+        if isinstance(entry, dict) and entry.get("name") == name and isinstance(entry.get("location"), str):
+            return entry["location"]
+    return None
+
+
+def target_dir() -> Path:
+    """Where settings.json and globalStorage are: the --profile's folder, else the user's own. ValueError when that
+    profile hasn't been made."""
+    if PROFILE is None:
+        return user_dir()
+    location = profile_location(PROFILE)
+    if location is None:
+        raise ValueError(f"VS Code has no profile named {PROFILE!r}")
+    return user_dir() / "profiles" / location
+
+
+# Copied from the user's own profile into a new one, so it starts with their settings; extensions and state are not.
+PROFILE_COPIES = ("settings.json", "keybindings.json", "tasks.json", "snippets")
+
+
+def _blank(path: Path) -> bool:
+    """A file with nothing in it: absent, empty, or {} or [] (what VS Code writes in a profile it makes)."""
+    try:
+        return not path.exists() or path.is_file() and path.read_text(encoding="utf-8").strip() in ("", "{}", "[]")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def _copy_users_files(folder: Path) -> bool:
+    """The user's settings, keybindings, tasks and snippets into a profile's folder, each only where the profile's
+    is blank; True when any was copied."""
+    copied = False
+    for name in PROFILE_COPIES:
+        source, dest = user_dir() / name, folder / name
+        if source.is_dir() and not dest.exists():
+            shutil.copytree(str(source), str(dest))
+            copied = True
+        elif source.is_file() and not _blank(source) and _blank(dest):
+            shutil.copyfile(str(source), str(dest))
+            copied = True
+    return copied
+
+
+def cmd_vscode_profile(args: argparse.Namespace) -> int:
+    """Make the VS Code profile args.name, with the user's settings, keybindings and snippets copied in; one already
+    there is left as it is. Not while VS Code runs: it rewrites storage.json from memory and the new profile would
+    be lost (it makes its own, empty, when a window is opened on the name)."""
+    try:
+        data = _read_storage()
+    except (ValueError, UnicodeDecodeError) as exc:
+        print(f"agentic-works-install-helper: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    location = profile_location(args.name)
+    if args.fill:
+        if location is None:
+            print(f"agentic-works-install-helper: VS Code has no profile named {args.name!r}", file=sys.stderr)
+            return EXIT_ERROR
+        print("filled" if _copy_users_files(user_dir() / "profiles" / location) else "already set")
+        return EXIT_DONE
+    if location is not None:
+        print("already set")
+        return EXIT_DONE
+    if vscode_running():
+        print("VS Code is running: it makes the profile itself when a window is opened on it.")
+        return EXIT_SKIPPED
+    taken = {e.get("location") for e in data.get("userDataProfiles", []) if isinstance(e, dict)}
+    base = "agentic-works-" + hashlib.sha256(args.name.encode("utf-8")).hexdigest()[:8]
+    location, n = base, 1
+    while location in taken or (user_dir() / "profiles" / location).exists():
+        n += 1
+        location = f"{base}-{n}"
+    folder = user_dir() / "profiles" / location
+    folder.mkdir(parents=True)
+    copied = _copy_users_files(folder)
+    data["userDataProfiles"] = data.get("userDataProfiles", []) + [{"location": location, "name": args.name}]
+    _write_atomic(_storage(), json.dumps(data, indent=4) + "\n")
+    print("made, with your settings" if copied else "made")
+    return EXIT_DONE
+
+
 def extensions_dir() -> Path:
     override = os.environ.get("AGENTIC_WORKS_VSCODE_EXTENSIONS_DIR")
     return Path(override) if override else Path.home() / ".vscode" / "extensions"
@@ -145,7 +247,7 @@ def _has_any(text: str, keys: tuple) -> bool:
 
 def cmd_vscode_settings(args: argparse.Namespace) -> int:
     """Merge the wanted keys into VS Code user settings.json without overwriting a key or rewriting JSONC."""
-    path = user_dir() / "settings.json"
+    path = target_dir() / "settings.json"
     wanted = dict(WANTED_SETTINGS)
     if args.codebase_search:
         wanted.update(CODEBASE_SEARCH)
@@ -273,7 +375,7 @@ def maximize_first_window(storage: Path) -> None:
 def cmd_vscode_layout(_args: argparse.Namespace) -> int:
     """Write the activity-bar layout once, recorded in the same transaction; later runs, and a VS Code that
     already has a layout, are left alone."""
-    db = user_dir() / "globalStorage" / "state.vscdb"
+    db = target_dir() / "globalStorage" / "state.vscdb"
     if layout_recorded(db):
         print("already set")
         return EXIT_DONE
@@ -298,12 +400,13 @@ def cmd_vscode_layout(_args: argparse.Namespace) -> int:
         con.commit()
     finally:
         con.close()
-    maximize_first_window(db.parent / "storage.json")
+    maximize_first_window(_storage())  # the app's windows: storage.json is the user's own, whatever the profile
     return EXIT_DONE
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agentic-works-install-helper", description=__doc__)
+    parser.add_argument("--profile", metavar="NAME", help="the VS Code profile the settings and layout go into")
     sub = parser.add_subparsers(dest="command")
     sub.required = True  # add_subparsers(required=) is 3.7+
     settings = sub.add_parser("vscode-settings", help="merge Agentic Works' keys into VS Code user settings.json")
@@ -314,14 +417,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("vscode-layout", help="write the activity-bar layout into state.vscdb").set_defaults(
         func=cmd_vscode_layout
     )
+    made = sub.add_parser("vscode-profile", help="make a VS Code profile, with the user's settings copied in")
+    made.add_argument("name")
+    made.add_argument("--fill", action="store_true",
+                      help="copy the user's settings into the profile, already made, where its own are blank")
+    made.set_defaults(func=cmd_vscode_profile)
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    global PROFILE
     args = build_parser().parse_args(argv)
+    PROFILE = args.profile
     try:
         return args.func(args)
-    except (OSError, sqlite3.Error) as exc:
+    except (OSError, sqlite3.Error, ValueError) as exc:
         print(f"agentic-works-install-helper: {exc}", file=sys.stderr)
         return EXIT_ERROR
 

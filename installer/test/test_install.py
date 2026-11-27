@@ -63,6 +63,7 @@ CODE = r"""case " $* " in
 esac
 for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "$a" >> "$STUB_LOG"
   [ -z "${CODE_SLEEP:-}" ] || exec sleep "$CODE_SLEEP" ;; esac; done
+[ -n "${PROFILE_MADE:-}" ] && case " $* " in *" --new-window "*) : > "$PROFILE_MADE" ;; esac
 [ -n "${CODE_FAIL_ON:-}" ] && case "$*" in *"$CODE_FAIL_ON"*) [ -z "${CODE_FAIL_MSG:-}" ] || echo "$CODE_FAIL_MSG" >&2
   exit 1 ;; esac
 """
@@ -71,10 +72,14 @@ for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "
 INSTALLS = ('case " $* " in *" install "*) for w in "$@"; do [ -f "${STUB_INSTALLS:-/nonexistent}/$w" ] && '
             '{ cat "$STUB_INSTALLS/$w" > "${0%/*}/$w"; chmod 755 "${0%/*}/$w"; }; done ;; esac\n')
 # python3 (running the helper) prints $PY_SETTINGS_OUT / $PY_LAYOUT_OUT and exits $PY_SETTINGS_RC / $PY_LAYOUT_RC;
-# it notes the AGENTIC_WORKS_VSCODE_USER_DIR it was given.
+# it notes the AGENTIC_WORKS_VSCODE_USER_DIR it was given. vscode-profile prints $PY_PROFILE_OUT ("made") and exits
+# $PY_PROFILE_RC, or "already set" once $PROFILE_MADE exists (which `code --new-window` makes, as VS Code would).
 PYTHON3 = r"""[ -z "${AGENTIC_WORKS_VSCODE_USER_DIR:-}" ] || printf 'user-dir %s\n' "$AGENTIC_WORKS_VSCODE_USER_DIR" >> "$STUB_LOG"
 case "$*" in
   *vscode-layout*) [ -z "${PY_LAYOUT_OUT:-}" ] || printf '%s\n' "$PY_LAYOUT_OUT"; exit "${PY_LAYOUT_RC:-0}" ;;
+  *vscode-profile*--fill*) printf '%s\n' "${PY_FILL_OUT:-filled}"; exit 0 ;;
+  *vscode-profile*) [ -f "${PROFILE_MADE:-/nonexistent}" ] && { echo "already set"; exit 0; }
+    printf '%s\n' "${PY_PROFILE_OUT:-made}"; exit "${PY_PROFILE_RC:-0}" ;;
   *) [ -z "${PY_SETTINGS_OUT:-}" ] || printf '%s\n' "$PY_SETTINGS_OUT"; exit "${PY_SETTINGS_RC:-0}" ;;
 esac
 """
@@ -729,7 +734,7 @@ class TestFlags(_Installer):
         self.assertNotIn("apt-get install -y code", out)
 
     def test_every_step_name_and_flag_is_accepted(self) -> None:
-        names = "vscode path standalone extension companions claude git github homebrew settings icons open".split()
+        names = "vscode path profile standalone extension companions claude git github homebrew settings icons open".split()
         skips = tuple(arg for name in names for arg in ("--skip", name))
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), "--yes", "--no-open", *skips)
         self.assertEqual(rc, 0, out)
@@ -752,8 +757,8 @@ class TestFlags(_Installer):
     def test_help(self) -> None:
         rc, out = self.run_pipe(self.env("macos", ALL_PRESENT), "--help")
         self.assertEqual(rc, 0, out)
-        for text in ("--dry-run", "--skip", "--yes", "--no-open", "--teams-app <clientId>:<tenant>",
-                     "vscode path standalone extension companions claude git github homebrew settings icons open"):
+        for text in ("--dry-run", "--skip", "--yes", "--no-open", "--teams-app <clientId>:<tenant>", "--profile <name>",
+                     "vscode path profile standalone extension companions claude git github homebrew settings icons open"):
             self.assertIn(text, out)
         self.assertEqual(self.stub_log(), [])
 
@@ -850,6 +855,95 @@ class _Served(_Installer):
 
     def vsix_installs(self) -> list[str]:
         return [line for line in self.logged("--install-extension") if line.endswith(".vsix")]
+
+
+class TestProfile(_Served):
+    """--profile NAME (2026-11-27, for a company's setup beside the user's own VS Code): the extensions, settings and
+    icons go into that VS Code profile, and the user's default profile is left as it is. The profile is made by the
+    helper with VS Code closed; with VS Code open (it would lose a profile written beside it) a window opened on the
+    name makes it, and the user's settings are copied in after."""
+
+    NAME = "Acme Works"
+
+    def profile_env(self, **extra: str) -> dict[str, str]:
+        return self.env("ubuntu", self.STUBS + ("python3",), real=("curl",), AGENTIC_WORKS_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
+                        CODE_EXTENSIONS="", **extra)
+
+    def code_calls(self) -> list[str]:
+        return [line for line in self.stub_log() if line.startswith("code ")]
+
+    def test_everything_goes_into_the_profile(self) -> None:
+        rc, out = self.run_pipe(self.profile_env(PY_PROFILE_OUT="made, with your settings"), "--profile", self.NAME)
+        self.assertEqual(rc, 0, out)
+        lines = out.splitlines()
+        self.assertTrue(_index(lines, "✓ code on the PATH") < _index(lines, "✓ Profile Acme Works (made, with your settings)")
+                        < _index(lines, "✓ Agentic Works"), out)
+        calls = [c for c in self.code_calls() if "--install-extension" in c or "--list-extensions" in c]
+        self.assertTrue(calls, self.stub_log())
+        for call in calls:
+            self.assertTrue(call.startswith("code --profile Acme Works "), call)
+        helper = [line for line in self.stub_log() if line.startswith("python3 ")]
+        self.assertEqual(helper, [f"python3 {HELPER} vscode-profile Acme Works",
+                                  f"python3 {HELPER} --profile Acme Works vscode-settings",
+                                  f"python3 {HELPER} --profile Acme Works vscode-layout"])
+        self.assertIn("code --profile Acme Works", self.code_calls(), "a first install opens VS Code on the profile")
+
+    def test_already_there(self) -> None:
+        made = self.tmp / "made"
+        made.touch()
+        rc, out = self.run_pipe(self.profile_env(PROFILE_MADE=str(made)), "--profile", self.NAME)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Profile Acme Works (already)", out)
+
+    def test_vscode_open_makes_it_in_a_window(self) -> None:
+        made = self.tmp / "made"
+        env = self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running", PROFILE_MADE=str(made),
+                               PY_FILL_OUT="filled")
+        rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("code --profile Acme Works --new-window", self.code_calls())
+        helper = [line for line in self.stub_log() if line.startswith("python3 ") and "vscode-profile" in line]
+        self.assertEqual(helper[-1], f"python3 {HELPER} vscode-profile Acme Works --fill")
+        self.assertIn("  ✓ Profile Acme Works (made in a window VS Code opened on it, with your settings)", out)
+        lines = self.stub_log()
+        self.assertLess(_index(lines, "--new-window"), _index(lines, "--install-extension"))
+
+    def test_window_that_never_makes_it_stops_the_run(self) -> None:
+        env = self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running", AGENTIC_WORKS_INSTALL_PROFILE_WAIT="1")
+        rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"  ✗ Profile Acme Works: VS Code didn't make it")
+        self.assertRegex(out, r"  ✗ Agentic Works: .*profile")
+        self.assertEqual(self.logged("--install-extension"), [], "nothing goes into the default profile")
+
+    def test_helper_failure_stops_the_run(self) -> None:
+        rc, out = self.run_pipe(self.profile_env(PY_PROFILE_RC="1"), "--profile", self.NAME)
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"  ✗ Profile Acme Works: couldn't make it; see ")
+        self.assertEqual(self.logged("--install-extension"), [])
+        self.assertEqual([c for c in self.code_calls() if c.startswith("code --profile Acme Works") and "-extension" not in c], [])
+
+    def test_dry_run_prints_and_runs_nothing(self) -> None:
+        rc, out = self.run_pipe(self.profile_env(), "--profile", self.NAME, "--dry-run")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"$ python3 {HELPER} vscode-profile 'Acme Works'", out)
+        self.assertIn("  ✓ Profile Acme Works (dry run)", out)
+        self.assertEqual([line for line in self.stub_log() if line.startswith("python3 ")], [])
+
+    def test_name_shape_is_checked(self) -> None:
+        for args in (("--profile",), ("--profile", ""), ("--profile", "a/b"), ("--profile", "x" * 41), ("--profile", " lead")):
+            with self.subTest(args):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.profile_env(), *args)
+                self.assertEqual(rc, 2, out)
+                self.assertIn("--profile", out)
+                self.assertEqual(self.stub_log(), [], "nothing run")
+
+    def test_no_profile_no_step(self) -> None:
+        rc, out = self.run_pipe(self.profile_env())
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("Profile", out)
+        self.assertEqual([line for line in self.stub_log() if "--profile" in line or "vscode-profile" in line], [])
 
 
 class TestVSCodeOpen(_Served):

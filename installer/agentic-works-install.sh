@@ -43,7 +43,7 @@ GH_KEY="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
 GH_RPM_REPO="https://cli.github.com/packages/rpm/gh-cli.repo"
 APT_DIR=${AGENTIC_WORKS_INSTALL_APT_DIR:-/etc/apt}
 
-STEP_NAMES="vscode path standalone extension companions claude git github homebrew settings icons open"  # what --skip accepts, in run order
+STEP_NAMES="vscode path profile standalone extension companions claude git github homebrew settings icons open"  # what --skip accepts, in run order
 SUPPORTED="macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora"
 MAC_CODE="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
 DOWNLOAD_URL="https://code.visualstudio.com/download"
@@ -55,6 +55,7 @@ ORIG_PATH=$PATH  # the PATH a new terminal would have, before this run adds to i
 DRY_RUN=0
 YES=0
 NO_OPEN=0
+PROFILE=""  # --profile NAME: the VS Code profile the extensions, settings and icons go into; else the user's own
 CODEBASE_SEARCH=0  # --codebase-search: agents.codebaseIndex.enabled true in the settings step; else the walkthrough offers it
 TEAMS_APP=""       # --teams-app <clientId>:<tenant>: the Teams sign-in's company app, for the settings step
 SKIPS=" "
@@ -564,15 +565,64 @@ ensure_path() {  # `code` on PATH for this run and, through one marked block in 
   fi
 }
 
+# ---- --profile: a VS Code profile of its own -------------------------------------------------------------------
+
+profile_name_ok() {  # $1 = a profile name: letters, digits, spaces, dots, dashes and underscores; 1-40, not starting with a space
+  [[ $1 =~ ^[A-Za-z0-9._-][A-Za-z0-9\ ._-]{0,39}$ ]]
+}
+
+ensure_profile() {  # --profile's VS Code profile, before any extension goes in: a failure stops the run, so nothing lands
+  # in the user's own profile. VS Code closed: the helper makes it, with the user's settings, keybindings and snippets
+  # copied in. VS Code open: it would lose a profile written beside it (tried, 2026-11-27), so a window opened on the
+  # name makes it, and the user's settings are copied in after
+  local label="Profile $PROFILE" rc waited=0 wait=${AGENTIC_WORKS_INSTALL_PROFILE_WAIT:-30}
+  [ -n "$PROFILE" ] || return 0
+  skipped profile "$label" && return 0
+  step_begin "$label"
+  if ! python_ok; then
+    CLASH="there is no VS Code profile $PROFILE to install into ($PYTHON_WHY)"
+    step_end failed "$PYTHON_WHY"
+    return 0
+  fi
+  run_helper vscode-profile "$PROFILE"
+  rc=$?
+  if [ "$DRY_RUN" = 1 ]; then step_end done "dry run"; return 0; fi
+  case $rc in
+    0) if [ "$HELPER_OUT" = "already set" ]; then step_end already; else step_end done "$HELPER_OUT"; fi
+       return 0 ;;
+    2) ;;
+    *) CLASH="there is no VS Code profile $PROFILE to install into; see $LOG"
+       step_end failed "couldn't make it; see $LOG"
+       return 0 ;;
+  esac
+  printf '$ %s --profile %s --new-window\n' "$CODE" "$PROFILE" >> "$LOG"
+  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --profile "$PROFILE" --new-window < /dev/null >> "$LOG" 2>&1
+  while :; do
+    run_helper vscode-profile "$PROFILE" && [ "$HELPER_OUT" = "already set" ] && break
+    if [ "$waited" -ge "$wait" ]; then
+      CLASH="there is no VS Code profile $PROFILE to install into; quit VS Code and rerun"
+      step_end failed "VS Code didn't make it in the window opened on it; quit VS Code and rerun"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if run_helper vscode-profile "$PROFILE" --fill && [ "$HELPER_OUT" = filled ]; then
+    step_end done "made in a window VS Code opened on it, with your settings"
+  else
+    step_end done "made in a window VS Code opened on it"
+  fi
+}
+
 # ---- the extensions: the standalone five, Agentic Works, its companions ---------------------------------------------
 
-code_cli() {  # argv for VS Code's CLI; as root on Linux, with the --user-data-dir it insists on
-  run "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} "$@"
+code_cli() {  # argv for VS Code's CLI; as root on Linux, with the --user-data-dir it insists on; in --profile's profile
+  run "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} ${PROFILE:+--profile "$PROFILE"} "$@"
 }
 
 installed_extensions() {  # the installed extensions, as lowercase id@version words
   printf '$ %s --list-extensions --show-versions\n' "$CODE" >> "$LOG"
-  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --list-extensions --show-versions < /dev/null 2>> "$LOG" |
+  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} ${PROFILE:+--profile "$PROFILE"} --list-extensions --show-versions < /dev/null 2>> "$LOG" |
     tr 'A-Z' 'a-z'
 }
 
@@ -1178,6 +1228,15 @@ python_ok() {  # true when there is a python3 to run the helper with (in PYTHON)
   fi
 }
 
+shell_words() {  # $* = words: as one line, a word with a space in single quotes ('Acme Works'), for a command shown
+  local out="" w
+  for w in "$@"; do
+    case $w in *" "*) w="'$w'" ;; esac
+    out="$out${out:+ }$w"
+  done
+  printf '%s' "$out"
+}
+
 run_helper() {  # $* = subcommand and its options: its stdout in HELPER_OUT; returns its exit status (0 done, 2 skipped, 1 error)
   local helper rc
   HELPER_OUT=""
@@ -1185,11 +1244,13 @@ run_helper() {  # $* = subcommand and its options: its stdout in HELPER_OUT; ret
     HELPER_OUT="agentic-works-install-helper isn't beside this script; run a released installer: $LATEST_INSTALLER"
     return 1
   fi
+  # the settings and the layout go into --profile's profile; vscode-profile names its own
+  case $1 in vscode-settings|vscode-layout) [ -z "$PROFILE" ] || set -- --profile "$PROFILE" "$@" ;; esac
   if [ "$DRY_RUN" = 1 ]; then
-    step_say "\$ python3 $helper $*"
+    step_say "\$ python3 $helper $(shell_words "$@")"
     return 0
   fi
-  printf '$ %s %s %s\n' "$PYTHON" "$helper" "$*" >> "$LOG"
+  printf '$ %s %s %s\n' "$PYTHON" "$helper" "$(shell_words "$@")" >> "$LOG"
   # As root on Linux, the user data dir the code calls use.
   HELPER_OUT=$(env ${CODE_DATA:+"AGENTIC_WORKS_VSCODE_USER_DIR=$CODE_DATA/User"} "$PYTHON" "$helper" "$@" \
     < /dev/null 2>> "$LOG")
@@ -1266,7 +1327,7 @@ open_vscode() {  # VS Code, after a first install only: a plain start, which bri
     fi
   else
     printf 'Opening VS Code.\n'
-    run "$CODE" || printf "VS Code didn't open; open it from your applications.\n"
+    run "$CODE" ${PROFILE:+--profile "$PROFILE"} || printf "VS Code didn't open; open it from your applications.\n"
   fi
 }
 
@@ -1351,6 +1412,9 @@ Options:
   --no-open      don't open VS Code at the end
   --codebase-search
                  turn codebase search on in Claude and Codex tabs (off otherwise; Agentic Works' walkthrough offers it)
+  --profile <name>
+                 install into the VS Code profile of that name, made when there is none (your settings, keybindings
+                 and snippets copied in); your own profile is left as it is
   --teams-app <clientId>:<tenant>
                  sign Teams in with your company's own Microsoft app: its Application (client) ID, then the
                  Directory (tenant) ID or domain, from your IT team (added only when not already set)
@@ -1383,6 +1447,13 @@ parse_args() {
           exit 2
         }
         TEAMS_APP=$2
+        shift ;;
+      --profile)
+        [ $# -ge 2 ] && profile_name_ok "$2" || {
+          printf "agentic-works-install: --profile needs a name: letters, digits, spaces, dots, dashes, underscores; up to 40\n" >&2
+          exit 2
+        }
+        PROFILE=$2
         shift ;;
       --skip)
         [ $# -ge 2 ] || { printf 'agentic-works-install: --skip needs a step: %s\n' "$STEP_NAMES" >&2; exit 2; }
@@ -1429,6 +1500,7 @@ main() {  # the steps, in order
   open_tty
   ensure_vscode
   ensure_path
+  ensure_profile
   check_standalone
   ensure_agentic_works
   ensure_companions
