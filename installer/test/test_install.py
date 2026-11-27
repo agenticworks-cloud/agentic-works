@@ -876,6 +876,11 @@ class TestStandalone(_Served):
         self.assertEqual([line for line in self.stub_log() if line.startswith("gh ")], [])
         self.assertRegex(out, r"\nDone: 3 ✓  3 –  1 ✗\n")
 
+    def test_standalone_gannet_is_replaced_too(self) -> None:
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS="seanahn.gannet@0.5.7", AGENTIC_WORKS_INSTALL_TTY=self.tty("n")))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("Agentic Works replaces Gannet. Uninstall them and use Agentic Works? [Y/n]", out)
+
     def test_no_terminal_without_yes_stops(self) -> None:
         env = self.served_env(CODE_EXTENSIONS="seanahn.jay@0.5.0", AGENTIC_WORKS_INSTALL_TTY=str(self.tmp / "no-tty"))
         rc, out = self.run_pipe(env)

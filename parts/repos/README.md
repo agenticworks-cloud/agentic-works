@@ -15,10 +15,10 @@ GITHUB                               [+ account] [⟳]
   ~/github                              [📂] [✕]
   + Add Workspace…
  ───────────────────────────────────────────────
- ▾ (org) c3-e                via c3-sahn
-   ▸ (cat) c3nexus           ~
+ ▾ (org) co-e                via co-sahn
+   ▸ (cat) atlas           ~
    ▸ All repos               312
- ▸ (person) c3-sahn
+ ▸ (person) co-sahn
  ▾ (person) seanahn
    ▾ (green cat) perch       /git · ~/github       (checked out twice: one row each)
      ▾ /git/perch
@@ -107,8 +107,8 @@ Under Remote-SSH, Gannet runs on the remote machine: checkouts land there, with 
 
 | Setting | Default | |
 |---|---|---|
-| `gannet.hiddenAccounts` | `[]` | Logins not shown. |
-| `gannet.hiddenOwners` | `[]` | Organizations and other owners not shown. |
+| `repos.hiddenAccounts` | `[]` | Logins not shown. |
+| `repos.hiddenOwners` | `[]` | Organizations and other owners not shown. |
 
 ## Development
 

@@ -4,7 +4,7 @@ const assert = require('assert');
 const { fakeRun, fakeVscode } = require('./stubs.js');
 const { createAccounts } = require('../src/accounts.js');
 
-const STATUS = 'github.com\n  ✓ Logged in to github.com account c3-sahn (/home/x/.config/gh/hosts.yml)\n  - Active account: true\n\n  ✓ Logged in to github.com account seanahn (keyring)\n  - Active account: false\n';
+const STATUS = 'github.com\n  ✓ Logged in to github.com account co-sahn (/home/x/.config/gh/hosts.yml)\n  - Active account: true\n\n  ✓ Logged in to github.com account seanahn (keyring)\n  - Active account: false\n';
 async function rejects(p) { try { await p; } catch (e) { return e; } throw new Error('expected a rejection'); }
 
 (async () => {
@@ -13,7 +13,7 @@ async function rejects(p) { try { await p; } catch (e) { return e; } throw new E
     const vscode = fakeVscode({ accounts: [{ id: '1', label: 'seanahn' }, { id: '2', label: 'alice' }, { id: '3', label: 'zed' }], tokens: { seanahn: 'vs-sean', alice: 'vs-alice', zed: 'vs-zed' } });
     const run = fakeRun({ 'gh auth status --hostname github.com': { stdout: '', stderr: STATUS } });   // older gh prints to stderr
     const accounts = createAccounts({ vscode, run, hidden: () => ['zed'] });
-    assert.deepStrictEqual(await accounts.list(), [{ login: 'alice', source: 'vscode' }, { login: 'c3-sahn', source: 'gh' }, { login: 'seanahn', source: 'gh' }]);
+    assert.deepStrictEqual(await accounts.list(), [{ login: 'alice', source: 'vscode' }, { login: 'co-sahn', source: 'gh' }, { login: 'seanahn', source: 'gh' }]);
   }
   // gh missing: only VS Code's accounts, no error
   {
@@ -38,12 +38,12 @@ async function rejects(p) { try { await p; } catch (e) { return e; } throw new E
   // a gh token that cannot be read: an 'auth' error that does not show any token
   {
     const vscode = fakeVscode();
-    const run = fakeRun({ 'gh auth status --hostname github.com': { stdout: STATUS }, 'gh auth token --hostname github.com --user c3-sahn': { code: 1, stderr: 'no oauth token found for github.com account c3-sahn' } });
+    const run = fakeRun({ 'gh auth status --hostname github.com': { stdout: STATUS }, 'gh auth token --hostname github.com --user co-sahn': { code: 1, stderr: 'no oauth token found for github.com account co-sahn' } });
     const accounts = createAccounts({ vscode, run, hidden: () => [] });
     await accounts.list();
-    const e = await rejects(accounts.token('c3-sahn'));
+    const e = await rejects(accounts.token('co-sahn'));
     assert.strictEqual(e.kind, 'auth');
-    assert.ok(/c3-sahn/.test(e.message), e.message);
+    assert.ok(/co-sahn/.test(e.message), e.message);
   }
   // a VS Code token comes from that account's own session, silently
   {
@@ -76,10 +76,10 @@ async function rejects(p) { try { await p; } catch (e) { return e; } throw new E
   }
   // review fixes: a gh account whose token gh cannot use is still listed (it shows signed out); forgetAll
   {
-    const status = 'github.com\n  X Failed to log in to github.com account c3-sahn (keyring)\n  - Active account: true\n  - The token in keyring is invalid.\n  ✓ Logged in to github.com account seanahn (keyring)\n';
+    const status = 'github.com\n  X Failed to log in to github.com account co-sahn (keyring)\n  - Active account: true\n  - The token in keyring is invalid.\n  ✓ Logged in to github.com account seanahn (keyring)\n';
     const run = fakeRun({ 'gh auth status --hostname github.com': { code: 1, stdout: status }, 'gh auth token --hostname github.com --user seanahn': { stdout: 't\n' } });
     const accounts = createAccounts({ vscode: fakeVscode(), run, hidden: () => [] });
-    assert.deepStrictEqual((await accounts.list()).map((a) => a.login), ['c3-sahn', 'seanahn']);
+    assert.deepStrictEqual((await accounts.list()).map((a) => a.login), ['co-sahn', 'seanahn']);
     await accounts.token('seanahn');
     accounts.forgetAll();
     await accounts.token('seanahn');

@@ -254,7 +254,7 @@ class GannetTree {
         const gh = account.source === 'gh';
         it.contextValue = !own ? 'owner' : gh ? 'account-gh' : 'account-vscode';
         it.tooltip = !own ? `${owner}, reached through ${account.login}`
-          : gh ? `${account.login}, logged in with the gh CLI` : `${account.login}, signed in to VS Code. To sign out, use VS Code's Accounts menu; Hide only removes it from Gannet.`;
+          : gh ? `${account.login}, logged in with the gh CLI` : `${account.login}, signed in to VS Code. To sign out, use VS Code's Accounts menu; Hide only removes it from Repos.`;
         it.iconPath = new vs.ThemeIcon(node.org ? 'organization' : 'account');
         return it;
       }

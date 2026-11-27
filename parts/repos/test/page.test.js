@@ -77,12 +77,12 @@ assert.ok(P.workspacesHtml(two, { path: '/w', name: '..', message: '".." is not 
 assert.ok(P.workspacesHtml(two, { path: '/w', name: 'old', message: 'old exists', error: false }).includes('<div class="hint info">old exists</div>'));
 assert.ok(!P.workspacesHtml(two).includes('<input '), 'no input unless naming');
 // then the owner is picked in place: the name stays shown, the owner rows under it, one selected
-const owners = [{ owner: 'c3-e', account: 'c3-sahn', description: 'via c3-sahn' }, { owner: 'seanahn', account: 'seanahn', description: null }];
+const owners = [{ owner: 'co-e', account: 'co-sahn', description: 'via co-sahn' }, { owner: 'seanahn', account: 'seanahn', description: null }];
 const op = P.workspacesHtml(two, { path: '/git', name: 'newthing', step: 'owner', owners, sel: 1 });
 assert.ok(op.includes('readonly') && op.includes('value="newthing"'), 'the name, kept');
 assert.strictEqual((op.match(/class="ws pick/g) || []).length, 2);
 assert.ok(op.includes('<div class="ws pick" data-i="0"') && op.includes('<div class="ws pick sel" data-i="1"'));
-assert.ok(op.includes('<span class="label">c3-e</span><span class="desc">via c3-sahn</span>'));
+assert.ok(op.includes('<span class="label">co-e</span><span class="desc">via co-sahn</span>'));
 assert.ok(op.includes('<div class="hint info">Put newthing under…</div>'));
 assert.ok(op.indexOf('data-i="1"') < op.indexOf('data-path="/w"'), 'under its own row');
 assert.ok(P.workspacesHtml(two, { path: '/git', name: 'n', step: 'owner', owners: [], sel: 0 }).includes('<div class="hint error">'), 'no owner to put it under');
@@ -98,8 +98,8 @@ assert.ok(P.rowHtml({ id: 'hidden/a:x', label: 'x', contextValue: 'hidden-accoun
 assert.ok(P.ICONS.eye.startsWith('<svg') && P.ICONS.eye !== P.ICONS['eye-closed']);
 // until the first rows arrive (and after ⟳), a spinning Loading… row, not an empty tree
 assert.ok(P.loadingHtml().includes('class="spin"') && P.loadingHtml().includes('Loading repos…'));
-const nfRow = { id: 'o:c3-sahn:c3-e/n:/w/x', label: 'x', hasChildren: true, contextValue: 'newfolder', icon: { id: 'github-alt', color: 'descriptionForeground' } };
-const ownerE = { id: 'o:c3-sahn:c3-e', label: 'c3-e', hasChildren: true, contextValue: 'owner' };
+const nfRow = { id: 'o:co-sahn:co-e/n:/w/x', label: 'x', hasChildren: true, contextValue: 'newfolder', icon: { id: 'github-alt', color: 'descriptionForeground' } };
+const ownerE = { id: 'o:co-sahn:co-e', label: 'co-e', hasChildren: true, contextValue: 'owner' };
 const ownerS = { id: 'o:seanahn:seanahn', label: 'seanahn', hasChildren: true, contextValue: 'account-vscode' };
 const repoR = { id: 'o:seanahn:seanahn/r:seanahn/perch', label: 'perch', hasChildren: true, contextValue: 'repo-remote' };
 assert.ok(P.rowHtml(nfRow, 1, {}).includes('draggable="true"'));
@@ -113,22 +113,22 @@ assert.strictEqual(P.canDrop(repoR, ownerE), false);
 assert.strictEqual(P.canDrop(nfRow, repoR), false);
 assert.strictEqual(P.canDrop(null, ownerE), false);
 // 0.5.7: a repo moves between Recent and All repos, by drag or by its pin button
-const allR = { id: 'o:c3-sahn:c3-e/all/r:c3-e/zeta', label: 'zeta', hasChildren: true, contextValue: 'repo-remote' };
-const recR = { id: 'o:c3-sahn:c3-e/r:c3-e/hub', label: 'hub', hasChildren: true, contextValue: 'repo-local' };
-const allG = { id: 'o:c3-sahn:c3-e/all', label: 'All repos', hasChildren: true, contextValue: 'group-all' };
+const allR = { id: 'o:co-sahn:co-e/all/r:co-e/zeta', label: 'zeta', hasChildren: true, contextValue: 'repo-remote' };
+const recR = { id: 'o:co-sahn:co-e/r:co-e/hub', label: 'hub', hasChildren: true, contextValue: 'repo-local' };
+const allG = { id: 'o:co-sahn:co-e/all', label: 'All repos', hasChildren: true, contextValue: 'group-all' };
 const allS = { id: 'o:seanahn:seanahn/all', label: 'All repos', hasChildren: true, contextValue: 'group-all' };
 assert.strictEqual(P.placeOf(allR.id), 'all');
 assert.strictEqual(P.placeOf(recR.id), 'recent');
-assert.strictEqual(P.placeOf('o:c3-sahn:c3-e/r:c3-e/hub#2'), 'recent');
-assert.strictEqual(P.placeOf('o:c3-sahn:c3-e/r:c3-e/hub/e:src'), null, 'a file is neither');
-assert.strictEqual(P.placeOf('o:c3-sahn:c3-e/all/r:c3-e/zeta/c:/w/z'), null);
+assert.strictEqual(P.placeOf('o:co-sahn:co-e/r:co-e/hub#2'), 'recent');
+assert.strictEqual(P.placeOf('o:co-sahn:co-e/r:co-e/hub/e:src'), null, 'a file is neither');
+assert.strictEqual(P.placeOf('o:co-sahn:co-e/all/r:co-e/zeta/c:/w/z'), null);
 assert.strictEqual(P.placeOf(ownerE.id), null);
 for (const r of [allR, recR]) assert.ok(P.rowHtml(r, 1, {}).includes('draggable="true"'), r.id);
 assert.ok(P.rowHtml(allG, 1, {}).includes('data-drop="1"'));
 assert.ok(P.rowHtml(allR, 2, {}).includes(`data-act="addRecent" title="Add to Recent">${P.ICONS.pin}</button>`));
 assert.ok(P.rowHtml(recR, 1, {}).includes(`data-act="removeRecent" title="Remove from Recent">${P.ICONS.unpin}</button>`));
 assert.ok(!P.rowHtml(recR, 1, {}).includes('addRecent') && !P.rowHtml(allR, 2, {}).includes('removeRecent'));
-assert.ok(!P.rowHtml({ ...recR, id: 'o:c3-sahn:c3-e/r:c3-e/hub/c:/w/hub' }, 2, {}).includes('Recent'), 'not on a checkout');
+assert.ok(!P.rowHtml({ ...recR, id: 'o:co-sahn:co-e/r:co-e/hub/c:/w/hub' }, 2, {}).includes('Recent'), 'not on a checkout');
 assert.strictEqual(P.canDrop(allR, ownerE), true, 'All repos → its owner: into Recent');
 assert.strictEqual(P.canDrop(allR, ownerS), false, 'not another owner');
 assert.strictEqual(P.canDrop(recR, allG), true, 'Recent → its All repos: out of Recent');

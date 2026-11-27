@@ -88,17 +88,17 @@ async function rejects(p) { try { await p; } catch (e) { return e; } throw new E
 
       // Push as twice over: the second run replaces the settings instead of failing (review fix)
       const { configurePush } = require('../src/checkout.js');
-      await configurePush(runProcess, target, 'c3-sahn', 'HELPER-2');
+      await configurePush(runProcess, target, 'co-sahn', 'HELPER-2');
       assert.deepStrictEqual(sh('git config --local --get-all credential.https://github.com.helper', target).split('\n').slice(0, 2), ['', 'HELPER-2']);
-      assert.strictEqual(sh('git config --local credential.https://github.com.username', target).trim(), 'c3-sahn');
+      assert.strictEqual(sh('git config --local credential.https://github.com.username', target).trim(), 'co-sahn');
       await configurePush(runProcess, target, 'seanahn', 'HELPER-seanahn');
 
       // the same repo again, from a second account: a second copy beside the first, pushing as that account
-      const again = await co.checkout({ repo, account: { login: 'c3-sahn', source: 'gh' }, folder: '~/github' });
+      const again = await co.checkout({ repo, account: { login: 'co-sahn', source: 'gh' }, folder: '~/github' });
       const second = path.join(home, 'github', 'seanahn-perch');
       assert.deepStrictEqual(again, { path: second, cloned: true });
       assert.strictEqual(spawn.calls.length, 2);
-      assert.deepStrictEqual(local.checkoutsOf('seanahn/perch').map((c) => [c.path, c.login]), [[target, 'seanahn'], [second, 'c3-sahn']]);
+      assert.deepStrictEqual(local.checkoutsOf('seanahn/perch').map((c) => [c.path, c.login]), [[target, 'seanahn'], [second, 'co-sahn']]);
     }
 
     // resuming a checkout whose clone was already renamed into place: set up and remembered, never cloned again

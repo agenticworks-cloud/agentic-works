@@ -56,7 +56,7 @@ function writeShim({ dir, execPath, script, socketDir: sockDir }) {
   fs.mkdirSync(dir, { recursive: true });
   const shim = path.join(dir, 'gannet-credential');
   const q = (s) => String(s).replace(/(["\\$`])/g, '\\$1');
-  fs.writeFileSync(shim, `#!/bin/sh\n# Written by Gannet on every start: git's credential helper for repos that push as a VS Code account.\nGANNET_SOCKET_DIR="${q(sockDir)}" ELECTRON_RUN_AS_NODE=1 exec "${q(execPath)}" "${q(script)}" "$@"\n`, { mode: 0o700 });
+  fs.writeFileSync(shim, `#!/bin/sh\n# Written by Agentic Works (Repos) on every start: git's credential helper for repos that push as a VS Code account.\nGANNET_SOCKET_DIR="${q(sockDir)}" ELECTRON_RUN_AS_NODE=1 exec "${q(execPath)}" "${q(script)}" "$@"\n`, { mode: 0o700 });
   fs.chmodSync(shim, 0o700);
   return shim;
 }

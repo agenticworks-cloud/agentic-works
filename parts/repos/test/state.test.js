@@ -41,7 +41,7 @@ const repo = (fullName) => ({ fullName, owner: fullName.split('/')[0], name: ful
 }
 
 // 0.5.6: checkouts on this machine come after the used ones and before GitHub's pushed order (Sean: "i have been
-// mostly working on c3securitytools repo. why doesn't it show up as recent?"), most recently worked on first
+// mostly working on security-tools repo. why doesn't it show up as recent?"), most recently worked on first
 {
   const recent = createRecent(makeMemento());
   recent.touch('l', 'a/used');
@@ -154,14 +154,14 @@ try {
   const memento = makeMemento();
   const local = createLocalRepos({ memento, home });
   const paths = (n) => local.checkoutsOf(n).map((c) => c.path);
-  local.remember('seanahn/roost', { path: path.join(folder, 'roost-deleted'), login: 'seanahn', byGannet: true });
+  local.remember('seanahn/rookery', { path: path.join(folder, 'rookery-deleted'), login: 'seanahn', byGannet: true });
   local.remember('seanahn/kept', { path: path.join(folder, 'perch'), login: 'seanahn', byGannet: true });
   local.scan('~/github');
   assert.deepStrictEqual(local.checkoutsOf('seanahn/perch'), [{ path: path.join(folder, 'perch'), login: null, byGannet: false }]);
   assert.deepStrictEqual(local.checkoutsOf('x/y'), [], 'not a github origin');
-  assert.deepStrictEqual(local.checkoutsOf('seanahn/roost'), [], 'a checkout gone from disk is not listed');
+  assert.deepStrictEqual(local.checkoutsOf('seanahn/rookery'), [], 'a checkout gone from disk is not listed');
   local.forgetMissing();
-  assert.ok(!('seanahn/roost' in memento.get('gannet.local')), 'deleted from disk: forgotten');
+  assert.ok(!('seanahn/rookery' in memento.get('gannet.local')), 'deleted from disk: forgotten');
   assert.strictEqual(local.checkoutsOf('seanahn/kept').length, 1, 'still on disk: kept');
   local.remember('seanahn/perch', { path: path.join(folder, 'perch'), login: 'seanahn', byGannet: true });
   local.scan(folder);

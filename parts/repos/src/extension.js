@@ -14,6 +14,7 @@ const { GannetFs, toUri } = require('./fsProvider.js');
 const { GannetTree } = require('./tree.js');
 const W = require('./workspaces.js');
 const { createMachineState } = require('./machineState.js');
+const { carryMachineState, repointOldShim } = require('./standalone.js');
 const { alive, expandHome } = require('./localRepos.js');
 const { GannetSidebar } = require('./sidebar.js');
 const { createRepoCache } = require('./repoCache.js');
@@ -21,12 +22,15 @@ const { createNewFolders, checkName } = require('./newFolders.js');
 
 let state = null;
 
-const settings = () => vscode.workspace.getConfiguration('gannet');
+const settings = () => vscode.workspace.getConfiguration('repos');
+const { carryOverSettings, settingKeys } = require('./settingsCarryOver.js');
 
 const PENDING = 'gannet.pending';
 
 async function activateWith(context, { run = runProcess, fetch = globalThis.fetch, home = os.homedir(), startServer = startTokenServer } = {}) {
   const store = context.globalStorageUri.fsPath;
+  // Gannet's settings became repos.*: each one set is copied over once (the old ones stay)
+  carryOverSettings(vscode, context.globalState, { from: 'gannet', to: 'repos', keys: settingKeys(require('../package.json'), 'repos'), log: () => {} }).catch(() => {});
   const accounts = createAccounts({ vscode, run, hidden: () => settings().get('hiddenAccounts', []) });
   const clients = new Map();
   const clientFor = (login) => {
@@ -34,13 +38,14 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
     return clients.get(login);
   };
   const recent = createRecent(context.globalState);
+  try { carryMachineState(store); } catch (e) { /* the standalone's state is a nicety */ }
   const machine = createMachineState(path.join(store, 'machine.json'));
   if (!machine.exists()) {   // 0.1.0 kept checkouts in globalState: carry them over; forgetMissing drops other machines'
     const old = context.globalState.get('gannet.local');
     if (old) await machine.update('gannet.local', old);
   }
   // 0.2.0's workspaces, and the checkout folder setting 0.3.0 retires, become the list of directories, once
-  await W.migrate({ memento: machine, home, checkoutFolder: settings().get('checkoutFolder') });
+  await W.migrate({ memento: machine, home, checkoutFolder: vscode.workspace.getConfiguration('gannet').get('checkoutFolder') });
   const local = createLocalRepos({ memento: machine, home });
   const workspaces = W.createWorkspaces({ memento: machine, home });
   const listed = () => workspaces.list().filter(W.exists);
@@ -57,7 +62,10 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
   if (process.platform !== 'win32') {
     try {
       server = await startServer({ dir: store, token: (login) => accounts.token(login) });
-      shim = writeShim({ dir: store, execPath: process.execPath, script: path.join(context.extensionPath, 'bin', 'gannet-credential.js'), socketDir: socketDir(store) });
+      const script = path.join(context.extensionPath, 'bin', 'gannet-credential.js');
+      shim = writeShim({ dir: store, execPath: process.execPath, script, socketDir: socketDir(store) });
+      // repos the standalone Gannet checked out name its shim: keep them pushing through this window
+      try { repointOldShim({ store, execPath: process.execPath, script }); } catch (e) { /* they fall back to git's own sign-in */ }
     } catch (e) {
       shim = '';
     }
@@ -65,7 +73,7 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
   const helperCommand = (account) => {
     if ((account.source || accounts.sourceOf(account.login)) !== 'vscode') return ghHelper(account.login);
     if (shim) return `!"${shim}" ${account.login}`;
-    vscode.window.showWarningMessage(`Gannet cannot push as ${account.login} from this window; the repo uses your usual git sign-in. Add the account to gh to push as it.`);
+    vscode.window.showWarningMessage(`Repos cannot push as ${account.login} from this window; the repo uses your usual git sign-in. Add the account to gh to push as it.`);
     return '';
   };
   const checkout = createCheckout({ run, local, accounts, helperCommand, home });
@@ -110,7 +118,7 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
   // a workspace is a folder that holds repos, never a repo, so nothing is ever cloned inside one
   const isRepo = (f) => {
     if (!W.isGitRepo(f)) return false;
-    vscode.window.showErrorMessage(`Gannet: ${f} is a git repo; add the folder that holds your repos.`);
+    vscode.window.showErrorMessage(`Repos: ${f} is a git repo; add the folder that holds your repos.`);
     return true;
   };
 
@@ -123,9 +131,9 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
       const pick = await vscode.window.showQuickPick([
         { label: '~/github', description: W.exists(gh) ? undefined : 'will be created', dir: gh },
         { label: 'Choose a folder…', choose: true },
-      ], { title: 'Where should Gannet check out repos?' });
+      ], { title: 'Where should Repos check out repos?' });
       if (!pick) return undefined;
-      const dir = pick.choose ? await pickFolder('Where Gannet checks out repos', 'Use this folder') : pick.dir;
+      const dir = pick.choose ? await pickFolder('Where Repos checks out repos', 'Use this folder') : pick.dir;
       if (!dir || isRepo(dir)) return undefined;
       fs.mkdirSync(dir, { recursive: true });
       await workspaces.add(dir);
@@ -167,7 +175,7 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
     } catch (e) {
       if (e && e.message === 'cancelled') return;
       if (e && e.kind === 'auth') accounts.forget(account.login);
-      vscode.window.showErrorMessage(`Gannet: could not check out ${repo.fullName}: ${e && e.message ? e.message : e}`);
+      vscode.window.showErrorMessage(`Repos: could not check out ${repo.fullName}: ${e && e.message ? e.message : e}`);
     } finally {
       await setPending(pending().filter((j) => j.id !== job.id));
     }
@@ -182,7 +190,7 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
     return copies.length === 1 ? copies[0] : null;
   };
   async function addWorkspace() {
-    const f = await pickFolder('Add a folder Gannet checks repos out into', 'Add');
+    const f = await pickFolder('Add a folder Repos checks repos out into', 'Add');
     if (!f) return;
     if (isRepo(f)) return;
     await workspaces.add(f);
@@ -215,12 +223,12 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
     });
     if (name === undefined) return;
     const c = nameCheck(dir, name);
-    if (!c.ok) { vscode.window.showErrorMessage(`Gannet: ${c.message}`); return; }   // e.g. taken since it was checked
+    if (!c.ok) { vscode.window.showErrorMessage(`Repos: ${c.message}`); return; }   // e.g. taken since it was checked
     const p = path.join(dir, name);
     const to = node.owner && node.account ? { owner: node.owner, account: node.account } : await pickOwner(`Put ${name} under…`);   // picked in place
     if (!to) return;
     if (!c.adopt) {
-      try { fs.mkdirSync(p); } catch (e) { vscode.window.showErrorMessage(`Gannet: could not create ${p}: ${e.message}`); return; }
+      try { fs.mkdirSync(p); } catch (e) { vscode.window.showErrorMessage(`Repos: could not create ${p}: ${e.message}`); return; }
     }
     await newFolders.add({ path: p, ...to });   // recorded first: adding a folder to the window can restart the extension
     tree.redraw();
@@ -317,7 +325,7 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
         await local.remember(repo.fullName, { path: c.path, login: account.login, byGannet: c.byGannet });
         refreshAll();
         vscode.window.showInformationMessage(`${repo.fullName} at ${c.path} now pushes as ${account.login}.`);
-      } catch (e) { vscode.window.showErrorMessage(`Gannet: ${e.message}`); }
+      } catch (e) { vscode.window.showErrorMessage(`Repos: ${e.message}`); }
     },
     'gannet.openFile': async (node) => {
       if (!node || !node.entry) return;
@@ -337,7 +345,7 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
     // a command run from a row's right-click menu gets the row's context; it names the node
     ...Object.entries(commands).map(([id, fn]) => vscode.commands.registerCommand(id, NODE_COMMANDS.has(id) ? (arg, ...rest) => fn(sidebar.resolve(arg) || arg, ...rest) : fn)),
     accounts.onDidChange(() => tree.redraw()),
-    vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('gannet')) refreshAll(); }),
+    vscode.workspace.onDidChangeConfiguration((e) => { if (e.affectsConfiguration('repos')) refreshAll(); }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => sidebar.refreshWorkspaces()),
     { dispose: () => { if (server) server.close(); } },
   );

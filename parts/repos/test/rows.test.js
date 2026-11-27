@@ -12,16 +12,16 @@ const { createRowStore, childIds, nodeKey } = require('../src/rows.js');
   try {
     const store = createRowStore(fx.tree);
     const root = await store.root();
-    assert.deepStrictEqual(root.map((r) => r.id), ['o:c3-sahn:c3-e', 'o:c3-sahn:c3-sahn', 'o:seanahn:seanahn']);
+    assert.deepStrictEqual(root.map((r) => r.id), ['o:co-sahn:co-e', 'o:co-sahn:co-sahn', 'o:seanahn:seanahn']);
     const e = root[0];
-    assert.strictEqual(e.label, 'c3-e');
-    assert.strictEqual(e.description, 'via c3-sahn');
+    assert.strictEqual(e.label, 'co-e');
+    assert.strictEqual(e.description, 'via co-sahn');
     assert.deepStrictEqual(e.icon, { id: 'organization', color: undefined });
     assert.strictEqual(e.expanded, true);
     assert.strictEqual(e.hasChildren, true);
     assert.strictEqual(e.contextValue, 'owner');
     assert.strictEqual(typeof e.tooltip, 'string');
-    assert.strictEqual(store.node(e.id).owner, 'c3-e');
+    assert.strictEqual(store.node(e.id).owner, 'co-e');
     const kids = await store.children(e.id);
     assert.ok(kids.every((r) => r.id.startsWith(e.id + '/')));
     assert.strictEqual(kids.at(-1).id, e.id + '/all');
@@ -43,9 +43,9 @@ const { createRowStore, childIds, nodeKey } = require('../src/rows.js');
     // Review Focus 5: colliding keys get suffixes
     assert.deepStrictEqual(childIds('p', [{ kind: 'info', label: 'x' }, { kind: 'info', label: 'x' }, { kind: 'group' }]), ['p/i:x', 'p/i:x#2', 'p/all']);
     assert.deepStrictEqual(childIds(null, [{ kind: 'error' }]), ['x']);
-    assert.strictEqual(nodeKey({ kind: 'repo', repo: { fullName: 'C3-E/Hub' } }), 'r:c3-e/hub');
+    assert.strictEqual(nodeKey({ kind: 'repo', repo: { fullName: 'CO-E/Hub' } }), 'r:co-e/hub');
     // Review Focus 2: a failing child list gives the error row, not a throw
-    const sahn = (await store.children('o:c3-sahn:c3-sahn')).find((r) => r.label === 'notes');
+    const sahn = (await store.children('o:co-sahn:co-sahn')).find((r) => r.label === 'notes');
     const err = await store.children(sahn.id);
     assert.strictEqual(err.length, 1);
     assert.deepStrictEqual(err[0].icon, { id: 'warning', color: undefined });

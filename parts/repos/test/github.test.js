@@ -53,7 +53,7 @@ async function rejects(p) { try { await p; } catch (e) { return e; } throw new E
   }
   // listDir: path segments encoded, dirs first then by name, truncated at 1000
   {
-    assert.strictEqual(encodePath('a b/#c/?%/é'), 'a%20b/%23c/%3F%25/%C3%A9');
+    assert.strictEqual(encodePath('a b/#c/?%/€'), 'a%20b/%23c/%3F%25/%E2%82%AC');
     const entry = (name, type, size = 1) => ({ name, path: 'x/' + name, type, size, html_url: 'https://github.com/o/r/blob/main/x/' + name });
     const fetch = fakeFetch(() => response(200, [entry('b.js', 'file', 10), entry('z', 'dir', 0), entry('a.js', 'file', 5), entry('lib', 'submodule', 0), entry('a', 'dir', 0)]));
     const gh = createClient({ fetch, token: async () => TOKEN });
@@ -116,9 +116,9 @@ async function rejects(p) { try { await p; } catch (e) { return e; } throw new E
   {
     const fetch = fakeFetch((url) => url.includes('page=2')
       ? response(200, [{ login: 'other' }])
-      : response(200, [{ login: 'c3-e' }], { Link: '<https://api.github.com/user/orgs?per_page=100&page=2>; rel="next"' }));
+      : response(200, [{ login: 'co-e' }], { Link: '<https://api.github.com/user/orgs?per_page=100&page=2>; rel="next"' }));
     const orgs = await createClient({ fetch, token: async () => TOKEN }).listOrgs();
-    assert.deepStrictEqual(orgs, ['c3-e', 'other']);
+    assert.deepStrictEqual(orgs, ['co-e', 'other']);
     assert.ok(fetch.calls[0].url.startsWith('https://api.github.com/user/orgs?per_page=100'), fetch.calls[0].url);
     const e = await rejects(createClient({ fetch: fakeFetch(() => response(401, { message: 'Bad credentials' })), token: async () => TOKEN }).listOrgs());
     assert.strictEqual(e.kind, 'auth');

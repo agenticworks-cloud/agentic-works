@@ -12,8 +12,8 @@ starts from the other end — from what GitHub says is available to you — the 
 before any of them are downloaded. You browse a repo's files without having it locally, and when you want one,
 you check it out. *(Sean)*
 
-The why, as guessed and not corrected: Sean works across several GitHub accounts and orgs (seanahn, c3-sahn and
-C3's orgs), and finding a repo, then cloning it into the right place with the right account, takes too many
+The why, as guessed and not corrected: Sean works across several GitHub accounts and orgs (seanahn, co-sahn and
+the company's orgs), and finding a repo, then cloning it into the right place with the right account, takes too many
 steps today. *(guess)*
 
 ### Goals
@@ -65,10 +65,10 @@ GANNET                                   [+ account] [⟳]
 ▾ seanahn                               (gh)
   ▾ Recent
     ▸ seanahn/perch            ● local
-    ▸ seanahn/roost
-    ▸ c3-e/seclab-hub
+    ▸ seanahn/rookery
+    ▸ co-e/seclab-hub
   ▸ All repos  (143)
-▾ c3-sahn                               (VS Code)
+▾ co-sahn                               (VS Code)
   ▸ Recent
   ▸ All repos
 ```
@@ -81,7 +81,7 @@ GANNET                                   [+ account] [⟳]
 - **From VS Code:** `vscode.authentication` with the `github` provider and the `repo` scope; VS Code keeps the
   sign-in. The **+ account** button runs VS Code's GitHub sign-in, letting the user pick another account.
 - The same login from both sources shows once; gh's token is preferred. *(builder's call)*
-- **Configure:** a setting `gannet.hiddenAccounts` (logins not to show), with a **Hide account** action on an
+- **Configure:** a setting `repos.hiddenAccounts` (logins not to show), with a **Hide account** action on an
   account node that adds to it. Hiding never touches gh, nor VS Code's sign-in. An extension cannot sign out of
   VS Code's built-in GitHub session, and doing so would sign the account out of every extension using it
   (Copilot too), so for a VS Code account Hide is the whole of "remove"; the node's tooltip says to use VS Code's
@@ -139,12 +139,12 @@ GANNET
     /git
     ~/github
 ▾ REPOS                                         [+ account] [⟳]
-  ▾ c3-e                     via c3-sahn
-      c3reliability
-      c3nexus                ~/ · /git            (green Octocat: checked out)
+  ▾ co-e                     via co-sahn
+      reliability-kit
+      atlas                ~/ · /git            (green Octocat: checked out)
       ▸ All repos
-  ▸ c3-sahn
-  ▸ c3-taehokgil             via c3-sahn
+  ▸ co-sahn
+  ▸ co-tara             via co-sahn
   ▾ seanahn
       perch                  /git
       ▸ All repos
@@ -153,15 +153,15 @@ GANNET
 ### The tree is grouped by owner
 
 - The top-level nodes are **owners**, meaning the GitHub users and organizations whose repos an account can reach,
-  labelled with the owner alone: `c3-e`, `c3-sahn`, `c3-taehokgil`, `seanahn`. There are no account nodes. *(Sean:
-  "c3-e, c3-sahn, c3-taehokgil and seanahn nodes")* An owner reached through an account with another login says
-  so in its description: `via c3-sahn`. *(builder's call, in place of 0.3.0's first draft `c3-e (c3-sahn)`)*
+  labelled with the owner alone: `co-e`, `co-sahn`, `co-tara`, `seanahn`. There are no account nodes. *(Sean:
+  "co-e, co-sahn, co-tara and seanahn nodes")* An owner reached through an account with another login says
+  so in its description: `via co-sahn`. *(builder's call, in place of 0.3.0's first draft `co-e (co-sahn)`)*
 - An owner reachable through two accounts gets two nodes, one per account, told apart by their `via`.
   *(builder's call)*
 - **Which start expanded:** an account's organizations start expanded; the account's own login and other users'
   owners start collapsed, unless the account has no organizations, when its own login starts expanded. So
-  `c3-e` and `seanahn` open, `c3-sahn` and `c3-taehokgil` closed. *(Sean: "collapse all others except for
-  c3-e"; the rule is the builder's)* Owner nodes carry ids, so VS Code remembers what Sean opens or closes
+  `co-e` and `seanahn` open, `co-sahn` and `co-tara` closed. *(Sean: "collapse all others except for
+  co-e"; the rule is the builder's)* Owner nodes carry ids, so VS Code remembers what Sean opens or closes
   after that.
 - The owners shown for an account:
   - the account's own login;
@@ -169,17 +169,17 @@ GANNET
   - owners of repos it recently pushed to;
   - once its full repo list has been fetched, any other owner in that list (a repo you collaborate on).
   *(builder's call)*
-- Order: by owner name, then by account (`c3-e`, `c3-sahn`, `c3-taehokgil`, `seanahn`), as Sean listed them.
+- Order: by owner name, then by account (`co-e`, `co-sahn`, `co-tara`, `seanahn`), as Sean listed them.
   Owner names are compared ignoring case, as GitHub does. *(builder's call)*
 - If `/user/orgs` fails for an account (a token without `read:org`, say), its owners still come from its repos;
   none of them starts expanded as an organization. *(builder's call)*
-- Repo names drop the owner: `c3reliability`, not `c3-e/c3reliability`. *(Sean)*
+- Repo names drop the owner: `reliability-kit`, not `co-e/reliability-kit`. *(Sean)*
 - **Each owner node lists its recent repos, then an All repos link** that expands to every repo of that owner the
   account can reach. *(Sean: "per owner")* Recent per owner works as before (repos used in Gannet first, then
   this machine's checkouts by local activity, then GitHub's recently pushed list), filtered to that owner, at most
   10.
 - **This machine's checkouts rank ahead of GitHub's pushed order (0.5.6).** *(Sean: "i have been mostly working on
-  c3securitytools repo. why doesn't it show up as recent?" — in an organization, other people's pushes filled
+  security-tools repo. why doesn't it show up as recent?" — in an organization, other people's pushes filled
   the 10.)* After the repos used in Gannet come the repos checked out on this machine that GitHub lists, most
   recently worked on first. "Worked on" is the newest modification time of the checkout's `.git/logs/HEAD`
   (commits, checkouts, pulls) and `.git/index` (staging, switching); a worktree's `.git` file is followed; a
@@ -201,7 +201,7 @@ GANNET
   repos, so after the first fetch each account's list is kept in a file in Gannet's global storage and used on
   every later start, in every window, with no fetch. Only ⟳ fetches it again (and replaces the file); the
   tooltip on All repos says when it was fetched. *(Sean: "cache the list once read")* With the list on disk, the
-  owners found in it (such as `c3-taehokgil`) show from the start. A repo created since shows in Recent once
+  owners found in it (such as `co-tara`) show from the start. A repo created since shows in Recent once
   pushed to, and in All repos after ⟳. *(builder's call)*
 - Account things live on the account's own node:
   - its source (`gh` or `VS Code`) in the tooltip;
@@ -330,9 +330,9 @@ GITHUB                               [+ account] [⟳]
   + Add Workspace…
  ───────────────────────────────────────────────
  ▸ (org) bpmn2               via seanahn
- ▾ (org) c3-e                via c3-sahn
-   ▸ (cat) c3reliability                           (recent repos first)
-   ▸ (cat) c3nexus           ~
+ ▾ (org) co-e                via co-sahn
+   ▸ (cat) reliability-kit                           (recent repos first)
+   ▸ (cat) atlas           ~
    ▸ All repos               312
  ▾ (person) seanahn
    ▾ (green cat) perch       /git · ~/github       (two checkouts: one row each)
@@ -377,8 +377,8 @@ GITHUB                               [+ account] [⟳]
     you make the icon smaller"; builder's call on the size)*
 - **A repo's tooltip does not repeat its name** (the row shows it). A repo only on GitHub says **Only on GitHub**; a
   checked-out one has a line per checkout: its path, its branch (`detached at <sha>` when no branch is checked
-  out), and `pushes as <login>` when it pushes as an account, e.g. `/home/jovyan/c3nexus · main · pushes as
-  c3-sahn`. A checkout row's tooltip is its one line. The branch is read from the checkout's `.git` each time the
+  out), and `pushes as <login>` when it pushes as an account, e.g. `/home/jovyan/atlas · main · pushes as
+  co-sahn`. A checkout row's tooltip is its one line. The branch is read from the checkout's `.git` each time the
   row is drawn, following a worktree's `.git` file. *(Sean: "you already know the repo, remove the first line from
   tooltip and show the branch name if the repo is checked out"; builder's call on the line's format)*
 - **Colours and fonts come from the VS Code theme** (sidebar background, list hover and selection, description
@@ -398,7 +398,7 @@ GITHUB                               [+ account] [⟳]
   icon should show up to checkout as a different folder"; 0.4.0 first had it only on repos not checked out)*
 - **Hide Owner** (a closed-eye button on hover, *Sean: "can we have an eye icon instead?"*, or right-click; on an
   organization or another owner, the rows shown `via <account>`) leaves that owner
-  out under every account, matched without case, and adds it to the `gannet.hiddenOwners` setting; the
+  out under every account, matched without case, and adds it to the `repos.hiddenOwners` setting; the
   **Hidden** row brings it back: a last top-level row, shown only when something is hidden, listing the hidden
   owners and then the hidden accounts as the settings name them, each with an open-eye button (and right-click
   Show Owner / Show Account) that takes it out of the setting. *(Sean: "once i hide, there's no way to show it?";
@@ -456,10 +456,10 @@ GITHUB                               [+ account] [⟳]
   ~/github                   [+📁] [📂] [✕]          (buttons show on hover)
   + Add Workspace…
  ───────────────────────────────────────────────
- ▾ (org) c3-e                via c3-sahn
+ ▾ (org) co-e                via co-sahn
    ▾ (dim cat) newthing      not on GitHub yet · ~/github
        (file) notes.md
-   ▸ (cat) c3nexus
+   ▸ (cat) atlas
    ▸ (two cats) All repos    312
 ```
 
@@ -478,13 +478,13 @@ GITHUB                               [+ account] [⟳]
     the box says `<name> exists: it will be put under an owner`, and the rest is the same, with no mkdir. A file of that
     name, a folder whose `origin` is already a GitHub repo, or one already recorded is refused with a message
     saying so. *(Sean chose adoption over listing unplaced folders: most new folders are made by asking Claude)*
-  - The owner is picked from the owner rows the sidebar shows now, labelled as they are (`c3-e  via c3-sahn`);
+  - The owner is picked from the owner rows the sidebar shows now, labelled as they are (`co-e  via co-sahn`);
     hidden accounts and owners are not offered. Escape at either question creates nothing. *(builder's call)*
   - The new folder is added to this window, as a checkout is, unless it already sits inside one of the window's
     folders (seclab's `~`). No new window opens. *(builder's call; Sean did not object)*
 - **Gannet touches nothing in the folder:** no `git init`, no remote, no GitHub repo. It keeps its own record,
   per machine like the workspace list: the folder's path, and the owner row it was put under (the owner and the
-  account it is reached through, as `c3-e via c3-sahn` is one row and `c3-e via seanahn` another). The record is
+  account it is reached through, as `co-e via co-sahn` is one row and `co-e via seanahn` another). The record is
   written before the folder is added to the window, since adding a folder can restart the extension. *(Sean chose this: "since we do not even know if the local repo will ever be pushed to remote")*
 - **The row:** first under its owner, before the recent repos. Label: the folder name. Description: `not on
   GitHub yet · <workspace>`. Tooltip: the folder's path, and its branch if it is a git repo. Icon: the cat, dimmed
@@ -553,9 +553,9 @@ GITHUB                               [+ account] [⟳]
    |   right-click Forget   |-- record removed (folder kept) -->|
    |<- reset; rows ---------|                                   |
    |-- expand owner (or drawn open) ->|-- origin of each recorded folder ->|
-   |                        |   none: dim row; c3-e/newthing not listed: dim row, "c3-e/newthing, not on GitHub yet"
-   |                        |   listed: drop record, remember as a checkout of c3-e/newthing
-   |<- reset; rows: green c3-e/newthing under c3-e, everywhere c3-e shows
+   |                        |   none: dim row; co-e/newthing not listed: dim row, "co-e/newthing, not on GitHub yet"
+   |                        |   listed: drop record, remember as a checkout of co-e/newthing
+   |<- reset; rows: green co-e/newthing under co-e, everywhere co-e shows
    |   (mkdir fails: name taken since the check, no permission: an error message, no record, nothing added)
    |   (folder gone from disk: record dropped quietly, no row)
 ```
@@ -626,7 +626,7 @@ Calls made while building it *(builder's calls)*:
 - An org that enforces SAML SSO and has not authorized the token: GitHub answers 403 with an `X-GitHub-SSO`
   header. The node says the org needs authorizing, with **Authorize** opening the URL from that header. In All
   repos, such orgs' repos are simply missing (GitHub leaves them out); a 403 with the SSO header on any call is
-  reported this way, never as a rate limit. *(builder's call — C3's orgs may enforce SSO)*
+  reported this way, never as a rate limit. *(builder's call — the company's orgs may enforce SSO)*
 - The `gannet:` provider asks Accounts for the token itself, so a read-only editor restored after a restart
   works; if the token is gone it shows the signed-out error in place of the file.
 - A repo the account cannot see any more (404): removed from Recent.

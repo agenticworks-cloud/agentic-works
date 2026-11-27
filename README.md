@@ -1,15 +1,18 @@
 # Agentic Works
 
-One VS Code extension with four parts:
+One VS Code extension with five parts:
 
 - **Agents** (Claude Code and Codex): their sessions as editor tabs, side by side, any number of them.
 - **Teams**: Microsoft Teams chats and channels, each conversation in a tab.
 - **Jira & Confluence**: tickets and pages in tabs, with the space tree and your own work in the sidebar.
 - **PRs**: your open pull requests in a panel tab, with their checks and reviews, and the chat that made each one.
+- **Repos**: your GitHub accounts' repos in the sidebar, to browse on GitHub, check out where you keep them, and push
+  as the account they belong to.
 
-Agents (the Perch icon), Teams and Jira & Confluence each have their own icon in the activity bar; PRs is a tab in
-the bottom panel. Each part was a separate extension before (Perch, chirp, jay and kestrel); Agentic Works carries their
-histories under `parts/agents`, `parts/teams`, `parts/jira` and `parts/pull-requests`.
+Agents (the Perch icon), Teams, Jira & Confluence and Repos (the GitHub icon) each have their own icon in the activity
+bar; PRs is a tab in the bottom panel. Each part was a separate extension before (Perch, chirp, jay, kestrel and
+Gannet); Agentic Works carries their histories under `parts/agents`, `parts/teams`, `parts/jira`, `parts/pull-requests`
+and `parts/repos`.
 
 ## Install
 
@@ -28,7 +31,7 @@ Run it without `sudo`: it asks for your password when it needs it, after listing
 
 - installs VS Code if it is missing (Homebrew on macOS, Microsoft's package repository on Linux) and puts `code` on
   the PATH;
-- offers to uninstall the standalone Perch, chirp, jay and kestrel extensions, which would clash with Agentic Works;
+- offers to uninstall the standalone Perch, chirp, jay, kestrel and Gannet extensions, which would clash with Agentic Works;
 - installs Agentic Works (checked against its SHA-256) and its companions, Claude Code, ChatGPT and perch-audio;
 - installs the GitHub CLI, for the PRs panel (you sign in to GitHub from the Get started page, not the terminal);
 - sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
@@ -63,15 +66,16 @@ Open **Settings → Agentic Works** (the gear on the Perch view, the **Settings*
 | Agents (Claude Code and Codex) | `agenticWorks.agents.enabled` |
 | Jira & Confluence | `agenticWorks.jira.enabled` |
 | PRs | `agenticWorks.pullRequests.enabled` |
+| Repos | `agenticWorks.repos.enabled` |
 | Teams | `agenticWorks.teams.enabled` |
 
 A switch takes effect at once, with no reload. A part that is off shows no icon, panel tab or commands; its open
 tabs close, and come back when you switch it on again. If an agent's turn is running, Agentic Works asks before stopping it.
 A part that fails to start is reported once and left off; the others keep working. Each part's own settings
-follow in a section of their own, under the part's name: `agents.*`, `teams.*`, `jira.*` and `pullRequests.*`, and
-its commands are listed as **Agents: …**, **Teams: …**, **Jira: …** and **Pull Requests: …**.
+follow in a section of their own, under the part's name: `agents.*`, `teams.*`, `jira.*`, `pullRequests.*` and `repos.*`, and
+its commands are listed as **Agents: …**, **Teams: …**, **Jira: …**, **Pull Requests: …** and **Repos: …**.
 
-These were `perch.*`, `chirp.*`, `jay.*` and `kestrel.*` in the standalone extensions. On its first start each part
+These were `perch.*`, `chirp.*`, `jay.*`, `kestrel.*` and `gannet.*` in the standalone extensions. On its first start each part
 copies any value you set under the old name to the new one, at the same level (user, workspace or folder), unless
 the new one is already set there; the old entries stay in your `settings.json`, unused, for you to delete.
 

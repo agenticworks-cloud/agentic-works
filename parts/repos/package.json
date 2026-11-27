@@ -1,6 +1,6 @@
 {
   "name": "gannet",
-  "displayName": "Gannet",
+  "displayName": "Repos",
   "description": "Your GitHub repos as a tree: browse files without cloning, check out into your workspace, push as the right account.",
   "version": "0.5.7",
   "publisher": "seanahn",
@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "check": "for f in src/*.js bin/*.js media/*.js; do [ ! -f \"$f\" ] || node --check \"$f\" || exit 1; done",
-    "test:offline": "node test/newFolders.test.js && node test/github.test.js && node test/accounts.test.js && node test/state.test.js && node test/workspaces.test.js && node test/checkout.test.js && node test/tokenServer.test.js && node test/fsProvider.test.js && node test/tree.test.js && node test/rows.test.js && node test/page.test.js && node test/sidebar.test.js && node test/host.test.js",
+    "test:offline": "node test/newFolders.test.js && node test/github.test.js && node test/accounts.test.js && node test/state.test.js && node test/workspaces.test.js && node test/checkout.test.js && node test/tokenServer.test.js && node test/fsProvider.test.js && node test/tree.test.js && node test/rows.test.js && node test/page.test.js && node test/sidebar.test.js && node test/host.test.js && node test/standalone.test.js && node test/settingsCarryOver.test.js",
     "test": "npm run -s test:offline && node test/live.test.js"
   },
   "main": "./src/extension.js",
@@ -53,122 +53,122 @@
       {
         "command": "gannet.addAccount",
         "title": "Add GitHub Account",
-        "category": "Gannet",
+        "category": "Repos",
         "icon": "$(add)"
       },
       {
         "command": "gannet.refresh",
         "title": "Refresh",
-        "category": "Gannet",
+        "category": "Repos",
         "icon": "$(refresh)"
       },
       {
         "command": "gannet.hideAccount",
         "title": "Hide Account",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.hideOwner",
         "title": "Hide Owner",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.signIn",
         "title": "Sign In",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.checkout",
         "title": "Check Out",
-        "category": "Gannet",
+        "category": "Repos",
         "icon": "$(cloud-download)"
       },
       {
         "command": "gannet.checkoutTo",
         "title": "Check Out to…",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.openOnGitHub",
         "title": "Open on GitHub",
-        "category": "Gannet",
+        "category": "Repos",
         "icon": "$(github)"
       },
       {
         "command": "gannet.revealLocal",
         "title": "Reveal in Explorer",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.addToWorkspace",
         "title": "Add to Workspace",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.pushAs",
         "title": "Push as This Account",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.openFile",
         "title": "Open File",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.openUrl",
         "title": "Open URL",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.addWorkspace",
         "title": "Add Workspace",
-        "category": "Gannet",
+        "category": "Repos",
         "icon": "$(add)"
       },
       {
         "command": "gannet.revealWorkspace",
         "title": "Reveal",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.removeWorkspace",
         "title": "Remove from List",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.newFolder",
         "title": "New Folder…",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.moveNewFolder",
         "title": "Move to Owner…",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.forgetNewFolder",
         "title": "Forget",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.showOwner",
         "title": "Show Owner",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.addToRecent",
         "title": "Add to Recent",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.removeFromRecent",
         "title": "Remove from Recent",
-        "category": "Gannet"
+        "category": "Repos"
       },
       {
         "command": "gannet.showAccount",
         "title": "Show Account",
-        "category": "Gannet"
+        "category": "Repos"
       }
     ],
     "menus": {
@@ -330,23 +330,23 @@
       ]
     },
     "configuration": {
-      "title": "Gannet",
+      "title": "Repos",
       "properties": {
-        "gannet.hiddenAccounts": {
+        "repos.hiddenAccounts": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [],
-          "description": "GitHub logins Gannet does not show. Hiding never signs an account out of gh or VS Code."
+          "description": "GitHub logins Repos does not show. Hiding never signs an account out of gh or VS Code."
         },
-        "gannet.hiddenOwners": {
+        "repos.hiddenOwners": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [],
-          "description": "Organizations and other owners not shown (right-click one and choose Hide Owner). An account's own login is hidden with gannet.hiddenAccounts."
+          "description": "Organizations and other owners not shown (right-click one and choose Hide Owner). An account's own login is hidden with repos.hiddenAccounts."
         }
       }
     }

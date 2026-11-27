@@ -28,8 +28,8 @@ const S = vscode.TreeItemCollapsibleState;
     fs.mkdirSync(home, { recursive: true });
     const listings = new Map();   // "login fullName path" -> { entries, truncated } | GitHubError
     const repoLists = {
-      'c3-sahn': { orgs: ['c3-e'], pushed: [R('c3-e/hub'), R('c3-sahn/notes')], all: [R('c3-e/hub'), R('c3-e/zeta'), R('c3-sahn/notes'), R('c3-taehokgil/tool')] },
-      seanahn: { orgs: [], pushed: [R('seanahn/perch', { private: true }), R('seanahn/roost', { archived: true })], all: [R('zz/last'), R('seanahn/perch', { private: true }), R('seanahn/roost', { archived: true })] },
+      'co-sahn': { orgs: ['co-e'], pushed: [R('co-e/hub'), R('co-sahn/notes')], all: [R('co-e/hub'), R('co-e/zeta'), R('co-sahn/notes'), R('co-tara/tool')] },
+      seanahn: { orgs: [], pushed: [R('seanahn/perch', { private: true }), R('seanahn/rookery', { archived: true })], all: [R('zz/last'), R('seanahn/perch', { private: true }), R('seanahn/rookery', { archived: true })] },
     };
     const calls = [];
     const clientFor = (login) => ({
@@ -37,7 +37,7 @@ const S = vscode.TreeItemCollapsibleState;
       listRepos: async ({ sort }) => { calls.push(['repos', login, sort]); const v = repoLists[login]; if (v instanceof Error) throw v; return sort === 'pushed' ? v.pushed : v.all; },
       listDir: async (owner, repo, p) => { calls.push(['dir', login, `${owner}/${repo}`, p]); const v = listings.get(`${login} ${owner}/${repo} ${p}`); if (v instanceof Error) throw v; return v || { entries: [], truncated: false }; },
     });
-    const accountList = [{ login: 'c3-sahn', source: 'gh' }, { login: 'seanahn', source: 'vscode' }];
+    const accountList = [{ login: 'co-sahn', source: 'gh' }, { login: 'seanahn', source: 'vscode' }];
     const accounts = { list: async () => accountList };
     const recent = createRecent(makeMemento());
     const local = createLocalRepos({ memento: makeMemento(), home });
@@ -52,24 +52,24 @@ const S = vscode.TreeItemCollapsibleState;
 
     // root: one node per owner, by name; whom it is reached through; which start open
     let roots = await tree.getChildren();
-    assert.deepStrictEqual(roots.map((n) => item(n).label), ['c3-e', 'c3-sahn', 'seanahn'], 'owners of the pushed list and organizations');
-    assert.deepStrictEqual(roots.map((n) => item(n).description), ['via c3-sahn', undefined, undefined]);
+    assert.deepStrictEqual(roots.map((n) => item(n).label), ['co-e', 'co-sahn', 'seanahn'], 'owners of the pushed list and organizations');
+    assert.deepStrictEqual(roots.map((n) => item(n).description), ['via co-sahn', undefined, undefined]);
     assert.deepStrictEqual(roots.map((n) => item(n).collapsibleState), [S.Expanded, S.Collapsed, S.Expanded], 'organizations open; an account with organizations has its own login closed');
     assert.deepStrictEqual(roots.map((n) => item(n).contextValue), ['owner', 'account-gh', 'account-vscode'], 'Hide account is on the own node');
     assert.deepStrictEqual(roots.map((n) => item(n).iconPath.id), ['organization', 'account', 'account']);
-    assert.deepStrictEqual(roots.map((n) => item(n).id), ['owner:c3-sahn:c3-e', 'owner:c3-sahn:c3-sahn', 'owner:seanahn:seanahn'], 'ids, so VS Code remembers what is open');
+    assert.deepStrictEqual(roots.map((n) => item(n).id), ['owner:co-sahn:co-e', 'owner:co-sahn:co-sahn', 'owner:seanahn:seanahn'], 'ids, so VS Code remembers what is open');
     assert.ok(/Accounts menu/.test(item(roots[2]).tooltip), 'how to sign a VS Code account out');
     assert.ok(/gh CLI/.test(item(roots[1]).tooltip));
 
     // an owner: its recent repos, by name alone, then All repos
     const sean = roots[2];
-    await recent.touch('seanahn', 'seanahn/roost');
-    assert.deepStrictEqual(await labels(sean), ['roost', 'perch', 'All repos']);
+    await recent.touch('seanahn', 'seanahn/rookery');
+    assert.deepStrictEqual(await labels(sean), ['rookery', 'perch', 'All repos']);
     assert.strictEqual(item((await tree.getChildren(sean)).at(-1)).iconPath.id, 'repos', 'All repos: the two-cat icon the page draws');
-    assert.deepStrictEqual(await labels(roots[0]), ['hub', 'All repos'], "c3-e's own, not c3-sahn's");
-    const [roostNode, perchNode, allNode] = await tree.getChildren(sean);
+    assert.deepStrictEqual(await labels(roots[0]), ['hub', 'All repos'], "co-e's own, not co-sahn's");
+    const [rookeryNode, perchNode, allNode] = await tree.getChildren(sean);
     assert.ok(!item(perchNode).description, 'no "private" after the name (Sean: "remove the private")');
-    assert.strictEqual(item(roostNode).description, 'archived');
+    assert.strictEqual(item(rookeryNode).description, 'archived');
     assert.strictEqual(item(perchNode).contextValue, 'repo-remote');
     assert.strictEqual(item(perchNode).iconPath.id, 'github-alt', 'the Octocat without the circle');
     assert.strictEqual(item(perchNode).iconPath.color, undefined, 'not checked out: not green');
@@ -77,18 +77,18 @@ const S = vscode.TreeItemCollapsibleState;
     assert.strictEqual(item(allNode).collapsibleState, S.Collapsed);
 
     // All repos: the account's full list, this owner's part, sorted; read once, then kept on disk
-    assert.deepStrictEqual(await labels(allNode), ['perch', 'roost']);
+    assert.deepStrictEqual(await labels(allNode), ['perch', 'rookery']);
     await tree.getChildren(allNode);
     assert.strictEqual(fullCalls('seanahn'), 1);
     assert.ok(fs.existsSync(path.join(cacheDir, 'repos-seanahn.json')));
     assert.strictEqual(item(allNode).description, '2');
     assert.ok(/^Fetched /.test(item(allNode).tooltip), item(allNode).tooltip);
-    const c3e = await ownerNode('c3-e');
-    assert.deepStrictEqual(await labels((await tree.getChildren(c3e)).at(-1)), ['hub', 'zeta']);
+    const coe = await ownerNode('co-e');
+    assert.deepStrictEqual(await labels((await tree.getChildren(coe)).at(-1)), ['hub', 'zeta']);
 
     // Hide owner: an organization or another owner is left out (any case); an account's own login is not
-    const th = make({ hiddenOwners: () => ['C3-E', 'seanahn'] });
-    assert.deepStrictEqual(await labels(undefined, th), ['c3-sahn', 'c3-taehokgil', 'seanahn', 'zz', 'Hidden']);
+    const th = make({ hiddenOwners: () => ['CO-E', 'seanahn'] });
+    assert.deepStrictEqual(await labels(undefined, th), ['co-sahn', 'co-tara', 'seanahn', 'zz', 'Hidden']);
     // what is hidden stays reachable: a Hidden row last, listing hidden owners then hidden accounts, as set
     const tv = make({ hiddenOwners: () => ['bpmn2', 'tmio'], hiddenAccounts: () => ['old-login'] });
     const hiddenNode = (await tv.getChildren()).at(-1);
@@ -103,17 +103,17 @@ const S = vscode.TreeItemCollapsibleState;
 
     // a new window (another tree on the same folder): owners found only in the kept list show, with no fetch
     const t2 = make();
-    assert.deepStrictEqual(await labels(undefined, t2), ['c3-e', 'c3-sahn', 'c3-taehokgil', 'seanahn', 'zz']);
-    const tae = await ownerNode('c3-taehokgil', t2);
-    assert.strictEqual(t2.getTreeItem(tae).description, 'via c3-sahn');
+    assert.deepStrictEqual(await labels(undefined, t2), ['co-e', 'co-sahn', 'co-tara', 'seanahn', 'zz']);
+    const tae = await ownerNode('co-tara', t2);
+    assert.strictEqual(t2.getTreeItem(tae).description, 'via co-sahn');
     assert.strictEqual(t2.getTreeItem(tae).collapsibleState, S.Collapsed, "another user's repos start closed");
     assert.deepStrictEqual(await labels((await t2.getChildren(tae)).at(-1), t2), ['tool']);
-    assert.strictEqual(fullCalls('c3-sahn'), 1, 'read from disk, not GitHub');
+    assert.strictEqual(fullCalls('co-sahn'), 1, 'read from disk, not GitHub');
     // ⟳: the next All repos is read from GitHub again and the file replaced
     repoLists.seanahn.all = [...repoLists.seanahn.all, R('seanahn/new')];
     t2.refresh();
     const seanAll2 = (await t2.getChildren(await ownerNode('seanahn', t2))).at(-1);
-    assert.deepStrictEqual(await labels(seanAll2, t2), ['new', 'perch', 'roost']);
+    assert.deepStrictEqual(await labels(seanAll2, t2), ['new', 'perch', 'rookery']);
     assert.strictEqual(fullCalls('seanahn'), 2);
     assert.ok(createRepoCache(cacheDir).get('seanahn').repos.some((r) => r.fullName === 'seanahn/new'));
     await t2.getChildren(seanAll2);
@@ -132,7 +132,7 @@ const S = vscode.TreeItemCollapsibleState;
     listings.set('seanahn seanahn/perch src', { entries: [E('x.js', 'file', { path: 'src/x.js' })], truncated: true });
     const top = await tree.getChildren(perchNode);
     assert.deepStrictEqual(top.map((n) => item(n).label), ['src', 'big.bin', 'a.js', 'lib', 'link']);
-    assert.deepStrictEqual(await labels(sean), ['perch', 'roost', 'All repos']);
+    assert.deepStrictEqual(await labels(sean), ['perch', 'rookery', 'All repos']);
     const [srcNode, bigNode, aNode, libNode, linkNode] = top;
     assert.strictEqual(item(srcNode).collapsibleState, S.Collapsed);
     assert.strictEqual(item(aNode).collapsibleState, S.None);
@@ -157,8 +157,8 @@ const S = vscode.TreeItemCollapsibleState;
     assert.strictEqual(calls.filter((c) => c[0] === 'dir' && c[3] === 'src').length, 1, 'cached');
 
     // an empty repo
-    listings.set('c3-sahn c3-e/hub ', new GitHubError('empty', 409, 'This repository is empty.'));
-    const [hub] = await tree.getChildren(c3e);
+    listings.set('co-sahn co-e/hub ', new GitHubError('empty', 409, 'This repository is empty.'));
+    const [hub] = await tree.getChildren(coe);
     assert.deepStrictEqual(await labels(hub), ['Empty repository']);
     assert.strictEqual(item(hub).contextValue, 'repo-remote', 'still offers Check out');
 
@@ -168,8 +168,8 @@ const S = vscode.TreeItemCollapsibleState;
     fs.mkdirSync(path.join(dir, 'docs'));
     fs.writeFileSync(path.join(dir, 'README.md'), 'hi');
     fs.writeFileSync(path.join(dir, 'docs', 'n.md'), 'n');
-    await local.remember('c3-e/hub', { path: dir, login: 'c3-sahn', byGannet: true });
-    const [hubLocal] = await tree.getChildren(c3e);
+    await local.remember('co-e/hub', { path: dir, login: 'co-sahn', byGannet: true });
+    const [hubLocal] = await tree.getChildren(coe);
     assert.strictEqual(item(hubLocal).contextValue, 'repo-local');
     const onDisk = await tree.getChildren(hubLocal);
     assert.deepStrictEqual(onDisk.map((n) => item(n).label), ['docs', 'README.md']);
@@ -179,7 +179,7 @@ const S = vscode.TreeItemCollapsibleState;
     assert.strictEqual(item(onDisk[1]).iconPath, vscode.ThemeIcon.File);
     assert.deepStrictEqual((await tree.getChildren(onDisk[0])).map((n) => item(n).label), ['n.md']);
     // found on disk with no account yet: offers Push as
-    await local.remember('c3-e/hub', { path: dir, login: null, byGannet: false });
+    await local.remember('co-e/hub', { path: dir, login: null, byGannet: false });
     assert.strictEqual(item(hubLocal).contextValue, 'repo-local-foreign');
 
     // several checkouts: green, the workspaces they are in, one node per checkout
@@ -231,9 +231,9 @@ const S = vscode.TreeItemCollapsibleState;
 
     // Review Focus 2: an owner spelled two ways is one node
     {
-      const lists = { x: { orgs: ['c3-e'], pushed: [R('C3-E/up')], all: [] } };
+      const lists = { x: { orgs: ['co-e'], pushed: [R('CO-E/up')], all: [] } };
       const t = make({ accounts: { list: async () => [{ login: 'x', source: 'gh' }] }, clientFor: (l) => ({ listOrgs: async () => lists[l].orgs, listRepos: async ({ sort }) => (sort === 'pushed' ? lists[l].pushed : lists[l].all) }), cache: createRepoCache(path.join(tmp, 'store-case')) });
-      assert.deepStrictEqual(await labels(undefined, t), ['c3-e', 'x']);
+      assert.deepStrictEqual(await labels(undefined, t), ['co-e', 'x']);
       assert.deepStrictEqual(await labels((await t.getChildren())[0], t), ['up', 'All repos']);
     }
 
@@ -249,20 +249,20 @@ const S = vscode.TreeItemCollapsibleState;
     repoLists.seanahn = new GitHubError('auth', 401, 'Bad credentials');
     tree.refresh();
     roots = await tree.getChildren();
-    assert.deepStrictEqual(roots.map((n) => item(n).label), ['c3-e', 'c3-sahn', 'c3-taehokgil', 'seanahn'], "c3-sahn's owners as before (c3-taehokgil from its kept list); seanahn's own node only");
+    assert.deepStrictEqual(roots.map((n) => item(n).label), ['co-e', 'co-sahn', 'co-tara', 'seanahn'], "co-sahn's owners as before (co-tara from its kept list); seanahn's own node only");
     let [err] = await tree.getChildren(roots[3]);
     assert.strictEqual(item(err).label, 'Signed out');
     assert.strictEqual(item(err).command.command, 'gannet.signIn');
     assert.strictEqual(item(roots[3]).collapsibleState, S.Expanded, 'the error shows');
-    repoLists['c3-sahn'] = new GitHubError('auth', 401, 'Bad credentials');
+    repoLists['co-sahn'] = new GitHubError('auth', 401, 'Bad credentials');
     tree.refresh();
-    [err] = await tree.getChildren(await ownerNode('c3-sahn'));
+    [err] = await tree.getChildren(await ownerNode('co-sahn'));
     assert.strictEqual(item(err).description, 'run gh auth login');
-    repoLists.seanahn = new GitHubError('sso', 403, 'SSO', { ssoUrl: 'https://github.com/orgs/c3-e/sso' });
+    repoLists.seanahn = new GitHubError('sso', 403, 'SSO', { ssoUrl: 'https://github.com/orgs/co-e/sso' });
     tree.refresh();
     [err] = await tree.getChildren(await ownerNode('seanahn'));
     assert.strictEqual(item(err).contextValue, 'error-sso');
-    assert.deepStrictEqual(item(err).command.arguments, ['https://github.com/orgs/c3-e/sso']);
+    assert.deepStrictEqual(item(err).command.arguments, ['https://github.com/orgs/co-e/sso']);
     repoLists.seanahn = new GitHubError('rate', 403, 'rate', { retryAt: new Date(2026, 10, 25, 14, 5) });
     tree.refresh();
     [err] = await tree.getChildren(await ownerNode('seanahn'));
@@ -279,7 +279,7 @@ const S = vscode.TreeItemCollapsibleState;
     assert.deepStrictEqual(await labels(goneNode), ['No longer on GitHub']);
     repoLists.seanahn.pushed = [R('seanahn/perch')];
     tree.refresh();
-    assert.deepStrictEqual(await labels(await ownerNode('seanahn')), ['perch', 'roost', 'All repos'], "gone is dropped; roost, used before, is still in the kept list");
+    assert.deepStrictEqual(await labels(await ownerNode('seanahn')), ['perch', 'rookery', 'All repos'], "gone is dropped; rookery, used before, is still in the kept list");
 
     // a refused token is dropped, so after gh auth login and refresh the account works again
     {
@@ -287,12 +287,12 @@ const S = vscode.TreeItemCollapsibleState;
       const t = make({ accounts: { list: async () => accountList, forget: (l) => forgotten.push(l) }, clientFor: () => ({ listOrgs: async () => [], listRepos: async () => { throw new GitHubError('auth', 401, 'Bad credentials'); } }), cache: createRepoCache(path.join(tmp, 'store-x')) });
       const [acct] = await t.getChildren();
       await t.getChildren(acct);
-      assert.deepStrictEqual(forgotten, ['c3-sahn']);
+      assert.deepStrictEqual(forgotten, ['co-sahn']);
     }
 
     // 0.5.0: folders not on GitHub yet show first under the owner row they were put under
     {
-      repoLists['c3-sahn'] = { orgs: ['c3-e'], pushed: [R('c3-e/hub')], all: [R('c3-e/hub')] };   // signed in again
+      repoLists['co-sahn'] = { orgs: ['co-e'], pushed: [R('co-e/hub')], all: [R('co-e/hub')] };   // signed in again
       const nf = createNewFolders({ memento: makeMemento() });
       const ghW = path.join(home, 'github');
       await workspaces.add(ghW);
@@ -302,19 +302,19 @@ const S = vscode.TreeItemCollapsibleState;
       const gone = mk(path.join(ghW, 'gone'));
       const unlisted = mk(path.join(ghW, 'unlisted'));
       fs.mkdirSync(path.join(unlisted, '.git'));
-      fs.writeFileSync(path.join(unlisted, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/c3-e/unlisted.git\n');
+      fs.writeFileSync(path.join(unlisted, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/co-e/unlisted.git\n');
       const pushed = mk(path.join(ghW, 'pushedNow'));
       fs.mkdirSync(path.join(pushed, '.git'));
       const cfg = '[remote "origin"]\n\turl = git@github.com:seanahn/perch.git\n';
       fs.writeFileSync(path.join(pushed, '.git', 'config'), cfg);
-      for (const p of [a, b, gone, unlisted, pushed]) await nf.add({ path: p, owner: 'c3-e', account: 'c3-sahn' });
-      await nf.add({ path: mk(path.join(ghW, 'hiddenOne')), owner: 'nobody', account: 'c3-sahn' });
+      for (const p of [a, b, gone, unlisted, pushed]) await nf.add({ path: p, owner: 'co-e', account: 'co-sahn' });
+      await nf.add({ path: mk(path.join(ghW, 'hiddenOne')), owner: 'nobody', account: 'co-sahn' });
       fs.rmSync(gone, { recursive: true });
       const t = make({ newFolders: nf });
       let fired = 0;
       t.onDidChangeTreeData(() => { fired++; });
-      const c3eNode = await ownerNode('c3-e', t);
-      const kids = await t.getChildren(c3eNode);
+      const coeNode = await ownerNode('co-e', t);
+      const kids = await t.getChildren(coeNode);
       const dim = kids.filter((n) => n.kind === 'newFolder');
       assert.deepStrictEqual(dim.map((n) => n.rec.path), [a, b, unlisted], 'first, in record order; gone and pushed ones not shown');
       assert.strictEqual(kids[0].kind, 'newFolder');
@@ -328,11 +328,11 @@ const S = vscode.TreeItemCollapsibleState;
       assert.deepStrictEqual((await t.getChildren(dim[0])).map((n) => t.getTreeItem(n).label), ['notes.md']);
       // Review Focus 5 and 1: outside every listed workspace, the parent; two of one name, two ids
       assert.strictEqual(t.getTreeItem(dim[1]).description, 'not on GitHub yet · ~/other');
-      const ids = childIds('o:c3-sahn:c3-e', dim);
+      const ids = childIds('o:co-sahn:co-e', dim);
       assert.strictEqual(new Set(ids).size, 2 + 1);
       assert.notStrictEqual(nodeKey(dim[0]), nodeKey(dim[1]));
       // a GitHub origin no list has yet: still waiting
-      assert.strictEqual(t.getTreeItem(dim[2]).description, 'c3-e/unlisted, not on GitHub yet');
+      assert.strictEqual(t.getTreeItem(dim[2]).description, 'co-e/unlisted, not on GitHub yet');
       // gone: dropped; listed (Review Focus 4, another owner): becomes a checkout of seanahn/perch, nothing written
       const left = nf.list().map((r) => r.path);
       assert.ok(!left.includes(gone) && !left.includes(pushed), JSON.stringify(left));
@@ -340,50 +340,50 @@ const S = vscode.TreeItemCollapsibleState;
       assert.deepStrictEqual(local.checkoutsOf('seanahn/perch').filter((c) => c.path === pushed), [{ path: pushed, login: null, byGannet: false }]);
       assert.strictEqual(fs.readFileSync(path.join(pushed, '.git', 'config'), 'utf8'), cfg, 'nothing written in the folder');
       assert.strictEqual(fired, 1, 'redrawn once, so every row of seanahn shows it');
-      assert.ok(!(await t.getChildren(await ownerNode('c3-e', t))).some((n) => n.kind === 'newFolder' && n.rec.path === pushed));
+      assert.ok(!(await t.getChildren(await ownerNode('co-e', t))).some((n) => n.kind === 'newFolder' && n.rec.path === pushed));
       const perch = (await t.getChildren(await ownerNode('seanahn', t))).find((n) => n.repo && n.repo.fullName === 'seanahn/perch');
       assert.strictEqual(t.getTreeItem(perch).iconPath.color.id, 'charts.green');
-      assert.ok(t.isListed('SEANAHN/perch') && !t.isListed('c3-e/unlisted'));
+      assert.ok(t.isListed('SEANAHN/perch') && !t.isListed('co-e/unlisted'));
       // an older repo only All repos lists: the converted folder shows at the owner's top level, not only inside All repos
-      repoLists['c3-sahn'].all = [R('c3-e/hub'), R('c3-e/old')];
+      repoLists['co-sahn'].all = [R('co-e/hub'), R('co-e/old')];
       const old = mk(path.join(ghW, 'oldone'));
       fs.mkdirSync(path.join(old, '.git'));
-      fs.writeFileSync(path.join(old, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/c3-e/old.git\n');
-      await nf.add({ path: old, owner: 'c3-e', account: 'c3-sahn' });
+      fs.writeFileSync(path.join(old, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/co-e/old.git\n');
+      await nf.add({ path: old, owner: 'co-e', account: 'co-sahn' });
       const t2 = make({ newFolders: nf, cache: createRepoCache(fs.mkdtempSync(path.join(tmp, 'cache2-'))) });   // not the kept list of earlier blocks
-      await t2.fullList('c3-sahn');
-      await t2.getChildren(await ownerNode('c3-e', t2));
-      const top = await t2.getChildren(await ownerNode('c3-e', t2));
-      assert.ok(top.some((n) => n.kind === 'repo' && n.repo.fullName === 'c3-e/old'), top.map((n) => n.kind + ':' + (n.repo ? n.repo.fullName : '')).join(' '));
+      await t2.fullList('co-sahn');
+      await t2.getChildren(await ownerNode('co-e', t2));
+      const top = await t2.getChildren(await ownerNode('co-e', t2));
+      assert.ok(top.some((n) => n.kind === 'repo' && n.repo.fullName === 'co-e/old'), top.map((n) => n.kind + ':' + (n.repo ? n.repo.fullName : '')).join(' '));
       // no newFolders: no rows
-      assert.ok(!(await make().getChildren(await ownerNode('c3-e'))).some((n) => n.kind === 'newFolder'));
+      assert.ok(!(await make().getChildren(await ownerNode('co-e'))).some((n) => n.kind === 'newFolder'));
     }
     // 0.5.6: a repo checked out on this machine ranks ahead of GitHub's pushed order, most recently worked on first
     {
-      const pushed = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'sec'].map((n) => R('c3-e/' + n));
-      const saved = repoLists['c3-sahn'];
-      repoLists['c3-sahn'] = { orgs: ['c3-e'], pushed, all: pushed };
+      const pushed = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'sec'].map((n) => R('co-e/' + n));
+      const saved = repoLists['co-sahn'];
+      repoLists['co-sahn'] = { orgs: ['co-e'], pushed, all: pushed };
       try {
         const sec = path.join(tmp, 'sec-checkout');
         fs.mkdirSync(path.join(sec, '.git', 'logs'), { recursive: true });
         fs.writeFileSync(path.join(sec, '.git', 'logs', 'HEAD'), 'x');
         const loc = createLocalRepos({ memento: makeMemento(), home });
-        await loc.remember('C3-E/sec', { path: sec });
+        await loc.remember('CO-E/sec', { path: sec });
         const t3 = make({ local: loc, recent: createRecent(makeMemento()), cache: createRepoCache(fs.mkdtempSync(path.join(tmp, 'cache3-'))) });
-        const kids = await t3.getChildren(await ownerNode('c3-e', t3));
+        const kids = await t3.getChildren(await ownerNode('co-e', t3));
         const names = kids.filter((n) => n.kind === 'repo').map((n) => n.repo.fullName);
-        assert.strictEqual(names[0], 'c3-e/sec', names.join(' '));
+        assert.strictEqual(names[0], 'co-e/sec', names.join(' '));
         assert.strictEqual(names.length, 10);
         // 0.5.7: Recent rows and All repos rows say where they sit; a repo taken out gives way to the next
         assert.ok(kids.filter((n) => n.kind === 'repo').every((n) => n.place === 'recent'));
         const allG = kids.find((n) => n.kind === 'group');
         assert.ok((await t3.getChildren(allG)).every((n) => n.place === 'all'));
         const rec3 = createRecent(makeMemento());
-        await rec3.drop('c3-sahn', 'c3-e/sec');
+        await rec3.drop('co-sahn', 'co-e/sec');
         const t4 = make({ local: loc, recent: rec3, cache: createRepoCache(fs.mkdtempSync(path.join(tmp, 'cache4-'))) });
-        const names4 = (await t4.getChildren(await ownerNode('c3-e', t4))).filter((n) => n.kind === 'repo').map((n) => n.repo.fullName);
-        assert.ok(!names4.includes('c3-e/sec') && names4.length === 10 && names4[9] === 'c3-e/p10', names4.join(' '));
-      } finally { repoLists['c3-sahn'] = saved; }
+        const names4 = (await t4.getChildren(await ownerNode('co-e', t4))).filter((n) => n.kind === 'repo').map((n) => n.repo.fullName);
+        assert.ok(!names4.includes('co-e/sec') && names4.length === 10 && names4[9] === 'co-e/p10', names4.join(' '));
+      } finally { repoLists['co-sahn'] = saved; }
     }
     console.log('TREE OK');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }

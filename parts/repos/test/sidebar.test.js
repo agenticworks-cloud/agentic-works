@@ -27,7 +27,7 @@ const { GannetSidebar } = require('../src/sidebar.js');
     assert.strictEqual(view._posted[1].type, 'rows');
     assert.strictEqual(view._posted[1].parent, null);
     const owner = view._posted[1].rows[0];
-    assert.strictEqual(owner.label, 'c3-e');
+    assert.strictEqual(owner.label, 'co-e');
     await view._send({ type: 'expand', id: owner.id });
     assert.strictEqual(view._posted.at(-1).parent, owner.id);
     // Review Focus 1: unknown ids and messages are ignored
@@ -61,7 +61,7 @@ const { GannetSidebar } = require('../src/sidebar.js');
     await view._send({ type: 'ws', act: 'add' });
     assert.deepStrictEqual(rec.executed.at(-1), { id: 'gannet.addWorkspace', args: [] });
     // a right-click's context names the row
-    assert.strictEqual(sidebar.resolve({ webviewSection: 'row', nodeId: owner.id }).owner, 'c3-e');
+    assert.strictEqual(sidebar.resolve({ webviewSection: 'row', nodeId: owner.id }).owner, 'co-e');
     assert.strictEqual(sidebar.resolve({ nodeId: 'gone' }), undefined);
     const node = sidebar.resolve({ nodeId: owner.id });
     assert.strictEqual(sidebar.resolve(node), node, 'a node passes through');
@@ -96,16 +96,16 @@ const { GannetSidebar } = require('../src/sidebar.js');
       assert.strictEqual(sb.resolve({ nodeId: aId + '/i:old' }), undefined, 'nor remembered');
     }
     // 0.5.0: New Folder from the panel; a drop moves a new folder onto an owner, and nothing else moves
-    await view._send({ type: 'ws', act: 'create', path: gh, name: 'newthing', owner: 'c3-e', account: 'c3-sahn' });
-    assert.deepStrictEqual(rec.executed.at(-1), { id: 'gannet.newFolder', args: [{ path: gh, name: 'newthing', owner: 'c3-e', account: 'c3-sahn' }] });
+    await view._send({ type: 'ws', act: 'create', path: gh, name: 'newthing', owner: 'co-e', account: 'co-sahn' });
+    assert.deepStrictEqual(rec.executed.at(-1), { id: 'gannet.newFolder', args: [{ path: gh, name: 'newthing', owner: 'co-e', account: 'co-sahn' }] });
     const nCheck = view._posted.length;
     await view._send({ type: 'checkName', path: gh, name: 'x' });
     assert.strictEqual(view._posted.length, nCheck, 'no checker: no answer');
     {
-      const ownerA = { kind: 'owner', owner: 'c3-e', account: { login: 'c3-sahn' }, own: false };
+      const ownerA = { kind: 'owner', owner: 'co-e', account: { login: 'co-sahn' }, own: false };
       const ownerB = { kind: 'owner', owner: 'seanahn', account: { login: 'seanahn' }, own: true };
-      const nfNode = { kind: 'newFolder', owner: 'c3-e', account: ownerA.account, rec: { path: '/w/x', owner: 'c3-e', account: 'c3-sahn' }, pending: null };
-      const repoNode = { kind: 'repo', account: ownerA.account, repo: { fullName: 'c3-e/hub', name: 'hub' } };
+      const nfNode = { kind: 'newFolder', owner: 'co-e', account: ownerA.account, rec: { path: '/w/x', owner: 'co-e', account: 'co-sahn' }, pending: null };
+      const repoNode = { kind: 'repo', account: ownerA.account, repo: { fullName: 'co-e/hub', name: 'hub' } };
       const hiddenG = { kind: 'hidden' }, hOwner = { kind: 'hiddenOwner', owner: 'bpmn2' }, hAccount = { kind: 'hiddenAccount', login: 'old' };
       const small = {
         onDidChangeTreeData: () => {},
@@ -131,7 +131,7 @@ const { GannetSidebar } = require('../src/sidebar.js');
       await v._send({ type: 'expand', id: rA.id });
       const [rNf, rRepo] = v._posted.at(-1).rows;
       await v._send({ type: 'listOwners' });
-      assert.deepStrictEqual(v._posted.at(-1), { type: 'ownerChoices', items: [{ owner: 'c3-e', account: 'c3-sahn', description: 'via c3-sahn' }, { owner: 'seanahn', account: 'seanahn', description: null }] }, 'the owner rows the tree shows');
+      assert.deepStrictEqual(v._posted.at(-1), { type: 'ownerChoices', items: [{ owner: 'co-e', account: 'co-sahn', description: 'via co-sahn' }, { owner: 'seanahn', account: 'seanahn', description: null }] }, 'the owner rows the tree shows');
       for (const [name, message, error] of [['..', 'no', true], ['old', 'old exists: it will be put under an owner', false], ['fresh', null, false]]) {
         await v._send({ type: 'checkName', path: '/w', name });
         assert.deepStrictEqual(v._posted.at(-1), { type: 'nameCheck', path: '/w', name, message, error });
@@ -155,12 +155,12 @@ const { GannetSidebar } = require('../src/sidebar.js');
     }
     // 0.5.7: Recent ⇄ All repos, by drop or by button; only a repo of that owner, from the other place
     {
-      const acct = { login: 'c3-sahn' };
-      const owner = { kind: 'owner', owner: 'c3-e', account: acct, own: false };
+      const acct = { login: 'co-sahn' };
+      const owner = { kind: 'owner', owner: 'co-e', account: acct, own: false };
       const other = { kind: 'owner', owner: 'zz', account: acct, own: false };
-      const all = { kind: 'group', which: 'all', owner: 'c3-e', account: acct };
-      const hub = { kind: 'repo', place: 'recent', account: acct, repo: { fullName: 'c3-e/hub', name: 'hub', owner: 'c3-e' } };
-      const zeta = { kind: 'repo', place: 'all', account: acct, repo: { fullName: 'C3-E/zeta', name: 'zeta', owner: 'C3-E' } };
+      const all = { kind: 'group', which: 'all', owner: 'co-e', account: acct };
+      const hub = { kind: 'repo', place: 'recent', account: acct, repo: { fullName: 'co-e/hub', name: 'hub', owner: 'co-e' } };
+      const zeta = { kind: 'repo', place: 'all', account: acct, repo: { fullName: 'CO-E/zeta', name: 'zeta', owner: 'CO-E' } };
       const small = {
         onDidChangeTreeData: () => {},
         getTreeItem: (n) => ({ label: n.owner || (n.repo && n.repo.name) || 'All repos', collapsibleState: n.kind === 'repo' ? 0 : 1,

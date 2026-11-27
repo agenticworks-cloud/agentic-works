@@ -67,7 +67,7 @@ class GannetFs {
   }
 
   watch() { return { dispose() {} }; }
-  readonly() { throw this.vscode.FileSystemError.NoPermissions('Gannet: files on GitHub are read-only; check the repo out to edit'); }
+  readonly() { throw this.vscode.FileSystemError.NoPermissions('Repos: files on GitHub are read-only; check the repo out to edit'); }
   writeFile() { this.readonly(); }
   delete() { this.readonly(); }
   rename() { this.readonly(); }

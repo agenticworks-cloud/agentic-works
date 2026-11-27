@@ -67,8 +67,8 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
 
     // Check out to…: into the picked folder; VS Code refusing the folder offers Add to workspace
     opts.refuseFolders = true;
-    await vscode.commands.executeCommand('gannet.checkoutTo', { kind: 'repo', account, repo: { ...repo, fullName: 'seanahn/roost', name: 'roost' } });
-    assert.ok(fs.existsSync(path.join(tmp, 'picked', 'roost', 'a.txt')));
+    await vscode.commands.executeCommand('gannet.checkoutTo', { kind: 'repo', account, repo: { ...repo, fullName: 'seanahn/rookery', name: 'rookery' } });
+    assert.ok(fs.existsSync(path.join(tmp, 'picked', 'rookery', 'a.txt')));
     const refused = rec.messages.at(-1);
     assert.ok(refused.items.includes('Add to workspace'), JSON.stringify(refused));
     opts.refuseFolders = false;
@@ -90,27 +90,27 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
 
     // Hide account writes the user setting
     await vscode.commands.executeCommand('gannet.hideAccount', { kind: 'account', account });
-    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'gannet.hiddenAccounts', v: ['seanahn'], target: vscode.ConfigurationTarget.Global });
+    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'repos.hiddenAccounts', v: ['seanahn'], target: vscode.ConfigurationTarget.Global });
 
     // Hide owner writes its own setting; an account node is not an owner to hide
     await vscode.commands.executeCommand('gannet.hideOwner', { kind: 'owner', account, owner: 'bpmn2', own: false });
-    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'gannet.hiddenOwners', v: ['bpmn2'], target: vscode.ConfigurationTarget.Global });
+    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'repos.hiddenOwners', v: ['bpmn2'], target: vscode.ConfigurationTarget.Global });
     const writes = rec.configWrites.length;
     await vscode.commands.executeCommand('gannet.hideOwner', { kind: 'owner', account, owner: 'seanahn', own: true });
     await vscode.commands.executeCommand('gannet.hideOwner', { kind: 'owner', account, owner: 'BPMN2', own: false });
     assert.strictEqual(rec.configWrites.length, writes, 'own login and an owner already hidden: no write');
     // Show Owner / Show Account take a hidden one back out of its setting (any case); the rest stay
-    vscode._config['gannet.hiddenOwners'] = ['bpmn2', 'tmio'];
+    vscode._config['repos.hiddenOwners'] = ['bpmn2', 'tmio'];
     await vscode.commands.executeCommand('gannet.showOwner', { kind: 'hiddenOwner', owner: 'BPMN2' });
-    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'gannet.hiddenOwners', v: ['tmio'], target: vscode.ConfigurationTarget.Global });
-    vscode._config['gannet.hiddenAccounts'] = ['old', 'other'];
+    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'repos.hiddenOwners', v: ['tmio'], target: vscode.ConfigurationTarget.Global });
+    vscode._config['repos.hiddenAccounts'] = ['old', 'other'];
     await vscode.commands.executeCommand('gannet.showAccount', { kind: 'hiddenAccount', login: 'old' });
-    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'gannet.hiddenAccounts', v: ['other'], target: vscode.ConfigurationTarget.Global });
+    assert.deepStrictEqual(rec.configWrites.at(-1), { key: 'repos.hiddenAccounts', v: ['other'], target: vscode.ConfigurationTarget.Global });
     const nW = rec.configWrites.length;
     await vscode.commands.executeCommand('gannet.showOwner', { kind: 'owner', owner: 'tmio' });
     await vscode.commands.executeCommand('gannet.showOwner', { kind: 'hiddenOwner', owner: 'nothidden' });
     assert.strictEqual(rec.configWrites.length, nW, 'only a hidden one, and only when it is hidden');
-    vscode._config['gannet.hiddenOwners'] = []; vscode._config['gannet.hiddenAccounts'] = [];
+    vscode._config['repos.hiddenOwners'] = []; vscode._config['repos.hiddenAccounts'] = [];
     for (const [id, item] of [['gannet.showOwner', 'hidden-owner'], ['gannet.showAccount', 'hidden-account']]) {
       assert.strictEqual(manifest.contributes.menus.commandPalette.find((m) => m.command === id).when, 'false', id);
       assert.ok(manifest.contributes.menus['webview/context'].some((m) => m.command === id && m.when.includes(`viewItem == ${item}`)), id);
@@ -192,6 +192,23 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       await ext.deactivate();
     }
 
+    // in Agentic Works: the standalone Gannet's directories come along, and its shim (named by its checkouts) runs this helper
+    {
+      const hS = path.join(t, 'hS');
+      const F2 = path.join(t, 'F2');
+      fs.mkdirSync(F2);
+      const gs = path.join(t, 'gs');
+      fs.mkdirSync(path.join(gs, 'seanahn.gannet'), { recursive: true });
+      fs.writeFileSync(path.join(gs, 'seanahn.gannet', 'machine.json'), JSON.stringify({ 'gannet.workspaces': [F2] }));
+      fs.writeFileSync(path.join(gs, 'seanahn.gannet', 'gannet-credential'), '#!/bin/sh\nexec "/gone/bin/gannet-credential.js"\n');
+      const c = { globalState: makeMemento(), subscriptions: [], globalStorageUri: Uri.file(path.join(gs, 'agenticworks.agentic-works')), extensionPath: path.join(__dirname, '..') };
+      await ext.activateWith(c, { run, fetch, home: hS });
+      assert.ok(machine(c)['gannet.workspaces'].includes(F2), 'the standalone\'s directories carried over');
+      const old = fs.readFileSync(path.join(gs, 'seanahn.gannet', 'gannet-credential'), 'utf8');
+      assert.ok(old.includes(path.join(__dirname, '..', 'bin', 'gannet-credential.js')) && !old.includes('/gone/'), 'its shim runs this helper');
+      await ext.deactivate();
+    }
+
     // Final review: the first question's Choose a folder… refuses a git repo, as + does
     {
       const hC = path.join(t, 'hC');
@@ -217,7 +234,7 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       const c = ctx('storeB');
       opts.folders = [path.join(tmp, 'ws')];
       // seanahn was hidden above; here GitHub lists seanahn/perch, so the page's rows reach its checkouts
-      await vscode.workspace.getConfiguration('gannet').update('hiddenAccounts', [], vscode.ConfigurationTarget.Global);
+      await vscode.workspace.getConfiguration('repos').update('hiddenAccounts', [], vscode.ConfigurationTarget.Global);
       const ghRepos = [{ full_name: 'seanahn/perch', owner: { login: 'seanahn' }, name: 'perch', clone_url: bare, html_url: 'https://github.com/seanahn/perch', default_branch: 'main' }];
       const fetchB = async (url) => ({ status: 200, ok: true, headers: { get: () => null }, json: async () => (/\/user\/repos/.test(String(url)) ? ghRepos : []) });
       await ext.activateWith(c, { run, fetch: fetchB, home: hB });
@@ -230,7 +247,7 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       await ckout('perch');
       assert.strictEqual(picks(), before + 1);
       const first = rec.quickPicks.at(-1);
-      assert.strictEqual(first.opts.title, 'Where should Gannet check out repos?');
+      assert.strictEqual(first.opts.title, 'Where should Repos check out repos?');
       assert.deepStrictEqual(first.items.map((i) => [i.label, i.description]), [['~/github', 'will be created'], ['Choose a folder…', undefined]]);
       assert.ok(fs.existsSync(path.join(ghB, 'perch', 'a.txt')));
       assert.deepStrictEqual(st.workspaces.list(), [ghB]);
@@ -238,9 +255,9 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
 
       // one workspace, a new repo: no question
       before = picks();
-      await ckout('roost');
+      await ckout('rookery');
       assert.strictEqual(picks(), before, 'not asked');
-      assert.ok(fs.existsSync(path.join(ghB, 'roost', 'a.txt')));
+      assert.ok(fs.existsSync(path.join(ghB, 'rookery', 'a.txt')));
 
       // already checked out: asked, Other folder… last; the same workspace gives the next free name
       before = picks();
@@ -366,7 +383,7 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       opts.folders = [path.join(tmp, 'ws')];
       const ghRepos = [
         { full_name: 'seanahn/perch', owner: { login: 'seanahn' }, name: 'perch', clone_url: bare, html_url: 'https://github.com/seanahn/perch', default_branch: 'main' },
-        { full_name: 'c3-e/hub', owner: { login: 'c3-e' }, name: 'hub', clone_url: bare, html_url: 'https://github.com/c3-e/hub', default_branch: 'main' },
+        { full_name: 'co-e/hub', owner: { login: 'co-e' }, name: 'hub', clone_url: bare, html_url: 'https://github.com/co-e/hub', default_branch: 'main' },
       ];
       const fetchN = async (url) => ({ status: 200, ok: true, headers: { get: () => null }, json: async () => (/\/user\/repos/.test(String(url)) ? ghRepos : []) });
       await ext.activateWith(c, { run, fetch: fetchN, home: hN });
@@ -391,17 +408,17 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       await vscode.commands.executeCommand('gannet.newFolder', { path: wsN });
       assert.ok(!fs.existsSync(path.join(wsN, 'newthing')));
       assert.deepStrictEqual(nf(), []);
-      assert.deepStrictEqual(rec.quickPicks.at(-1).items.map((i) => [i.label, i.description]), [['c3-e', 'via seanahn'], ['c3-e', 'via vsuser'], ['seanahn', undefined], ['seanahn', 'via vsuser'], ['vsuser', undefined]], 'the owner rows the sidebar shows');
+      assert.deepStrictEqual(rec.quickPicks.at(-1).items.map((i) => [i.label, i.description]), [['co-e', 'via seanahn'], ['co-e', 'via vsuser'], ['seanahn', undefined], ['seanahn', 'via vsuser'], ['vsuser', undefined]], 'the owner rows the sidebar shows');
 
       // created, recorded before the window changes, added to the window
-      opts.quickPick = pickOwner('c3-e');
+      opts.quickPick = pickOwner('co-e');
       const update = vscode.workspace.updateWorkspaceFolders;
       let recordedFirst = null;
       vscode.workspace.updateWorkspaceFolders = (...a) => { recordedFirst = nf().some((r) => r.path === path.join(wsN, 'newthing')); return update(...a); };
       await vscode.commands.executeCommand('gannet.newFolder', { path: wsN });
       vscode.workspace.updateWorkspaceFolders = update;
       assert.ok(fs.statSync(path.join(wsN, 'newthing')).isDirectory());
-      assert.deepStrictEqual(nf(), [{ path: path.join(wsN, 'newthing'), owner: 'c3-e', account: 'seanahn' }]);
+      assert.deepStrictEqual(nf(), [{ path: path.join(wsN, 'newthing'), owner: 'co-e', account: 'seanahn' }]);
       assert.strictEqual(recordedFirst, true, 'the record is written before the folder is added to the window');
       assert.ok(opts.folders.includes(path.join(wsN, 'newthing')), 'added to the window');
 
@@ -411,7 +428,7 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       opts.inputBox = 'old';
       opts.quickPick = pickOwner('seanahn');
       await vscode.commands.executeCommand('gannet.newFolder', { path: wsN });
-      assert.deepStrictEqual(nf().map((r) => [path.basename(r.path), r.owner]), [['newthing', 'c3-e'], ['old', 'seanahn']]);
+      assert.deepStrictEqual(nf().map((r) => [path.basename(r.path), r.owner]), [['newthing', 'co-e'], ['old', 'seanahn']]);
       assert.strictEqual(rec.folderUpdates.length, ups);
 
       // already recorded, or already a GitHub clone: refused, nothing recorded
@@ -428,7 +445,7 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
 
       // mkdir failing (the name taken by a file after the check): an error, nothing recorded
       opts.inputBox = (o) => { fs.writeFileSync(path.join(wsN, 'race'), 'x'); return 'race'; };
-      opts.quickPick = pickOwner('c3-e');
+      opts.quickPick = pickOwner('co-e');
       e0 = errs();
       await vscode.commands.executeCommand('gannet.newFolder', { path: wsN });
       assert.strictEqual(errs(), e0 + 1);
@@ -436,32 +453,32 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
 
       // typed in place in the sidebar: the name comes with the command, no input box; the page asks for the check
       const nBoxes = rec.inputBoxes.length;
-      opts.quickPick = pickOwner('c3-e');
+      opts.quickPick = pickOwner('co-e');
       const nPicks = rec.quickPicks.length;
-      await vscode.commands.executeCommand('gannet.newFolder', { path: wsN, name: 'inplace', owner: 'c3-e', account: 'seanahn' });
+      await vscode.commands.executeCommand('gannet.newFolder', { path: wsN, name: 'inplace', owner: 'co-e', account: 'seanahn' });
       assert.strictEqual(rec.inputBoxes.length, nBoxes);
       assert.strictEqual(rec.quickPicks.length, nPicks, 'the owner was picked in place');
-      assert.deepStrictEqual(nf().find((r) => r.path === path.join(wsN, 'inplace')), { path: path.join(wsN, 'inplace'), owner: 'c3-e', account: 'seanahn' });
+      assert.deepStrictEqual(nf().find((r) => r.path === path.join(wsN, 'inplace')), { path: path.join(wsN, 'inplace'), owner: 'co-e', account: 'seanahn' });
       assert.ok(nf().some((r) => r.path === path.join(wsN, 'inplace')));
       const view = vscode._resolveView('gannet.main');
       await view._send({ type: 'listOwners' });
       assert.deepStrictEqual(view._posted.at(-1).items.map((i) => [i.owner, i.account, i.description]),
-        [['c3-e', 'seanahn', 'via seanahn'], ['c3-e', 'vsuser', 'via vsuser'], ['seanahn', 'seanahn', null], ['seanahn', 'vsuser', 'via vsuser'], ['vsuser', 'vsuser', null]]);
+        [['co-e', 'seanahn', 'via seanahn'], ['co-e', 'vsuser', 'via vsuser'], ['seanahn', 'seanahn', null], ['seanahn', 'vsuser', 'via vsuser'], ['vsuser', 'vsuser', null]]);
       await view._send({ type: 'checkName', path: wsN, name: 'inplace' });
       assert.deepStrictEqual(view._posted.at(-1), { type: 'nameCheck', path: wsN, name: 'inplace', message: 'inplace is already under an owner.', error: true });
       fs.mkdirSync(path.join(wsN, 'plain'));
       await view._send({ type: 'checkName', path: wsN, name: 'plain' });
       assert.deepStrictEqual(view._posted.at(-1), { type: 'nameCheck', path: wsN, name: 'plain', message: 'plain exists: it will be put under an owner', error: false });
-      await vscode.commands.executeCommand('gannet.forgetNewFolder', { kind: 'newFolder', owner: 'c3-e', account: { login: 'seanahn' }, rec: { path: path.join(wsN, 'inplace') } });
+      await vscode.commands.executeCommand('gannet.forgetNewFolder', { kind: 'newFolder', owner: 'co-e', account: { login: 'seanahn' }, rec: { path: path.join(wsN, 'inplace') } });
       // Move to Owner… (picked, or dropped on a row) and Forget
-      const node = { kind: 'newFolder', owner: 'c3-e', account: { login: 'seanahn' }, rec: nf()[0], pending: null };
+      const node = { kind: 'newFolder', owner: 'co-e', account: { login: 'seanahn' }, rec: nf()[0], pending: null };
       opts.quickPick = pickOwner('seanahn');
       await vscode.commands.executeCommand('gannet.moveNewFolder', node);
       assert.deepStrictEqual(nf()[0], { path: path.join(wsN, 'newthing'), owner: 'seanahn', account: 'seanahn' });
       const before = rec.quickPicks.length;
-      await vscode.commands.executeCommand('gannet.moveNewFolder', node, { kind: 'owner', owner: 'c3-e', account: { login: 'seanahn' } });
+      await vscode.commands.executeCommand('gannet.moveNewFolder', node, { kind: 'owner', owner: 'co-e', account: { login: 'seanahn' } });
       assert.strictEqual(rec.quickPicks.length, before, 'a drop asks nothing');
-      assert.deepStrictEqual(nf()[0].owner, 'c3-e');
+      assert.deepStrictEqual(nf()[0].owner, 'co-e');
       await vscode.commands.executeCommand('gannet.forgetNewFolder', node);
       assert.deepStrictEqual(nf().map((r) => path.basename(r.path)), ['old']);
       assert.ok(fs.existsSync(path.join(wsN, 'newthing')), 'the folder stays');
@@ -527,10 +544,10 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
 
     // where 0.1.0 kept repos in globalState, those still on disk carry over, with their push account
     {
-      const old = path.join(ghB, 'roost');
-      const c6 = { globalState: makeMemento({ 'gannet.local': { 'seanahn/roost': { path: old, login: 'seanahn', byGannet: true }, 'x/gone': { path: path.join(t, 'nowhere'), login: 'x', byGannet: true } } }), subscriptions: [], globalStorageUri: Uri.file(path.join(t, 'store-m')), extensionPath: path.join(__dirname, '..') };
+      const old = path.join(ghB, 'rookery');
+      const c6 = { globalState: makeMemento({ 'gannet.local': { 'seanahn/rookery': { path: old, login: 'seanahn', byGannet: true }, 'x/gone': { path: path.join(t, 'nowhere'), login: 'x', byGannet: true } } }), subscriptions: [], globalStorageUri: Uri.file(path.join(t, 'store-m')), extensionPath: path.join(__dirname, '..') };
       await ext.activateWith(c6, { run, fetch, home: hB });
-      assert.strictEqual(ext._state().local.checkoutsOf('seanahn/roost')[0].login, 'seanahn');
+      assert.strictEqual(ext._state().local.checkoutsOf('seanahn/rookery')[0].login, 'seanahn');
       assert.deepStrictEqual(ext._state().local.checkoutsOf('x/gone'), []);
       await ext.deactivate();
     }
