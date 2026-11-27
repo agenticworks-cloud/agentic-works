@@ -104,7 +104,7 @@ the box, and offers:
 - **Edit** — closes the strip, focus back in the box.
 - **Why?** — the rule's name and a one-line description of what it matches.
 
-**Settings.** `perch.secretCheck.enabled` (default `true`) switches the check off. `perch.secretCheck.ignore`: a list of
+**Settings.** `agents.secretCheck.enabled` (default `true`) switches the check off. `agents.secretCheck.ignore`: a list of
 regular expressions; a matched value that any of them matches in full is never flagged (a trace-id or
 build-id format, say). An invalid expression is skipped, with one note in the tab.
 

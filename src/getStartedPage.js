@@ -8,7 +8,7 @@
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
 // Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting, details }], email: { domain, value }
-//   or null, claude: { companyGateway, keyCommand, keyRunning }, agents: { autoTab, openTab }, github: { logins }, teams: { rowId,
+//   or null, claude: { companyGateway, keyCommand, keyRunning }, secretCheck: { on, offHere }, agents: { autoTab, openTab }, github: { logins }, teams: { rowId,
 //   note, code }, jira: { rowId, site, email, form }, parts: [{ id, title, on }] }
 //   (agents.autoTab: the talk step's Claude tab opens by itself, so no New Claude Tab / New Codex Tab; openTab: offer
 //   Open Claude Tab, no Perch tab being open. teams.code: { userCode, verificationUri } while the page's Teams sign-in
@@ -19,7 +19,7 @@
 //   email {error} (null once saved).
 // Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message: getKey runs the company's
 //   key helper when there is one; cancelKey stops it; keyPage opens its key page); github; newTab {kind}; openTab; teamsCopyCode; teamsCancel;
-//   notNow {step}; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; emailSave {email}; part {id, on}; partsDone;
+//   notNow {step}; secretsOn; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; emailSave {email}; part {id, on}; partsDone;
 //   openSettings; tool {message} (a tools row's message, {type, id, ...}); openLink {url} (a link clicked in the
 //   details: the host opens it if it is https). No VS Code dependency.
 
@@ -199,6 +199,24 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
         v.rows();
       };
       v.jiraError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; };
+    },
+
+    // the Agents part's secret check: on unless the state says it is off; done only when a button is pressed
+    secrets(v) {
+      v.status = el('p');
+      v.offHere = el('p', 'muted', "This workspace's .vscode/settings.json turns it off; Turn it on takes that out.");
+      v.keep = button('Keep it on', '', () => post({ type: 'secretsOn' }));
+      v.turnOn = button('Turn it on', '', () => post({ type: 'secretsOn' }));
+      v.secretsNotNow = button('Not Now', 'secondary', () => post({ type: 'notNow', step: 'secrets' }));
+      v.body.append(v.status, v.offHere,
+        el('p', 'muted', 'A message that looks like it holds a password or key waits for you before it goes to Claude or Codex.'),
+        row(v.keep, v.turnOn, v.secretsNotNow));
+      v.update = (s) => {
+        const on = !(s.secretCheck && s.secretCheck.on === false);
+        v.status.textContent = on ? 'The secret check is on.' : 'The secret check is off.';
+        v.offHere.hidden = on || !(s.secretCheck && s.secretCheck.offHere);
+        v.keep.hidden = !on; v.turnOn.hidden = on; v.secretsNotNow.hidden = on;
+      };
     },
 
     codebase(v) {

@@ -1066,6 +1066,22 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   `claude.keyRunning` tells a page opened or reloaded mid-run that a key is being fetched; the page only takes
   *running* from it, so a state sent before a run's answer can't end that run early *(my call)*. The gateway panel
   keeps its own waiting text, without Cancel *(my call: Get started is where the wait was missed)*.
+- **A step for the secret check — Built (1.0.4)** *(Sean, 2026-11-27: "agenticworks support secret checks on user
+  prompts, right? can we have a step before [the code search] step?"; "by default it should be turned on")*. The Agents
+  part's check (note 110 in parts/agents) runs before every message and is on by default, but no one heard of it until
+  it fired. **Check messages for secrets** comes just before **Search your code by meaning**, in both orders, while the
+  Agents part is on. It says whether the check is on (`agents.secretCheck.enabled`, unset is on), and its details list
+  what it catches and the four ways through for a value that only looks like a key: Send anyway, Not a secret (its hash
+  kept for good), Off for this repo, and `agents.secretCheck.ignore` for a whole format.
+  - On: **Keep it on**. Off: **Turn it on** and **Not Now**; when this workspace's settings turned it off (Off for this
+    repo), the step says so. No off button *(Sean: on by default)*.
+  - **Turn it on** removes a `false` at the user and workspace levels, so the default holds, rather than writing
+    `true` *(my call: a user who never set it keeps no setting)*. A folder's own `false` in a multi-root workspace is
+    left; **Agents: Turn the Secret Check On for This Folder** is for that.
+  - Done only when a button is pressed, not from the setting, so the step is read once even though the check is
+    already on *(my call)*. `notes.secrets` gives the company's own text; the name isn't the company file's to change,
+    like the code search step's *(my call)*. Not added to VS Code's walkthrough *(my call: Get started is the page
+    people use)*.
 
 ## Left to the builder
 

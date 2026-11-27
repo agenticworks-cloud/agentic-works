@@ -493,6 +493,31 @@ assert.deepStrictEqual(out.pop(), { type: 'openSettings' });
   host({ type: 'agents', replies: [{ type: 'gatewaySaved', state: { tokenSet: true } }], of: 'getKey' });
 }
 
+{
+// secrets: on (the default): Keep it on, no Not Now; off: Turn it on and Not Now, and why when this workspace turned it off
+const secretsState = (secretCheck) => st({ secretCheck, steps: [S('secrets', 'Check messages for secrets')] });
+host({ type: 'state', state: secretsState(undefined) });
+assert.ok(open().includes('secrets'), 'the only step not done: open');
+const sec = step('secrets');
+const says = (t) => [...sec.querySelectorAll('p')].some((x) => shown(x) && x.textContent.includes(t));
+assert.ok(says('The secret check is on.'), 'no word from the host: on, the default');
+assert.ok(!!button(sec, 'Keep it on') && !button(sec, 'Turn it on') && !button(sec, 'Not Now'));
+button(sec, 'Keep it on').click();
+assert.deepStrictEqual(out.pop(), { type: 'secretsOn' });
+host({ type: 'state', state: secretsState({ on: false, offHere: false }) });
+assert.ok(says('The secret check is off.') && !says('The secret check is on.'));
+assert.ok(!button(sec, 'Keep it on') && !!button(sec, 'Turn it on') && !!button(sec, 'Not Now'));
+assert.ok(!says('.vscode/settings.json'));
+button(sec, 'Turn it on').click();
+assert.deepStrictEqual(out.pop(), { type: 'secretsOn' });
+button(sec, 'Not Now').click();
+assert.deepStrictEqual(out.pop(), { type: 'notNow', step: 'secrets' });
+host({ type: 'state', state: secretsState({ on: false, offHere: true }) });
+assert.ok(says("This workspace's .vscode/settings.json turns it off; Turn it on takes that out."));
+host({ type: 'state', state: secretsState({ on: true, offHere: false }) });
+assert.ok(!!button(sec, 'Keep it on') && !says('.vscode/settings.json'));
+}
+
 // words from the company file are text, never markup
 host({ type: 'state', state: st({ title: '<img src=x onerror=alert(1)>', steps: [S('parts', '<b>x</b>')], parts: [{ id: 'odd', title: '<i>odd</i>', on: true }] }) });
 assert.strictEqual(d.querySelector('img'), null);

@@ -278,7 +278,7 @@ function email(e, notes) {
 // keyed as steps is (gateway, talk) or by step id; markdown, rendered by the page's details renderer (escaped, https
 // links only). A bad one is dropped with a note; the rest stay.
 const NOTE_KEYS = { github: 'github', email: 'email', gateway: 'claude', talk: 'agents', tools: 'tools', teams: 'teams',
-  jira: 'jira', codebase: 'codebase', parts: 'parts' };
+  jira: 'jira', secrets: 'secrets', codebase: 'codebase', parts: 'parts' };
 const NOTE_MAX = 2000;
 function stepNotes(n, notes) {
   const out = {};

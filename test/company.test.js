@@ -92,9 +92,9 @@ assert.deepStrictEqual(min.notes, []);
 }
 // notes: the company's own text at the top of a step's details, keyed as steps is (gateway, talk) or by step id
 {
-  const r = read({ name: 'N', notes: { github: 'Create your own account.\n\nThen ask for access.', gateway: 'Ask IT.', talk: 'Say hi.' } });
+  const r = read({ name: 'N', notes: { github: 'Create your own account.\n\nThen ask for access.', gateway: 'Ask IT.', talk: 'Say hi.', secrets: 'Report a leaked key to security.' } });
   assert.strictEqual(r.ok, true, r.error);
-  assert.deepStrictEqual(r.company.notes, { github: 'Create your own account.\n\nThen ask for access.', claude: 'Ask IT.', agents: 'Say hi.' });
+  assert.deepStrictEqual(r.company.notes, { github: 'Create your own account.\n\nThen ask for access.', claude: 'Ask IT.', agents: 'Say hi.', secrets: 'Report a leaked key to security.' });
   assert.deepStrictEqual(r.notes, []);
   // a bad note is dropped with a note; the rest stay
   const bad = read({ name: 'N', notes: { github: 'ok', nope: 'x', jira: '', teams: 7, parts: 'x'.repeat(2001), codebase: 'a\u0007b' } });

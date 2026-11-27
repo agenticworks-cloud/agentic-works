@@ -35,15 +35,15 @@ const AUTO_TAB_KEY = 'agenticWorks.getStarted.autoTabOpened';
 const AUTO_TAB_RETRIES_MS = [1000, 3000, 10000];
 const OPEN_GATEWAY_TAB = 'agenticWorks.newClaudeGatewayTab';
 const TAB_OPEN = ['opened', 'revealed'];   // perch.openGatewayTab's answers when a tab is there
-const ORDER_COMPANY = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
-const ORDER_AGENTIC_WORKS = ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts'];
+const ORDER_COMPANY = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'secrets', 'codebase', 'parts'];
+const ORDER_AGENTIC_WORKS = ['claude', 'agents', 'teams', 'jira', 'github', 'secrets', 'codebase', 'parts'];
 const STEP_IDS = [...new Set([...ORDER_COMPANY, ...ORDER_AGENTIC_WORKS])];
 const NAMES = {
   github: 'Sign in to GitHub', agents: 'Talk to Claude or Codex', teams: 'Sign in to Teams', jira: 'Connect Jira and Confluence',
-  codebase: 'Search your code by meaning', parts: 'Choose your parts',
+  secrets: 'Check messages for secrets', codebase: 'Search your code by meaning', parts: 'Choose your parts',
 };
 // the part a step belongs to: shown while that part is on and not failed
-const PART_OF = { github: 'pullRequests', claude: 'agents', agents: 'agents', codebase: 'agents', teams: 'teams', jira: 'jira' };
+const PART_OF = { github: 'pullRequests', claude: 'agents', agents: 'agents', secrets: 'agents', codebase: 'agents', teams: 'teams', jira: 'jira' };
 const NOT_NOW = { claude: 'agenticWorks.connectClaudeNotNow', tools: 'agenticWorks.toolsNotNow', codebase: 'agenticWorks.codebaseSearchNotNow' };
 const NEW_TAB = { claude: 'agenticWorks.newClaudeTab', codex: 'agenticWorks.newCodexTab' };
 const GREETING = { fill: 'Hello' };   // typed in the talk step's new tab, whose box takes the focus: Enter sends it
@@ -60,7 +60,7 @@ const asSentence = (line) => { const t = str(line).trim(); return t ? t[0].toUpp
 // chirp.signIn resolved but chirp.signedIn isn't true: cancelled, failed, offline, or the admin-approval wall
 const TEAMS_NOT_SIGNED_IN = "Teams isn't signed in. Try again, or see the Teams view for why.";
 // a configuration change of these refreshes the page
-const WATCHED_SETTINGS = ['agenticWorks', 'agents.codebaseIndex.enabled', 'jira', 'teams.signIn.tokenFile'];
+const WATCHED_SETTINGS = ['agenticWorks', 'agents.codebaseIndex.enabled', 'agents.secretCheck.enabled', 'jira', 'teams.signIn.tokenFile'];
 
 const errorMessage = (e) => (e && e.message) || String(e);
 const str = (v) => (typeof v === 'string' ? v : '');
@@ -209,6 +209,13 @@ class GetStarted {
     return this.markDone(...Object.keys(s).filter((id) => s[id]));
   }
 
+  // the Agents part's secret check (on by default): on in this window, and whether this workspace's settings turned it off
+  secretCheck() {
+    const cfg = this.vscode.workspace.getConfiguration('agents');
+    const at = cfg.inspect('secretCheck.enabled') || {};
+    return { on: cfg.get('secretCheck.enabled') !== false, offHere: at.workspaceValue === false };
+  }
+
   // the address the email step saved, while it is still one on the company's domain
   email() { return companyEmail(this.company(), this.store.get(EMAIL_KEY)); }
 
@@ -265,6 +272,7 @@ class GetStarted {
       agents: { autoTab, openTab: autoTab && this.offerTab() },
       github: { logins: [...this.logins], running: !!gh, code: gh && gh.code ? { ...gh.code } : null, note: this.notes.github },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams, code: teamsCode ? { ...teamsCode } : null },
+      secretCheck: this.secretCheck(),
       jira: { rowId: this.rowFor('jira'), site: jiraSite, email: saved || str(c && c.jira && c.jira.email), form: !(typeof jiraFile === 'string' && jiraFile) },
       parts: [...this.agenticWorks.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.agenticWorks.isEnabled(e.part.id) })),
     };
@@ -365,12 +373,25 @@ class GetStarted {
           break;
         }
         case 'notNow':
-          if (m.step === 'email' && this.shown('email')) { this.markDone('email'); this.refresh(); break; }
+          if ((m.step === 'email' || m.step === 'secrets') && this.shown(m.step)) { this.markDone(m.step); this.refresh(); break; }
           if (!NOT_NOW[m.step]) break;
           this.markDone(m.step);
           this.refresh();
           await run(NOT_NOW[m.step]);
           break;
+        case 'secretsOn': {
+          // Keep it on, or Turn it on: an off at the user or workspace level is taken away, so the default (on) holds
+          const cfg = this.vscode.workspace.getConfiguration('agents');
+          const at = cfg.inspect('secretCheck.enabled') || {};
+          const T = this.vscode.ConfigurationTarget;
+          this.markDone('secrets');
+          try {
+            if (at.globalValue === false) await cfg.update('secretCheck.enabled', undefined, T.Global);
+            if (at.workspaceValue === false) await cfg.update('secretCheck.enabled', undefined, T.Workspace);
+          } catch (err) { this.log(`Get started: could not turn the secret check on: ${errorMessage(err)}`); }
+          this.refresh();
+          break;
+        }
         case 'codebaseOn':
           this.markDone('codebase');
           this.refresh();

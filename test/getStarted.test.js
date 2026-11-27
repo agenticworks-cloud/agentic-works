@@ -183,7 +183,7 @@ test('words and order from the company file; steps of a part that is off are hid
   const s = await pageSetup({ ...EXAMPLE, title: 'Example Works', steps: { gateway: 'Connect Example Gateway' } });
   const st = await s.stateOf();   // the last state posted after ready
   assert.strictEqual(st.title, 'Get started with Example Works');
-  assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts']);
+  assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'secrets', 'codebase', 'parts']);
   assert.deepStrictEqual(st.steps.slice(1, 4).map((x) => x.name), ['Connect Example Gateway', 'Talk to Claude or Codex', 'Connect your tools']);
   assert.deepStrictEqual(st.steps.map((x) => [x.done, x.waiting]), st.steps.map(() => [false, '']));
   assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway', keyCommand: false, keyRunning: false });
@@ -209,7 +209,7 @@ test('email: a step of its own after GitHub when the company file asks; saved, k
   const company = { ...EXAMPLE, email: { domain: 'example.com', env: 'EXAMPLE_EMAIL', example: 'first.last' }, steps: { email: 'Your work email' }, jira: { email: 'old@example.com' } };
   const s = await pageSetup(company);
   let st = await s.stateOf();
-  assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts']);
+  assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'secrets', 'codebase', 'parts']);
   const step = st.steps.find((x) => x.id === 'email');
   assert.deepStrictEqual([step.name, step.done], ['Your work email', false]);
   assert.ok(step.details, 'it has details');
@@ -253,14 +253,14 @@ test('no company file: Agentic Works\' words and order', async () => {
   const s = await pageSetup(null);
   const st = await s.stateOf();
   assert.strictEqual(st.title, 'Get started with Agentic Works');
-  assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts']);
+  assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'secrets', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
-  assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code by meaning', 'Choose your parts']);
+  assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Check messages for secrets', 'Search your code by meaning', 'Choose your parts']);
   assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false, keyRunning: false }, { logins: [], running: false, code: null, note: '' }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
   await s.extension.deactivate();
 });
 
-test('a part that is off or failed hides its steps; Agents off hides Claude, Talk and codebase', async () => {
+test('a part that is off or failed hides its steps; Agents off hides Claude, Talk, secrets and codebase', async () => {
   fake.parts = {};
   const s = await pageSetup(null, { 'agenticWorks.agents.enabled': false, 'agenticWorks.pullRequests.enabled': false });
   assert.deepStrictEqual((await s.stateOf()).steps.map((x) => x.id), ['teams', 'jira', 'parts']);
@@ -738,6 +738,40 @@ test('jiraSignIn with a company row signs it in in place; tool messages go to Co
   assert.ok(!s.ui.panels.some((p) => p.viewType === 'agenticWorks.tools'));
   assert.ok(!JSON.stringify(s.page.posted).includes('tool-secret-3') && !s.ui.out.some((l) => l.includes('tool-secret-3')));
   await s.extension.deactivate();
+});
+
+test('the secret check step: on by default, done only when pressed; Turn it on clears an off at the user or workspace level', async () => {
+  const s = await pageSetup(null);
+  let st = await s.stateOf();
+  assert.deepStrictEqual(st.steps.find((x) => x.id === 'secrets'), { ...st.steps.find((x) => x.id === 'secrets'), name: 'Check messages for secrets', done: false });
+  assert.ok(st.steps.find((x) => x.id === 'secrets').details.includes('Not a secret'), 'the details say how to let a test value through');
+  assert.deepStrictEqual(st.secretCheck, { on: true, offHere: false }, 'unset: on (the default)');
+  // Keep it on: done, nothing written
+  await s.page.receive({ type: 'secretsOn' });
+  assert.strictEqual((await s.step('secrets')).done, true);
+  assert.deepStrictEqual(s.ui.updates.filter((u) => u[0].startsWith('agents.secretCheck')), []);
+  await s.extension.deactivate();
+  // off in the user's settings: Turn it on takes the off away, so the default (on) holds
+  const g = await pageSetup(null, { 'agents.secretCheck.enabled': false });
+  assert.deepStrictEqual((await g.stateOf()).secretCheck, { on: false, offHere: false });
+  await g.page.receive({ type: 'secretsOn' });
+  assert.deepStrictEqual(g.ui.updates.filter((u) => u[0] === 'agents.secretCheck.enabled'), [['agents.secretCheck.enabled', undefined, 1]]);
+  st = await g.stateOf();
+  assert.deepStrictEqual([st.secretCheck, st.steps.find((x) => x.id === 'secrets').done], [{ on: true, offHere: false }, true]);
+  await g.extension.deactivate();
+  // off for this workspace (Off for this repo): said, and Turn it on takes that off away too
+  const w = await pageSetup(null, { 'agents.secretCheck.enabled': false });
+  w.ui.inspect['agents.secretCheck.enabled'] = { workspaceValue: false };
+  w.ui.changeConfig(['agents.secretCheck.enabled']);
+  assert.deepStrictEqual((await w.stateOf()).secretCheck, { on: false, offHere: true });
+  await w.page.receive({ type: 'secretsOn' });
+  assert.deepStrictEqual(w.ui.updates.filter((u) => u[0] === 'agents.secretCheck.enabled'), [['agents.secretCheck.enabled', undefined, 2]]);
+  await w.extension.deactivate();
+  // Not Now leaves it as it is
+  const n = await pageSetup(null, { 'agents.secretCheck.enabled': false });
+  await n.page.receive({ type: 'notNow', step: 'secrets' });
+  assert.deepStrictEqual([(await n.step('secrets')).done, n.ui.updates.length], [true, 0]);
+  await n.extension.deactivate();
 });
 
 test('Not Now, Turn On, Done and All settings run the walkthrough\'s commands and tick their steps; New tab opens one', async () => {

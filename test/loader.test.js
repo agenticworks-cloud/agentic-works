@@ -581,7 +581,7 @@ test('a later start with every step done or Not Now opens nothing', async () => 
   await activateFirst(env);
   await env.extension.deactivate();
   env.base.subscriptions.splice(0).forEach((d) => d.dispose());
-  const all = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
+  const all = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'secrets', 'codebase', 'parts'];
   env.store.set('agenticWorks.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));
   env.order = [];
   env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
@@ -839,7 +839,7 @@ async function toolsSetup(company = EXAMPLE, config = {}, saved = {}, gh = fakeS
   const env = company ? withCompanyFile(company) : setup();
   Object.assign(env.ui.config, config);
   // first start already recorded and every step done: the Get started page would open a panel of its own
-  const allDone = Object.fromEntries(['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'].map((id) => [id, true]));
+  const allDone = Object.fromEntries(['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'secrets', 'codebase', 'parts'].map((id) => [id, true]));
   const state = { 'agenticWorks.firstStart.done': true, 'agenticWorks.getStarted.done': allDone, ...saved };
   env.base.globalState = { get: (k) => state[k], update: async () => {} };
   const fakes = fakeTools();
