@@ -72,14 +72,23 @@ release-publish: release-publish-check
 	gh release create v$(VERSION) dist/agentic-works-install.sh dist/$(VSIX) --repo agenticworks-cloud/agentic-works --title "Agentic Works $(VERSION)" \
 	  --target "$$(git rev-parse HEAD)" --notes-file dist/release-notes.md
 
-## Copy dist/'s installer into the Pages site (a clone of agenticworks-cloud.github.io) as `install`, committed there;
-## pushing it is the owner's step, after release-publish
+## Copy dist/'s installer into the Pages site (a clone of agenticworks-cloud.github.io) as `install`, committed there,
+## once it is byte for byte the published v$(VERSION) one (AGENTIC_WORKS_PUBLISHED_INSTALLER: a local copy, for the
+## tests). Pushing the site is the owner's step, after release-publish
+PUBLISHED_INSTALLER = https://github.com/agenticworks-cloud/agentic-works/releases/download/v$(VERSION)/agentic-works-install.sh
 release-site:
-	@[ -n "$(SITE)" ] && [ -d "$(SITE)/.git" ] || { echo "SITE= must name a clone of the Pages repo"; exit 1; }
+	@[ -n "$(SITE)" ] && git -C "$(SITE)" rev-parse --git-dir > /dev/null 2>&1 || { echo "SITE= must name a clone of the Pages repo"; exit 1; }
 	@grep -q '^AGENTIC_WORKS_VERSION="$(VERSION)"$$' dist/agentic-works-install.sh || { echo "dist/ is stale (not $(VERSION)); run make release"; exit 1; }
+	@pub=$${AGENTIC_WORKS_PUBLISHED_INSTALLER:-}; tmp=""; \
+	  if [ -z "$$pub" ]; then \
+	    tmp=$$(mktemp) && pub=$$tmp; \
+	    curl -fsSL -o "$$tmp" "$(PUBLISHED_INSTALLER)" || { rm -f "$$tmp"; echo "v$(VERSION) isn't published; run make release-publish first"; exit 1; }; \
+	  fi; \
+	  cmp -s "$$pub" dist/agentic-works-install.sh; same=$$?; [ -z "$$tmp" ] || rm -f "$$tmp"; \
+	  [ "$$same" = 0 ] || { echo "dist/agentic-works-install.sh differs from the published v$(VERSION) one; copy the published one"; exit 1; }
 	cp dist/agentic-works-install.sh "$(SITE)/install"
 	git -C "$(SITE)" add install
-	git -C "$(SITE)" commit -q -m "install: Agentic Works $(VERSION)"
+	git -C "$(SITE)" diff --cached --quiet || git -C "$(SITE)" commit -q -m "install: Agentic Works $(VERSION)"
 
 clean:
 	rm -rf dist

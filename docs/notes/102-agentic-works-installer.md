@@ -209,7 +209,7 @@ safety, bash 3.2 compatibility for macOS and stub-based tests. *(Sean: build on 
   without anything company-specific.
 - `agentic-works-install.sh` is **one file** when downloaded: the release step inlines the helper (as a here-document the
   script writes to a temp file and runs with the system `python3`). *(my call: one download, nothing else fetched
-  except the `.vsix`)* The inlined copy is used before a `agentic-works-install-helper` beside the script: run as
+  except the `.vsix`)* The inlined copy is used before an `agentic-works-install-helper` beside the script: run as
   `curl | bash`, the script's own directory is unknown and that lookup would search the current directory, where a
   planted file would run. A source-tree script uses the one beside it; `AGENTIC_WORKS_INSTALL_HELPER` overrides both.
 - **Which Python.** Without a usable `python3`, the settings and icons steps are `–` with a note saying how to

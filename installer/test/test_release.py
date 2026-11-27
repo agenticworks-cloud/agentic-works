@@ -134,20 +134,46 @@ class ReleasePublishCheckTest(unittest.TestCase):
 
 @unittest.skipUnless(SCRIPT.exists() and VSIX.exists(), "run `make release` first")
 class ReleaseSiteTest(unittest.TestCase):
+    """make release-site copies dist/'s installer to the Pages clone, only when it is the published one."""
+
+    def site(self, tmp: Path) -> Path:
+        site = tmp / "site"
+        site.mkdir()
+        subprocess.run(["git", "-C", str(site), "init", "-q"], check=True)
+        subprocess.run(["git", "-C", str(site), "-c", "user.email=t@example.com", "-c", "user.name=t",
+                        "commit", "-q", "--allow-empty", "-m", "empty"], check=True)
+        return site
+
+    def run_site(self, site: Path, published: Path) -> subprocess.CompletedProcess:
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@example.com", "AGENTIC_WORKS_PUBLISHED_INSTALLER": str(published)}
+        return subprocess.run(["make", "-s", "release-site", f"SITE={site}"], cwd=ROOT, env=env,
+                              capture_output=True, text=True, timeout=60)
+
+    def head(self, site: Path) -> str:
+        return subprocess.run(["git", "-C", str(site), "log", "-1", "--format=%s"], capture_output=True,
+                              text=True, check=True).stdout
+
     def test_release_site_copies_the_installer_byte_for_byte(self):
         with tempfile.TemporaryDirectory() as tmp:
-            site = Path(tmp) / "site"
-            site.mkdir()
-            git = lambda *a: subprocess.run(["git", "-C", str(site), *a], capture_output=True, text=True, check=True)
-            git("init", "-q")
-            git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "empty")
-            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
-            out = subprocess.run(["make", "-s", "release-site", f"SITE={site}"], cwd=ROOT, env=env,
-                                 capture_output=True, text=True, timeout=60)
+            site = self.site(Path(tmp))
+            out = self.run_site(site, SCRIPT)
             self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
             self.assertEqual((site / "install").read_bytes(), SCRIPT.read_bytes())
-            self.assertIn(f"install: Agentic Works {VERSION}", git("log", "-1", "--format=%s").stdout)
+            self.assertIn(f"install: Agentic Works {VERSION}", self.head(site))
+            again = self.run_site(site, SCRIPT)  # nothing new: still fine
+            self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+
+    def test_release_site_refuses_an_installer_that_is_not_the_published_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            site = self.site(Path(tmp))
+            published = Path(tmp) / "published.sh"
+            published.write_bytes(SCRIPT.read_bytes() + b"# rebuilt since\n")
+            out = self.run_site(site, published)
+            self.assertNotEqual(out.returncode, 0, out.stdout)
+            self.assertIn("differs from the published", out.stdout + out.stderr)
+            self.assertFalse((site / "install").exists())
+            self.assertEqual(self.head(site).strip(), "empty")
 
 
 if __name__ == "__main__":

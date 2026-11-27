@@ -713,7 +713,7 @@ install_agentic_works_vsix() {  # $1 = temp dir: download this release's .vsix t
   [ -z "$AGENTIC_WORKS_ERROR" ]
 }
 
-AGENTIC_WORKS_IN_PLACE=0  # 1 when the Agentic Works step leaves a Agentic Works installed (this release's, an older or a newer one)
+AGENTIC_WORKS_IN_PLACE=0  # 1 when the Agentic Works step leaves an Agentic Works installed (this release's, an older or a newer one)
 
 ensure_agentic_works() {  # this release's Agentic Works: installed, upgraded over an older one, or a newer one left alone
   local current="" detail="installed $AGENTIC_WORKS_VERSION"

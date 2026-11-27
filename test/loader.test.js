@@ -109,14 +109,23 @@ test('enabled parts start, disabled do not', async () => {
   await extension.deactivate();
 });
 
-test('0.1.0\'s agenticWorks.perch.enabled still decides Agents until agenticWorks.agents.enabled is set', async () => {
-  let { extension, base } = setup({ 'agenticWorks.perch.enabled': false });
+// Agentic Works' own settings are its parts' switches and nothing else: a read of any other agenticWorks.* key is a
+// setting the manifest never declares (the manifest test checks the switches are declared).
+test('every agenticWorks setting the host reads is a part switch', async () => {
+  const { ui, extension, base, root } = setup();
   await activate(extension, base);
-  assert.deepStrictEqual([...activated()].sort(), ['jira', 'pullRequests', 'teams'], 'Agents off, as Perch was');
+  const ids = fs.readdirSync(path.join(root, 'parts')).map((d) => JSON.parse(fs.readFileSync(path.join(root, 'parts', d, 'part.json'), 'utf8')).id);
+  const switches = new Set(ids.map((id) => `agenticWorks.${id}.enabled`));
+  const reads = [...new Set(ui.reads)].filter((k) => k.startsWith('agenticWorks.'));
+  assert.ok(reads.some((k) => switches.has(k)), `the switches are read (${reads})`);
+  assert.deepStrictEqual(reads.filter((k) => !switches.has(k)), [], 'undeclared agenticWorks settings read');
   await extension.deactivate();
-  ({ extension, base } = setup({ 'agenticWorks.perch.enabled': false, 'agenticWorks.agents.enabled': true }));
+});
+
+test('a setting the manifest does not declare decides nothing: agenticWorks.perch.enabled leaves Agents on', async () => {
+  const { extension, base } = setup({ 'agenticWorks.perch.enabled': false });
   await activate(extension, base);
-  assert.ok(activated().includes('agents'), 'the new switch wins once set');
+  assert.ok(activated().includes('agents'), 'Agents on, by its own switch');
   await extension.deactivate();
 });
 

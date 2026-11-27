@@ -16,7 +16,7 @@ class Emitter {
 
 function install() {
   process.env.AGENTIC_WORKS_TEST_HARNESS_STRICT_GH = '1';   // Agentic Works then refuses to start without a stubbed ghLogins (never this machine's gh)
-  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve(), panels: [], opened: [], clipboard: [] };
+  const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], reads: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve(), panels: [], opened: [], clipboard: [] };
   const configChange = new Emitter();
   const terminalClose = new Emitter();
   // a terminal closing, as when its shell exits; closeListeners: how many onDidCloseTerminal listeners are left
@@ -108,10 +108,12 @@ function install() {
       getConfiguration: (section) => ({
         get: (key, dflt) => {
           const full = section ? `${section}.${key}` : key;
+          ui.reads.push(full);
           return full in ui.config ? ui.config[full] : dflt;
         },
         inspect: (key) => {
           const full = section ? `${section}.${key}` : key;
+          ui.reads.push(full);
           return ui.inspect[full] || { globalValue: ui.config[full] };
         },
         // records the write, then changes the value and tells the listeners, as the real one does
