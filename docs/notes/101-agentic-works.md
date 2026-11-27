@@ -1154,6 +1154,13 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
   *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
   (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
+- **A Cursor `code` command is never taken for VS Code — Built (1.1.4)** *(Sean, 2026-11-27: "if he was using cursor
+  beforehand, what will be the experience?")*. Cursor can put its own `code` on the PATH so `code .` opens Cursor; the
+  installer took it for VS Code, put Agentic Works into Cursor and its settings into VS Code's file, which Cursor doesn't
+  read. Now `find_code` walks every `code` on the PATH and passes over one that lives, or links, under a Cursor folder
+  (the path, lowercased, has `/cursor`); with VS Code there too it uses VS Code's and says "The code command on your PATH
+  opens Cursor; Agentic Works uses VS Code's own."; with only Cursor it installs VS Code as for anyone without it. Cursor
+  is never run. A folder of one's own named `cursor…` holding a `code` would be passed over too; judged unlikely.
   `works` does the same: it runs the installer with `--no-open` and opens VS Code itself only when Agentic Works
   wasn't installed before.
 

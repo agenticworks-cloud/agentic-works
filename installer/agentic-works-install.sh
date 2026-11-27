@@ -286,9 +286,26 @@ check_platform() {
 
 # ---- VS Code -------------------------------------------------------------------------------------------------
 
-find_code() {  # sets CODE to VS Code's CLI; false when VS Code isn't installed
-  if command -v code > /dev/null 2>&1; then
-    CODE=$(command -v code)
+is_cursor() {  # true when $1, or what it links to, lives in a Cursor folder: Cursor can install a `code` that opens Cursor
+  local resolved
+  resolved=$(readlink -f "$1" 2> /dev/null) || resolved=$1
+  case "$(printf '%s %s' "$1" "$resolved" | tr '[:upper:]' '[:lower:]')" in */cursor*) return 0 ;; esac
+  return 1
+}
+
+CURSOR_CODE=""  # a `code` on the PATH that opens Cursor, passed over
+find_code() {  # sets CODE to VS Code's CLI; false when VS Code isn't installed. A Cursor `code` is never taken for it.
+  local c found=""
+  CURSOR_CODE=""
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    if is_cursor "$c"; then [ -n "$CURSOR_CODE" ] || CURSOR_CODE=$c; continue; fi
+    found=$c; break
+  done <<EOF_CODE
+$(type -ap code 2> /dev/null)
+EOF_CODE
+  if [ -n "$found" ]; then
+    CODE=$found
   elif [ "$OS" = macos ] && [ -x "$MAC_CODE" ]; then
     CODE=$MAC_CODE
   else
@@ -455,6 +472,7 @@ install_fedora_ssl() {  # sets SSL_FAILED, the step's detail, when it fails
 ensure_vscode() {
   skipped vscode "VS Code" && return 0
   step_begin "VS Code"
+  find_code; [ -z "$CURSOR_CODE" ] || step_say "The code command on your PATH opens Cursor; Agentic Works uses VS Code's own."
   if find_code; then
     if ! fedora_needs_ssl; then
       step_end already

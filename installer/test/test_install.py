@@ -517,6 +517,31 @@ class TestVSCode(_Installer):
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get")))
         self.assertEqual(self.disclosed(out), ["curl and ca-certificates", "VS Code", "git", gh_repo, "gh"], out)
 
+    # Cursor can put its own `code` command on the PATH, so `code .` opens Cursor. That isn't VS Code: Agentic Works would go
+    # into Cursor and its settings into a file Cursor doesn't read (Sean, 2026-11-27). A `code` under a Cursor folder is passed over.
+    def cursor_first(self, env: dict[str, str]) -> dict[str, str]:
+        cursor = self.tmp / "Cursor" / "resources" / "app" / "bin"
+        cursor.mkdir(parents=True, exist_ok=True)
+        (cursor / "code").write_text(STUB.format(name="cursor-code", extra=CODE))
+        (cursor / "code").chmod(0o755)
+        return {**env, "PATH": f"{cursor}:{env['PATH']}"}
+
+    def test_cursors_code_is_passed_over_for_vscodes(self) -> None:
+        rc, out = self.run_pipe(self.cursor_first(self.env("ubuntu", ALL_PRESENT)))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ VS Code (already)", out)
+        self.assertIn("The code command on your PATH opens Cursor; Agentic Works uses VS Code's own.", out)
+        self.assertEqual([l for l in self.stub_log() if l.startswith("cursor-code")], [], "Cursor is never run")
+        self.assertTrue(any(l.startswith("code --list-extensions") for l in self.stub_log()), "VS Code's own is asked")
+
+    def test_only_cursor_there_installs_vscode(self) -> None:
+        (self.installs / "code").write_text(STUB.format(name="code", extra=CODE))
+        (self.installs / "code").chmod(0o755)
+        rc, out = self.run_pipe(self.cursor_first(self.env("ubuntu", ("sudo", "apt-get", "curl", "gpg", "gh"))),
+                                "--skip", "extension", "--skip", "companions")
+        self.assertIn("  ✓ VS Code (installed)", out)
+        self.assertEqual([l for l in self.stub_log() if l.startswith("cursor-code")], [], "Cursor is never run")
+
     def test_fresh_fedora_names_openssl3(self) -> None:
         (self.installs / "code").write_text(STUB.format(name="code", extra=CODE))
         rc, out = self.run_pipe(self.env("fedora", ("sudo", "dnf", "rpm", "curl", "gh"), RPM_MISSING="libssl.so.3"),
