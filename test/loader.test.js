@@ -543,6 +543,7 @@ function firstStartSetup(config) {
   env.ui.commands['workbench.view.extension.kestrel'] = () => { env.opened.push(1); };
   env.order = [];
   env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
+  env.ui.commands['workbench.action.terminal.focus'] = () => { env.order.push('terminal'); };
   const prs = env.ui.commands['workbench.view.extension.kestrel'];
   env.ui.commands['workbench.view.extension.kestrel'] = () => { env.order.push('prs'); prs(); };
   env.walkthroughs = [];
@@ -569,6 +570,7 @@ test('first start: PRs on opens the PRs tab once and records it', async () => {
   env.ui.commands = { 'workbench.view.extension.kestrel': env.ui.commands['workbench.view.extension.kestrel'], 'workbench.action.openWalkthrough': env.ui.commands['workbench.action.openWalkthrough'] };
   env.order = [];
   env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
+  env.ui.commands['workbench.action.terminal.focus'] = () => { env.order.push('terminal'); };
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 1, 'a second activation does not open it');
   assert.deepStrictEqual(env.order, ['page', 'perch'], 'the walkthrough is unfinished: Get started and the Perch view again');
@@ -622,20 +624,26 @@ test('first start: a failing command is logged and still recorded', async () => 
   await env.extension.deactivate();
 });
 
-test('first start: the PRs tab, the Get started page in the editor, then the Perch view; Perch only while Agents is on', async () => {
+test('first start: the PRs tab, a terminal, the Get started page in the editor, then the Perch view; Perch only while Agents is on', async () => {
   let env = firstStartSetup({});
   await activateFirst(env);
-  assert.deepStrictEqual(env.order, ['prs', 'page', 'perch']);
+  assert.deepStrictEqual(env.order, ['prs', 'terminal', 'page', 'perch']);
   await env.extension.deactivate();
   env = firstStartSetup({ 'agenticWorks.agents.enabled': false });
   await activateFirst(env);
-  assert.deepStrictEqual(env.order, ['prs', 'page']);
+  assert.deepStrictEqual(env.order, ['prs', 'terminal', 'page']);
   await env.extension.deactivate();
   env = firstStartSetup({});
   env.ui.commands['workbench.view.extension.perch'] = () => { throw new Error('no perch'); };
   await activateFirst(env);
   assert.ok(env.ui.out.some((l) => l.includes('Perch view') && l.includes('no perch')));
-  assert.deepStrictEqual(env.order, ['prs', 'page'], 'the rest still opens');
+  assert.deepStrictEqual(env.order, ['prs', 'terminal', 'page'], 'the rest still opens');
+  await env.extension.deactivate();
+  env = firstStartSetup({ 'agenticWorks.pullRequests.enabled': false });
+  env.ui.commands['workbench.action.terminal.focus'] = () => { throw new Error('no terminal'); };
+  await activateFirst(env);
+  assert.ok(env.ui.out.some((l) => l.includes('a terminal') && l.includes('no terminal')));
+  assert.deepStrictEqual(env.order, ['page', 'perch'], 'PRs off: no PRs tab; a terminal that fails is logged');
   assert.strictEqual(env.store.get('agenticWorks.firstStart.done'), true);
   await env.extension.deactivate();
 });

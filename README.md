@@ -81,8 +81,8 @@ the new one is already set there; the old entries stay in your `settings.json`, 
 
 ## First start
 
-On its very first start Agentic Works opens the PRs tab once, so the bottom panel shows it, and its **Get started** page in
-an editor tab. Open the page again any time with **Agentic Works: Get Started** in the Command Palette. It is Agentic Works' own
+On its very first start Agentic Works opens the PRs tab once and then a terminal, so the bottom panel shows, and its
+**Get started** page in an editor tab. Open the page again any time with **Agentic Works: Get Started** in the Command Palette. It is Agentic Works' own
 page, with each step's controls in place. A step shows while its part is on. Without a company file the steps run:
 Connect Claude, Talk to Claude or Codex, Sign in to Teams, Connect Jira and Confluence, Sign in to GitHub, Search your
 code by meaning, Choose your parts. With one: Sign in to GitHub, Connect Claude, Talk to Claude or Codex, Connect your

@@ -89,6 +89,7 @@ function firstStartSetup(config) {
   env.order = [];
   env.ui.commands['workbench.view.extension.kestrel'] = () => { env.order.push('prs'); };
   env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
+  env.ui.commands['workbench.action.terminal.focus'] = () => { env.order.push('terminal'); };
   env.walkthroughs = [];
   env.ui.commands['workbench.action.openWalkthrough'] = (...a) => { env.order.push('walkthrough'); env.walkthroughs.push(a); };
   const create = env.ui.vscode.window.createWebviewPanel;
@@ -165,7 +166,7 @@ async function pageSetup(company, config = {}, saved = {}, options = {}) {
 
 test('first start opens the Get started page, not the walkthrough; Agentic Works: Get Started opens it again, one at a time', async () => {
   const env = firstStartSetup({}); await activateFirst(env);
-  assert.deepStrictEqual(env.order, ['prs', 'page', 'perch']);   // 'page': a agenticWorks.getStarted panel was created
+  assert.deepStrictEqual(env.order, ['prs', 'terminal', 'page', 'perch']);   // 'page': a agenticWorks.getStarted panel was created
   assert.deepStrictEqual(env.walkthroughs, []);
   await env.ui.vscode.commands.executeCommand('agenticWorks.getStarted');
   const pages = env.ui.panels.filter((p) => p.viewType === 'agenticWorks.getStarted');

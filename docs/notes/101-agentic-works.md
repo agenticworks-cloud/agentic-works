@@ -1107,6 +1107,12 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     sign-in until checked out again or added to gh. `src/standalone.js`.
   - The retired `gannet.checkoutFolder`, which only the one-time move to directories reads, is still read under its
     old name *(my call)*. The Recent list (globalState) starts empty, as other parts' stored state did.
+- **A terminal on first start — Built (1.1.1)** *(Sean, 2026-11-27: the test VS Code sometimes showed no terminal
+  area; asked "open the panel once at first start?", "yes")*. VS Code remembers the bottom panel per window and folder,
+  and a fresh one may start with it closed; nothing in Agentic Works hides it. On the very first start, after the PRs
+  tab, Agentic Works runs `workbench.action.terminal.focus`, which opens the panel on Terminal and starts a shell if
+  there is none; the Get started page and the Perch view open after it, so they end up in front. Only once: later
+  starts leave the panel as VS Code remembers it *(my call: Terminal is the tab shown, PRs one click away)*.
 
 ## Left to the builder
 

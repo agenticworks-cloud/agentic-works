@@ -435,8 +435,8 @@ class AgenticWorks {
     await Promise.allSettled([...keys, ...starts]);
   }
 
-  // Agentic Works' very first activation: once the parts have started, the bottom panel opens on the PRs tab (closed on a
-  // fresh profile), the Get started page in the editor, and last the side bar on Perch's view (a fresh window
+  // Agentic Works' very first activation: once the parts have started, the bottom panel opens the PRs tab (closed on a
+  // fresh profile) and then a terminal, the Get started page in the editor, and last the side bar on Perch's view (a fresh window
   // may have it closed, and with the activity bar on top its icons go with it). Then agenticWorks.firstStart.done is recorded,
   // whatever happened: a part that is off or failed, or a command that fails, is not retried later.
   // Later starts, while the walkthrough has a step neither done nor Not Now'd, open the page and the Perch view again:
@@ -457,6 +457,9 @@ class AgenticWorks {
     };
     const on = (id) => this.parts.has(id) && this.state(id) === 'on';
     if (first && on('pullRequests')) await open('the PRs tab', () => vscode.commands.executeCommand(PRS_VIEW_COMMAND));
+    // a terminal, so the bottom panel shows one: VS Code remembers the panel per window and folder, and a fresh one may
+    // start with it closed (Sean, 2026-11-27). Opened after the PRs tab, so the panel ends on Terminal, PRs beside it.
+    if (first) await open('a terminal', () => vscode.commands.executeCommand('workbench.action.terminal.focus'));
     await open('its Get started page', () => this.getStarted.open());
     // last: opened first, the side bar ended on Explorer in a fresh window (installer run, 2026-11-24)
     if (on('agents')) await open('the Perch view', () => vscode.commands.executeCommand(AGENTS_VIEW_COMMAND));
