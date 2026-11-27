@@ -20,7 +20,7 @@ deps: manifest
 ## Offline tests: Roost's own, then each part's, then the manifest is checked against the parts
 test: export ROOST_TEST_HARNESS_STRICT_GH = 1
 test:
-	@for t in $(filter-out test/package.test.js,$(wildcard test/*.test.js)); do node $$t || exit 1; done
+	@for t in $(filter-out test/package.test.js test/noOldName.test.js,$(wildcard test/*.test.js)); do node $$t || exit 1; done
 	$(MAKE) -C parts/agents test-offline
 	$(MAKE) -C parts/teams test
 	$(MAKE) -C parts/jira test

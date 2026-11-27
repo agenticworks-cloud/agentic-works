@@ -43,6 +43,30 @@ seeing it work. The extension comes first either way: a fork would ship Roost bu
   settings *below.)*
 - Losing any repo's history.
 
+## Identity and distribution (2026-11-27)
+
+The extension is **Agentic Works**. *(Sean, 2026-11-27)* The parts keep their names (Perch, chirp, jay, kestrel)
+and their settings, commands and views; they are retired once Agentic Works is complete. *(Sean)*
+
+| what | value |
+|---|---|
+| name in prose | Agentic Works |
+| extension id | `agenticworks.agentic-works` (`name` `agentic-works`, `publisher` `agenticworks`) *(my call)* |
+| settings, commands, walkthrough, context keys, stored state | prefix `agenticWorks.` (e.g. `agenticWorks.agents.enabled`, `agenticWorks.getStarted`) *(my call)* |
+| environment variables | `AGENTIC_WORKS_*` (e.g. `AGENTIC_WORKS_COMPANY_FILE`) *(my call)* |
+| config folder | `~/.config/agentic-works/`: `company.json`, `skills.json`, `tokens/`, `anthropic-key`, `gateway-key` *(my call)* |
+| installer | `installer/agentic-works-install.sh` with `installer/agentic-works-install-helper` inlined; release asset `agentic-works-install.sh`; `.vsix` `agentic-works-<version>.vsix` *(my call)* |
+| repo | `agenticworks-cloud/agentic-works`, transferred from Sean's own account so history, releases and redirects stay; local `/git/agentic-works` *(Sean)* |
+| install | `curl -fsSL https://agenticworks.cloud/install | bash` *(Sean)*, served by the org Pages repo `agenticworks-cloud/agenticworks-cloud.github.io` with the custom domain `agenticworks.cloud` (registered at GoDaddy); each release copies its installer there as `install` |
+| first version | 0.6.0 *(my call)* |
+
+**Nothing moves from an earlier install.** No settings, state, config folder or extension carry over: Sean is
+the only user so far, and uninstalls and installs fresh. *(Sean)* The repo names no earlier name anywhere
+(`test/noOldName.test.js`). *(Sean)*
+
+Not in scope: Marketplace publishing; changes to the Perch, chirp, jay or kestrel repos. The repo transfer, each
+release and each deploy of a company's installer wait for Sean's go-ahead.
+
 ## What the four look like (recon, 2026-11-23)
 
 | | Perch | jay | chirp | kestrel |
