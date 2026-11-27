@@ -44,6 +44,9 @@ const NAMES = {
 };
 // the part a step belongs to: shown while that part is on and not failed
 const PART_OF = { github: 'pullRequests', claude: 'agents', agents: 'agents', secrets: 'agents', codebase: 'agents', teams: 'teams', jira: 'jira' };
+// a step done on the page shows its part's view in the side bar: [part, view container]; the walkthrough done, Repos
+const VIEW_OF = { github: ['repos', 'gannet'], claude: ['agents', 'perch'], agents: ['agents', 'perch'], teams: ['teams', 'chirp'], jira: ['jira', 'jay'] };
+const FINISHED_VIEW = ['repos', 'gannet'];
 const NOT_NOW = { claude: 'agenticWorks.connectClaudeNotNow', tools: 'agenticWorks.toolsNotNow', codebase: 'agenticWorks.codebaseSearchNotNow' };
 const NEW_TAB = { claude: 'agenticWorks.newClaudeTab', codex: 'agenticWorks.newCodexTab' };
 const GREETING = { fill: 'Hello' };   // typed in the talk step's new tab, whose box takes the focus: Enter sends it
@@ -125,6 +128,7 @@ class GetStarted {
     const panel = vscode.window.createWebviewPanel(VIEW_TYPE, 'Get started', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
     this.panel = panel;
+    this.watching = false;
     const messages = panel.webview.onDidReceiveMessage((m) => this.onMessage(m));
     panel.onDidDispose(() => {
       messages.dispose();
@@ -200,7 +204,23 @@ class GetStarted {
     if (!fresh.length) return done;
     for (const id of fresh) done[id] = true;
     Promise.resolve(this.store.update(DONE_KEY, done)).catch((err) => this.log(`Get started: could not record a step: ${errorMessage(err)}`));
+    if (this.panel && this.watching) this.showViewFor(fresh, done);
     return done;
+  }
+
+  // Only for steps done while the page is open, after it first showed (those done before switch nothing), and really
+  // done (not Not Now'd): the side bar shows the first one's view, or Repos once no step is left; then the page takes the keyboard back.
+  showViewFor(fresh, done) {
+    const order = this.company() ? ORDER_COMPANY : ORDER_AGENTIC_WORKS;
+    const finished = !order.some((id) => this.shown(id) && !done[id]);
+    const really = this.signals();   // done, not Not Now'd
+    const id = order.find((x) => fresh.includes(x) && really[x] && VIEW_OF[x] && this.on(VIEW_OF[x][0]));
+    const view = finished && this.on(FINISHED_VIEW[0]) ? FINISHED_VIEW : id ? VIEW_OF[id] : null;
+    if (!view) return;
+    const panel = this.panel;
+    Promise.resolve(this.vscode.commands.executeCommand(`workbench.view.extension.${view[1]}`))
+      .then(() => { if (this.panel === panel) panel.reveal(panel.viewColumn, false); })
+      .catch((err) => this.log(`Get started: could not show the ${view[0]} view: ${errorMessage(err)}`));
   }
 
   // Every step whose signal is true is recorded done; done is never cleared
@@ -291,6 +311,7 @@ class GetStarted {
       if (!this.panel) { this.noteDone(); return; }
       this.maybeOpenTab();
       this.post({ type: 'state', state: this.state() });
+      this.watching = true;   // from here, a step done shows its view
     } catch (err) {
       this.log(`Get started: the state could not be sent: ${errorMessage(err)}`);
     }
@@ -308,6 +329,7 @@ class GetStarted {
       switch (m.type) {
         case 'ready':
           this.post({ type: 'state', state: this.state() }, panel);
+          if (panel === this.panel) this.watching = true;
           if (this.agenticWorks.hasTools()) this.post({ type: 'rows', rows: this.agenticWorks.toolsNow().rows() }, panel);
           break;
         case 'agents': {

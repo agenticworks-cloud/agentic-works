@@ -1123,6 +1123,15 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   built in on Linux rather than in the company file, since Sean's rule is for Linux generally; the first-checkout
   question, asked only when the list is empty, still offers `~/github`.)* `defaultDirectories` in
   `parts/repos/src/workspaces.js`.
+- **The side bar follows Get started — Built (1.1.1)** *(Sean, 2026-11-27: "show the relevant explorer … as we move
+  through walkthrough … when github connection is done switch … to gannet, when everything's done, switch back to
+  gannet"; "i meant when the walkthrough finishes")*. While the page is open, a step that becomes done shows its part's
+  view container: Sign in to GitHub → Repos (`gannet`), Connect Claude and Talk → Perch, Sign in to Teams → Teams,
+  Connect Jira and Confluence → Jira & Confluence; the others have no view of their own and switch nothing. When the
+  walkthrough is finished (every shown step done or Not Now'd) the side bar shows Repos instead. Then the page is
+  revealed again with focus, so the keyboard stays in it. *(my calls: only a step really done (its signal), not
+  Not Now; nothing for steps done before the page first showed its state, so opening the page or restarting VS Code
+  never moves the side bar; nothing for a part that is off.)*
 
 ## Left to the builder
 

@@ -56,13 +56,13 @@ function install() {
         const received = [];
         const disposed = new Emitter();
         const panel = {
-          viewType, title, column, options, disposed: false, revealed: 0, posted: [],
+          viewType, title, column, viewColumn: column, options, disposed: false, revealed: 0, posted: [],
           webview: {
             html: '', cspSource: 'vscode-resource:',
             postMessage: async (m) => { panel.posted.push(JSON.parse(JSON.stringify(m))); return true; },
             onDidReceiveMessage: (fn) => { received.push(fn); return { dispose() { const i = received.indexOf(fn); if (i >= 0) received.splice(i, 1); } }; },
           },
-          reveal() { panel.revealed++; },
+          reveal(...a) { panel.revealed++; panel.reveals = (panel.reveals || []).concat([a]); },
           onDidDispose: disposed.event,
           dispose() { if (panel.disposed) return; panel.disposed = true; disposed.fire(); },
           receive: (m) => Promise.all(received.map((fn) => fn(m))),

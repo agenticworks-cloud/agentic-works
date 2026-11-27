@@ -91,6 +91,10 @@ tools appears only when the company file lists at least one `mcpServers` entry. 
 the others closed with their tick, and a step once done stays done. VS Code's own walkthrough is still there as a
 fallback, on the Welcome page.
 
+While the page is open, a step you complete shows its part in the side bar: Sign in to GitHub shows Repos, Connect
+Claude and Talk show Perch, Teams and Jira their own. Not Now doesn't, nor does a step done before the page opened.
+When the last step is done the side bar shows Repos. The page keeps the keyboard.
+
 ## For a company's installer
 
 A company can set Agentic Works up for its people by writing one file, `~/.config/agentic-works/company.json` (the

@@ -18,7 +18,7 @@ const test = (name, fn) => tests.push({ name, fn });
 const temps = [];
 process.on('exit', () => temps.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 
-const FOLDERS = { agents: ['agents', 'Agents (Claude Code and Codex)'], jira: ['jira', 'Jira & Confluence'], 'pull-requests': ['pullRequests', 'PRs'], teams: ['teams', 'Teams'] };
+const FOLDERS = { agents: ['agents', 'Agents (Claude Code and Codex)'], jira: ['jira', 'Jira & Confluence'], 'pull-requests': ['pullRequests', 'PRs'], repos: ['repos', 'Repos'], teams: ['teams', 'Teams'] };
 const fake = { parts: {}, calls: [] };
 global.__agenticWorksFake = fake;
 
@@ -189,7 +189,7 @@ test('words and order from the company file; steps of a part that is off are hid
   assert.deepStrictEqual(st.steps.map((x) => [x.done, x.waiting]), st.steps.map(() => [false, '']));
   assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway', keyCommand: false, keyRunning: false });
   assert.strictEqual(st.steps.find((x) => x.id === 'agents').name, 'Talk to Claude or Codex', 'no steps.talk: the default');
-  assert.deepStrictEqual(st.parts.map((p) => [p.id, p.on]), [['agents', true], ['jira', true], ['pullRequests', true], ['teams', true]]);
+  assert.deepStrictEqual(st.parts.map((p) => [p.id, p.on]), [['agents', true], ['jira', true], ['pullRequests', true], ['repos', true], ['teams', true]]);
   assert.deepStrictEqual(st.parts[0].title, 'Agents (Claude Code and Codex)');
   await setEnabled(s.ui, 'teams', false);
   const after = await s.stateOf();
@@ -286,6 +286,57 @@ test('a step ticks from its part\'s context key, and stays ticked', async () => 
   await s.ui.vscode.commands.executeCommand('setContext', 'jay.signedIn', false);
   assert.strictEqual((await s.stateOf()).steps.find((x) => x.id === 'jira').done, true);
   assert.deepStrictEqual(s.store.get('agenticWorks.getStarted.done'), { jira: true });
+  await s.extension.deactivate();
+});
+
+test('a step done on the page shows its part in the side bar, the page keeping the keyboard; the walkthrough done, Repos', async () => {
+  const views = [];
+  const record = (id) => () => { views.push(id); };
+  const s = await pageSetup(null, {}, {}, {});
+  for (const id of ['perch', 'gannet', 'chirp', 'jay', 'kestrel']) s.ui.commands[`workbench.view.extension.${id}`] = record(id);
+  await s.stateOf();
+  assert.deepStrictEqual(views, [], 'opening the page switches nothing');
+  const back = () => s.page.reveals.at(-1);
+  await s.run('setContext', 'kestrel.signedIn', true); await s.stateOf();
+  assert.deepStrictEqual(views, ['gannet'], 'GitHub signed in: Repos');
+  assert.deepStrictEqual(back(), [s.page.viewColumn, false], 'the page takes the keyboard back');
+  await s.run('setContext', 'jay.signedIn', true); await s.stateOf();
+  await s.run('setContext', 'chirp.signedIn', true); await s.stateOf();
+  await s.run('setContext', 'perch.claudeConnected', true); await s.stateOf();
+  assert.deepStrictEqual(views, ['gannet', 'jay', 'chirp', 'perch']);
+  await s.run('setContext', 'jay.signedIn', true); await s.stateOf();
+  assert.strictEqual(views.length, 4, 'a step already done switches nothing');
+  // the last ones: Repos
+  await s.run('setContext', 'perch.messageSent', true);
+  s.ui.config['agents.codebaseIndex.enabled'] = true;
+  s.ui.changeConfig(['agents.codebaseIndex.enabled']);
+  await s.stateOf();
+  await s.page.receive({ type: 'notNow', step: 'secrets' }); await s.stateOf();
+  assert.notStrictEqual(views.at(-1), 'gannet', 'a step left: no switch yet');
+  await s.page.receive({ type: 'partsDone' }); await s.stateOf();
+  assert.strictEqual((await s.stateOf()).steps.every((x) => x.done), true, (await s.stateOf()).steps.filter((x) => !x.done).map((x) => x.id).join());
+  assert.strictEqual(views.at(-1), 'gannet', 'the walkthrough done: Repos');
+  await s.extension.deactivate();
+});
+
+test('Not Now on a step switches nothing; only a step really done does', async () => {
+  const views = [];
+  const s = await pageSetup(null);
+  s.ui.commands['workbench.view.extension.perch'] = () => { views.push('perch'); };
+  await s.stateOf();
+  await s.page.receive({ type: 'notNow', step: 'claude' }); await s.stateOf();
+  assert.strictEqual((await s.step('claude')).done, true);
+  assert.deepStrictEqual(views, []);
+  await s.extension.deactivate();
+});
+
+test('a part that is off: its step done switches nothing', async () => {
+  const views = [];
+  const s = await pageSetup(null, { 'agenticWorks.repos.enabled': false });
+  s.ui.commands['workbench.view.extension.gannet'] = () => { views.push('gannet'); };
+  await s.stateOf();
+  await s.run('setContext', 'kestrel.signedIn', true); await s.stateOf();
+  assert.deepStrictEqual(views, []);
   await s.extension.deactivate();
 });
 
