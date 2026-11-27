@@ -54,7 +54,7 @@ assert.deepStrictEqual(c.mcpServers[2].connect.command, ['/h/.local/bin/t-login'
 
 // a minimal file, and defaults
 const min = read({ name: 'Min' });
-assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [], notes: {} });
+assert.deepStrictEqual(min.company, { name: 'Min', title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [], notes: {}, icons: {} });
 assert.deepStrictEqual(min.notes, []);
 // email: the Get started page asks for the user's address on the company's domain; tools get it in the env named
 {
@@ -103,6 +103,33 @@ assert.deepStrictEqual(min.notes, []);
   assert.ok(bad.notes.every((x) => x.startsWith('notes.')), JSON.stringify(bad.notes));
   const notObj = read({ name: 'N', notes: 'x' });
   assert.deepStrictEqual([notObj.ok, notObj.company.notes, notObj.notes.length], [true, {}, 1]);
+}
+// icons: the company's own mark in place of a vendor's, a file beside the company file; one file, or light and dark
+{
+  for (const f of ['mark-black.svg', 'mark-white.svg', 'mark.png', 'mark.txt']) fs.writeFileSync(path.join(dir, f), '<svg/>');
+  const r = read({ name: 'I', icons: { claude: { light: 'mark-black.svg', dark: 'mark-white.svg' }, codex: 'mark.png' } });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.deepStrictEqual(r.company.icons, {
+    claude: { light: path.join(dir, 'mark-black.svg'), dark: path.join(dir, 'mark-white.svg') },
+    codex: { light: path.join(dir, 'mark.png'), dark: path.join(dir, 'mark.png') },
+  });
+  assert.deepStrictEqual(r.notes, []);
+  assert.deepStrictEqual(read({ name: 'I' }).company.icons, {});
+  // a bad entry is dropped with a note; the rest stay
+  for (const [icons, note, kept] of [
+    ['mark.png', 'icons:', {}],
+    [{ gemini: 'mark.png' }, 'icons.gemini:', {}],
+    [{ claude: 'missing.svg' }, 'icons.claude:', {}],
+    [{ claude: 'mark.txt' }, 'icons.claude:', {}],
+    [{ claude: { light: 'mark-black.svg' } }, 'icons.claude:', {}],
+    [{ claude: 7, codex: 'mark.png' }, 'icons.claude:', { codex: { light: path.join(dir, 'mark.png'), dark: path.join(dir, 'mark.png') } }],
+  ]) {
+    const b = read({ name: 'I', icons });
+    assert.strictEqual(b.ok, true, b.error);
+    assert.deepStrictEqual(b.company.icons, kept, JSON.stringify(icons));
+    assert.strictEqual(b.notes.length, 1, JSON.stringify(b.notes));
+    assert.ok(b.notes[0].startsWith(note), b.notes[0]);
+  }
 }
 // jira: the site and email the Get started page fills in; never a token (one there is ignored)
 const jr = read({ name: 'J', jira: { site: 'https://example.atlassian.net', email: 'you@example.com', token: 'tok-1' } });

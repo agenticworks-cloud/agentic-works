@@ -29,6 +29,7 @@ const COMPLETE_MS = 15 * 60000;
 const POLL_MS = 2000;
 /** A command sign-in's row, while its terminal is open. */
 const COMMAND_WAIT_HINT = 'If the sign-in failed, close its terminal to try again.';
+const COMMAND_FAILED = 'The sign-in stopped before it finished; its terminal says why. Press the button to try again.';
 const DOWNLOAD_MS = 5 * 60000;
 /** An install row's reason when gh has no login; the row's action then runs Agentic Works: Sign In to GitHub. */
 const GITHUB_FIRST = 'Sign in to GitHub first.';
@@ -155,10 +156,13 @@ class Tools {
     }
     // a sign-in that fails leaves its terminal open (to be read), and the row waits for it to close: the row says so
     this._set(id, { reason: COMMAND_WAIT_HINT });
-    let isClosed = false;
+    let isClosed = false, failed = false;
     const closed = Promise.resolve(terminal && terminal.closed).then(() => { isClosed = true; }, () => { isClosed = true; });
-    while (!this.disposed && !isClosed && !fresh()) await Promise.race([sleep(this.pollMs), closed]);
+    // where the terminal can tell (shell integration), a sign-in that exits with an error ends the wait at once
+    const failure = terminal && terminal.failed ? Promise.resolve(terminal.failed).then(() => { failed = true; }, () => {}) : new Promise(() => {});
+    while (!this.disposed && !isClosed && !failed && !fresh()) await Promise.race([sleep(this.pollMs), closed, failure]);
     if (this.disposed) return { ...this._row(id) };
+    if (failed && !fresh()) return this._set(id, { state: 'notConnected', reason: COMMAND_FAILED });
     if (!fs.existsSync(file)) {   // the terminal closed, and one last look found nothing (an older file is checked)
       return this._set(id, { state: 'notConnected', reason: "The sign-in didn't finish." });
     }
@@ -449,4 +453,4 @@ class Tools {
   }
 }
 
-module.exports = { Tools, promptOf, platformKey, scrub, TOKEN_DIR, COMMAND_WAIT_HINT, GITHUB_FIRST, NOT_INSTALLED };
+module.exports = { Tools, promptOf, platformKey, scrub, TOKEN_DIR, COMMAND_WAIT_HINT, COMMAND_FAILED, GITHUB_FIRST, NOT_INSTALLED };

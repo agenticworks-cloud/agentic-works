@@ -22,6 +22,10 @@ function install() {
   // a terminal closing, as when its shell exits; closeListeners: how many onDidCloseTerminal listeners are left
   ui.closeTerminal = (t) => terminalClose.fire(t);
   ui.closeListeners = () => terminalClose.fns.length;
+  // a command ending in a terminal with shell integration (exitCode undefined: integration couldn't tell)
+  const executionEnd = new Emitter();
+  ui.endExecution = (terminal, exitCode) => executionEnd.fire({ terminal, exitCode });
+  ui.endListeners = () => executionEnd.fns.length;
   ui.changeConfig = (keys) => configChange.fire({ affectsConfiguration: (s) => keys.some((k) => k === s || k.startsWith(s + '.')) });
   const Uri = {
     parse: (s) => ({ scheme: String(s).split(':')[0], toString: () => String(s) }),
@@ -68,8 +72,9 @@ function install() {
       },
       createOutputChannel: (name) => ({ name, appendLine: (l) => ui.out.push(l), show() { ui.shown++; }, dispose() {} }),
       onDidCloseTerminal: terminalClose.event,
+      onDidEndTerminalShellExecution: executionEnd.event,
       createTerminal: (opts) => {
-        const t = { ...opts, sent: [], shown: false, show() { t.shown = true; }, sendText(x) { t.sent.push(x); }, dispose() {} };
+        const t = { ...opts, sent: [], shown: false, disposed: false, show() { t.shown = true; }, sendText(x) { t.sent.push(x); }, dispose() { t.disposed = true; } };
         (ui.terminals = ui.terminals || []).push(t);
         return t;
       },

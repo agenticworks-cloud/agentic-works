@@ -111,6 +111,10 @@ files. Required keys are marked **required**.
   is never logged, starts the Jira step's email, and goes in `env` to the gateway's `keyCommand` and to the
   `command` sign-ins of `mcpServers` (their terminal's environment, never their command line), so they can fill it in.
   A bad section is dropped with a note, as `jira`'s is.
+- `icons` (optional): the company's own mark in place of a vendor's, keyed `claude` or `codex`: an `.svg` or `.png`
+  file beside the company file (or a `~/` path), or `{ "light": …, "dark": … }` for light and dark themes. The Agents
+  pages (the New Claude Tab buttons, the + menu, the footer) show its shape in the theme's text colour, and the
+  editor tabs show the file itself. A bad entry is dropped with a note; the rest stay.
 - `gateway` (optional): `name` (**required**), `baseUrls` (**required**, a non-empty list of http(s) URLs, tried in
   order, so a VPN address can come first), `keyPage` (**required**, an http(s) URL where a person makes a key), and
   optional `requiredModel`, `env` (strings), `keyFiles` (other places the key is saved), `terminal` (true, so

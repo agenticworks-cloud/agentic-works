@@ -670,6 +670,12 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
       step on Ubuntu and Debian runs `apt-get update` and then a non-interactive `apt-get install -y git`; the
       `claude` step's sudo (curl and ca-certificates) is listed up front. (5) A `command` sign-in's row says "If the
       sign-in failed, close its terminal to try again." while its terminal is open.
+    - *A failed command sign-in ends the wait (Sean, 2026-11-27; built in 1.0.2).* Closing the Atlassian window
+      mid-sign-in left the row on "Connecting…" until the terminal was closed. Now, where shell integration reports
+      the command's exit code, an error ends the wait at once: the row says "The sign-in stopped before it finished;
+      its terminal says why. Press the button to try again." and its button (e.g. Sign in with Atlassian) is the
+      retry. The failed terminal stays open to be read, and is replaced when the sign-in is tried again. Without
+      shell integration, closing the terminal still ends the wait, as before.
   - **Connect Claude, two decisions after 0.4.0** *(Sean, 2026-11-24; built in 0.4.2)*:
     - *With a company gateway, that gateway only.* When `company.json` is valid and has a `gateway`, the panel shows
       the company's gateway (its form: get a key, Check and save) and Codex only, and one line below: "Using your
@@ -976,6 +982,14 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     get it in the environment variable `env`; a helper may use it to fill in the sign-in page.
   - *Later:* on a managed Mac the address may be known already (Intune or Platform SSO): to look at when the company
     install is tried there.
+- **The company's mark in place of Claude's — Built (1.0.2)** *(Sean, 2026-11-27: "the new claude tab button, can we show [the company's] icon
+  instead of claude?"; all Claude badges, not only that button)*.
+  - *The file:* `icons: { claude | codex: "<file>" | { light, dark } }`, an `.svg` or `.png` beside the company file
+    (`src/company.js`; a bad entry is dropped with a note). Agentic Works ships no company's mark: the company's
+    installer puts the file next to its company file.
+  - *Where it shows:* the Agents part, wherever the kind's badge is (the New Claude Tab buttons, the + menu, the
+    footer, the tab strip), as a mask of the light file tinted with the theme's text colour (a vendor's glyph keeps
+    its own tint); the editor tabs and the past-sessions list get the light and dark files as they are.
 - **Get started comes back until it's finished — Built (0.5.8)** *(Sean, 2026-11-25: closing VS Code mid-walkthrough
   relaunched an empty window, "it becomes like this on next launch?"; and in a folder window too)*. The page isn't
   restored when VS Code restarts, the installer sets `workbench.startupEditor` to none, and an empty window starts with
@@ -1032,6 +1046,15 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   page and **Agentic Works: Sign In to GitHub** (which shows the code in a notification). Not VS Code's own GitHub sign-in:
   its token belongs to VS Code's app, which can revoke it on sign-out and which a company's GitHub organization would
   have to approve on its own.
+- **The pinned prompt looks like the prompt — Built (1.0.2)** *(Sean, 2026-11-27, on the strip over an answer: "the
+  following user prompt is still not quite obvious"; "check how claude code cli in vscode or cursor do")*. Claude Code
+  (2.1.332) pins the turn's own prompt bubble, unchanged, at the top while its answer scrolls, over a band that fades
+  into the answer, and labels nothing. The strip here was a smaller, full-width grey card showing the prompt's last two
+  lines, which didn't read as the prompt. Now it is a copy of the bubble that was sent: the bubble's tint, border, shape
+  and size, on the right, from the prompt's start, three whole lines at most, over a band of the page's colour
+  (`--page-bg`: the sidebar's or the editor's) that fades into the answer. It still lies over the transcript, so
+  nothing flickers, and a click still goes to the prompt. *(Kept the overlay rather than true sticky, which would group
+  the transcript into turns: my call.)*
 
 ## Left to the builder
 

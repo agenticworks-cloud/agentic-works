@@ -71,9 +71,14 @@ const VENDOR_EXTENSIONS = { claude: 'anthropic.claude-code', codex: 'openai.chat
  * on its own tabs, so it is preferred; the image is the fallback.
  * @returns {{ icons: Record<string,{glyph?:string,image?:string}>, roots: any[] }}
  */
-function vendorIcons(webview) {
+function vendorIcons(webview, own = {}) {
   const icons = {}; const roots = [];
   for (const [kind, id] of Object.entries(VENDOR_EXTENSIONS)) {
+    if (own[kind]) {   // the company file's mark for this kind: its shape, in the theme's text colour
+      icons[kind] = { glyph: webview.asWebviewUri(vscode.Uri.file(own[kind].light)).toString(), tint: 'var(--vscode-foreground)' };
+      roots.push(vscode.Uri.file(require('path').dirname(own[kind].light)));
+      continue;
+    }
     try {
       const ext = vscode.extensions.getExtension(id);
       if (!ext || !ext.packageJSON) continue;               // not installed: the page falls back to a letter
@@ -123,7 +128,8 @@ function thumbOf(i) {
  * The icon of an editor tab. VS Code tints nothing here, so the file must carry its own colour: Claude's glyph is
  * already orange; ChatGPT's comes in a black and a white version, for light and dark themes.
  */
-function tabIcon(kind) {
+function tabIcon(kind, own = {}) {
+  if (own[kind]) return { light: vscode.Uri.file(own[kind].light), dark: vscode.Uri.file(own[kind].dark) };   // the company file's mark
   try {
     const ext = vscode.extensions.getExtension(VENDOR_EXTENSIONS[kind]);
     if (!ext || !ext.packageJSON) return undefined;
@@ -1589,6 +1595,8 @@ class PerchView {
 
   /** The company file (company.json, src/company.js), read on each call: an installer may write it at any time. */
   company() { return readCompany(companyFile()); }
+  /** The company file's own marks in place of the vendors' (icons in company.json), or {}. */
+  companyIcons() { const c = this.company(); return (c && c.ok && c.company.icons) || {}; }
   /** The company's gateway, or null: no company file, an invalid one, or one that names no gateway. */
   companyGateway() { const c = this.company(); return (c.ok && c.company.gateway) || null; }
   /** What the gateway form is shown: the file as formState has it, and the company's gateway, if any, with the address saved. */
@@ -2631,7 +2639,7 @@ class PerchView {
 
   // ---- surfaces
   mount(webview) {
-    const { icons, roots } = vendorIcons(webview);
+    const { icons, roots } = vendorIcons(webview, this.companyIcons());
     webview.options = { enableScripts: true, localResourceRoots: [this.context.extensionUri, ...roots].filter(Boolean) };
     webview.html = getHtml({ nonce: randomBytes(16).toString('hex'), cspSource: webview.cspSource, icons });
   }
@@ -2666,7 +2674,7 @@ class PerchView {
     this.panels.set(s.id, entry);
     s.paneled = true;
     panel.title = this.panelTitle(s);
-    const icon = tabIcon(s.kind); if (icon) panel.iconPath = icon;
+    const icon = tabIcon(s.kind, this.companyIcons()); if (icon) panel.iconPath = icon;
     this.mount(panel.webview);
     panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg, s.id));
     panel.onDidChangeViewState(() => { if (panel.active) this.lockGroup(); if (panel.visible) this.refreshTicketProjects(); if (panel.visible && s.attention && !s.pending.size) { s.attention = false; this.sendTabs(); } });
@@ -3131,7 +3139,7 @@ class PerchView {
       const open = this.owner(p.kind, p.id), running = !!open && open.kind === p.kind && open.agentSessionId === p.id;
       if (running) this.adoptTitle(open, p);   // an open tab and its row say the same name: the record's, unless the user named the tab
       const past = open && open.unsaved ? Object.assign({}, p, { title: open.title }) : p;
-      return { label: past.title, description: [open && open.path() ? open.path().map((k) => VENDOR[k]).join(' → ') : p.kind === 'claude' ? 'Claude' : 'Codex', ago(p.updatedAt), open ? 'open' : ''].filter(Boolean).join(' · '), iconPath: tabIcon(p.kind), buttons: [rename, del], past };
+      return { label: past.title, description: [open && open.path() ? open.path().map((k) => VENDOR[k]).join(' → ') : p.kind === 'claude' ? 'Claude' : 'Codex', ago(p.updatedAt), open ? 'open' : ''].filter(Boolean).join(' · '), iconPath: tabIcon(p.kind, this.companyIcons()), buttons: [rename, del], past };
     }));
     const missing = failed.map((k) => (k === 'claude' ? 'Claude Code' : 'Codex')).join(' and ');
     if (!sessions.length) qp.placeholder = missing ? `The sessions of ${missing} could not be read` : 'No past sessions in this folder';
@@ -3230,7 +3238,7 @@ class PerchView {
   /** A tab went on with the other vendor: its editor tab's icon is that vendor's now, and the page's composer follows it. */
   vendorChanged(s) {
     const e = this.panels.get(s.id);
-    if (e) { const icon = tabIcon(s.kind); if (icon) e.panel.iconPath = icon; }
+    if (e) { const icon = tabIcon(s.kind, this.companyIcons()); if (icon) e.panel.iconPath = icon; }
     this.sendTabs();
   }
 

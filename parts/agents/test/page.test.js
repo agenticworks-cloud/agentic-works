@@ -1585,11 +1585,26 @@ window.close();
     const log = pp.$('.pane:not([hidden]) .log'), strip = pp.$('.pane:not([hidden]) .pinned');
     assert(strip, 'each pane has a pinned-prompt strip');
     const css = pp.d.querySelector('style').textContent;
-    assert.match(css, /\.pinned\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--vscode-foreground\) 14%, var\(--vscode-editor-background\)\)/, 'the pinned prompt has a more visible background');
-    assert.match(css, /\.pinned\s*\{[^}]*border-left:\s*3px solid var\(--vscode-focusBorder\)/, 'the pinned prompt has a theme-aware accent');
     // Over the transcript, not beside it: if showing it moved the transcript's top, a prompt just below the top would
     // cross it, hide the strip, cross back and show it again, every frame (two prompts flickering, Sean 2026-11-25)
     assert.match(css, /\.pinned\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;/, 'the pinned prompt lies over the transcript, so showing it moves nothing');
+    // It reads as the user's own prompt because it looks like the bubble they sent, as Claude Code's pinned prompt does
+    // (Sean, 2026-11-27: "still not quite obvious"): the bubble's tint, border and shape, on the right, at full size, and
+    // the start of the prompt in whole lines, over a band that fades into the answer below
+    const rule = (sel) => { const m = css.match(new RegExp('(?:^|\\s)' + sel.replace(/[.]/g, '\\.') + '\\s*\\{([^}]*)\\}')); return m ? m[1] : ''; };
+    const bubble = rule('.user'), copy = rule('.pinned .text');
+    for (const prop of ['background', 'border', 'border-radius', 'max-width', 'padding']) {
+      const v = (r) => (r.match(new RegExp('(?:^|;)\\s*' + prop + ':\\s*([^;]+)')) || [])[1];
+      assert(v(bubble) && v(copy) === v(bubble), `the pinned prompt has the bubble's ${prop}: ${v(copy)} vs ${v(bubble)}`);
+    }
+    assert.match(copy, /margin-left:\s*auto/, 'on the right, where the bubble is');
+    assert.doesNotMatch(rule('.pinned'), /font-size/, 'at the size the prompt was sent at');
+    assert.doesNotMatch(rule('.pinned'), /max-height/, 'no height cap that cuts a line in half');
+    assert.match(copy, /-webkit-line-clamp:\s*3;/, 'at most three whole lines');
+    assert.match(rule('.pinned'), /linear-gradient\(to bottom, var\(--page-bg\)[^,]*, transparent/, 'a band that fades into the answer below');
+    assert.match(css, /body \{[^}]*--page-bg:\s*var\(--vscode-sideBar-background\)/, "in the sidebar the band is the sidebar's colour");
+    assert.match(css, /body\.single \{[^}]*--page-bg:\s*var\(--vscode-editor-background\)/, "in an editor tab, the editor's");
+    const said = () => strip.querySelector('.text').textContent;
     const [u1, u2] = pp.$$('.pane:not([hidden]) .msg.user');
     const at = (n, top, bottom) => { n.getBoundingClientRect = () => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top }); };
     const frame = () => new Promise((r) => pp.w.requestAnimationFrame(() => r()));
@@ -1598,20 +1613,20 @@ window.close();
     at(u1, 150, 190); at(u2, 400, 440); await scrolled();
     assert.strictEqual(strip.hidden, true, 'no prompt above the top: no strip');
     at(u1, 20, 60); await scrolled();
-    assert.deepStrictEqual([strip.hidden, strip.textContent], [false, 'first prompt'], "answer one at the top, its prompt scrolled off: pinned");
-    const pinnedText = strip.firstChild;
+    assert.deepStrictEqual([strip.hidden, said()], [false, 'first prompt'], "answer one at the top, its prompt scrolled off: pinned");
+    const pinnedText = strip.querySelector('.text').firstChild;
     await scrolled(); await scrolled();
-    assert.strictEqual(strip.firstChild, pinnedText, 'repeated updates do not replace an unchanged pinned prompt');
+    assert.strictEqual(strip.querySelector('.text').firstChild, pinnedText, 'repeated updates do not replace an unchanged pinned prompt');
     at(u1, 60, 120); await scrolled();
     assert.strictEqual(strip.hidden, true, 'its bubble still partly on screen: not pinned twice');
     at(u1, -600, -560); at(u2, 40, 90); await scrolled();
-    assert.deepStrictEqual([strip.hidden, strip.textContent, strip.classList.contains('cut')], [false, '…line3\nline4', true], 'a long prompt: its last two lines');
+    assert.deepStrictEqual([strip.hidden, said()], [false, 'line1\nline2\nline3\nline4'], 'a long prompt: from its start, the clamp shows what fits');
     let into = null; u2.scrollIntoView = (o) => { into = JSON.parse(JSON.stringify(o)); };
     strip.click();
     assert.deepStrictEqual(into, { block: 'start' }, 'a click goes to the prompt itself');
     pev({ kind: 'user', text: 'third' }); pev({ kind: 'text', text: 'answer three' });
     const u3 = pp.$$('.pane:not([hidden]) .msg.user')[2]; at(u3, -50, -10); at(u2, -300, -250); await frame(); await frame();
-    assert.strictEqual(strip.textContent, 'third', 'kept up to date as the transcript grows, not only on scroll');
+    assert.strictEqual(said(), 'third', 'kept up to date as the transcript grows, not only on scroll');
     pp.w.close();
   }
   console.log('PAGE OK');

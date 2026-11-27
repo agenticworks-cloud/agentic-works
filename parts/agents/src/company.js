@@ -295,10 +295,36 @@ function stepNotes(n, notes) {
   return out;
 }
 
+// icons: the company's own mark shown in place of a vendor's (claude, codex) on the Agents pages and their editor tabs.
+// Each is a file name (or ~ path), relative to the company file's folder, of an existing .svg or .png: one file, or
+// { light, dark } for light and dark themes (the pages tint the light one's shape in the theme's text colour). A bad
+// entry is dropped with a note; the rest stay.
+const ICON_KINDS = ['claude', 'codex'];
+function icons(v, home, dir, notes) {
+  const out = {};
+  if (v === undefined || v === null) return out;
+  if (!isObject(v)) { notes.push('icons: must be an object; it is ignored'); return out; }
+  const file = (f) => {
+    if (!isString(f) || !f || !/\.(svg|png)$/i.test(f)) return null;
+    const p = path.resolve(dir, expand(f, home));
+    try { return fs.statSync(p).isFile() ? p : null; } catch (_) { return null; }
+  };
+  for (const [k, e] of Object.entries(v)) {
+    if (!ICON_KINDS.includes(k)) { notes.push(`icons.${k}: not one of ${ICON_KINDS.join(', ')}; it is ignored`); continue; }
+    const light = file(isObject(e) ? e.light : e), dark = file(isObject(e) ? e.dark : e);
+    if (!light || !dark) {
+      notes.push(`icons.${k}: must name an .svg or .png file beside the company file, or { light, dark } of them; it is ignored`);
+      continue;
+    }
+    out[k] = { light, dark };
+  }
+  return out;
+}
+
 function validate(data, home, notes = [], dir = home) {
   if (!isObject(data)) throw new Invalid('', 'the file must hold a JSON object');
   if (!isString(data.name) || !data.name) throw new Invalid('name', 'must be a non-empty string');
-  const company = { name: data.name, title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [], notes: {} };
+  const company = { name: data.name, title: '', steps: { email: '', gateway: '', tools: '', talk: '' }, email: null, gateway: null, mcpServers: [], jira: { site: '', email: '' }, skills: [], notes: {}, icons: {} };
   // optional wording for the Get started page: its title, and the names of its email, gateway, tools and talk steps
   if (data.title !== undefined) {
     if (!isString(data.title) || !data.title) throw new Invalid('title', 'must be a non-empty string');
@@ -316,6 +342,7 @@ function validate(data, home, notes = [], dir = home) {
   company.jira = jira(data.jira, notes);
   company.email = email(data.email, notes);
   company.notes = stepNotes(data.notes, notes);
+  company.icons = icons(data.icons, home, dir, notes);
   if (data.gateway !== undefined && data.gateway !== null) company.gateway = gateway(data.gateway, home);
   if (data.mcpServers !== undefined) {
     if (!Array.isArray(data.mcpServers)) throw new Invalid('mcpServers', 'must be an array');

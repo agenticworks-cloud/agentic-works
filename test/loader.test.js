@@ -954,6 +954,34 @@ test('a command sign-in runs in a terminal named after the server, argv shell-qu
   await s.extension.deactivate();
 });
 
+test('a command sign-in that exits with an error resolves failed with its code; a retry replaces its terminal', async () => {
+  const s = await toolsSetup();
+  await s.run('agenticWorks.connectTools');
+  const [t] = s.fakes.made;
+  await s.ui.panels[0].receive({ type: 'connect', id: 'tickets' });
+  const handle = t.runInTerminal(['/opt/t/login']);
+  const [term] = s.ui.terminals;
+  let failed;
+  handle.failed.then((code) => { failed = code; });
+  s.ui.endExecution({ name: 'another' }, 1);
+  s.ui.endExecution(term, 0);
+  s.ui.endExecution(term, undefined);
+  await tick();
+  assert.strictEqual(failed, undefined, 'another terminal, a success, or an unknown code: not a failure');
+  s.ui.endExecution(term, 3);
+  await tick();
+  assert.strictEqual(failed, 3);
+  assert.strictEqual(term.disposed, false, 'left open, to be read');
+  t.runInTerminal(['/opt/t/login']);
+  assert.strictEqual(s.ui.terminals.length, 2);
+  assert.strictEqual(term.disposed, true, 'the failed terminal goes when the sign-in is tried again');
+  s.ui.closeTerminal(term);
+  s.ui.closeTerminal(s.ui.terminals[1]);
+  await tick();
+  assert.strictEqual(s.ui.endListeners(), 0, 'its listeners are disposed with the terminal');
+  await s.extension.deactivate();
+});
+
 test('a command sign-in gets the address the email step saved in email.env, in its terminal\'s environment only', async () => {
   const company = { ...EXAMPLE, email: { domain: 'example.com', env: 'EXAMPLE_EMAIL' } };
   for (const [saved, want] of [

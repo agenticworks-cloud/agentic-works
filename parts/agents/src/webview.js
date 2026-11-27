@@ -16,7 +16,7 @@ function cssUrl(v) { return String(v).replace(/[^A-Za-z0-9:/._~?#@!$&*+,;=%-]/g,
 function getHtml({ nonce, cspSource, icons = {} }) {
   const kinds = Object.keys(LETTER);
   const glyphCss = kinds.filter((k) => icons[k] && icons[k].glyph).map((k) =>
-    `  .k.glyph.${k} { -webkit-mask: url("${cssUrl(icons[k].glyph)}") center / contain no-repeat; mask: url("${cssUrl(icons[k].glyph)}") center / contain no-repeat; background-color: ${TINT[k]}; }`).join('\n');
+    `  .k.glyph.${k} { -webkit-mask: url("${cssUrl(icons[k].glyph)}") center / contain no-repeat; mask: url("${cssUrl(icons[k].glyph)}") center / contain no-repeat; background-color: ${icons[k].tint || TINT[k]}; }`).join('\n');
   // what the page script needs: which kinds have a glyph rule, and the image URI to fall back to
   const forPage = {}; for (const k of kinds) if (icons[k]) forPage[k] = { glyph: !!icons[k].glyph, image: icons[k].image || '' };
   // static badge for markup written in this template; the script builds the rest with badge()
@@ -31,7 +31,7 @@ function getHtml({ nonce, cspSource, icons = {} }) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style nonce="${nonce}">
   :root { color-scheme: light dark; }
-  body { margin: 0; padding: 0; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-sideBar-background); display: flex; flex-direction: column; height: 100vh; }
+  body { --page-bg: var(--vscode-sideBar-background); margin: 0; padding: 0; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-sideBar-background); display: flex; flex-direction: column; height: 100vh; }
   button { font-family: inherit; cursor: pointer; }
   svg { display: block; }
 
@@ -57,7 +57,7 @@ ${glyphCss}
   @keyframes pulse { 50% { opacity: .3; } }
 
   body.single #tabs { display: none; }
-  body.single { background: var(--vscode-editor-background); }
+  body.single { --page-bg: var(--vscode-editor-background); background: var(--vscode-editor-background); }
 
   /* panes */
   #panes { flex: 1; min-height: 0; position: relative; }
@@ -117,8 +117,9 @@ ${glyphCss}
   .user { margin: 18px 0 10px auto; width: fit-content; max-width: 88%; padding: 8px 12px; background: color-mix(in srgb, var(--vscode-foreground) 9%, var(--vscode-editor-background)); border: 1px solid color-mix(in srgb, var(--vscode-foreground) 12%, transparent); border-radius: 12px 12px 4px 12px; }
   .user:first-child { margin-top: 4px; }
   /* the prompt whose answer is at the top of the transcript, while its own bubble is scrolled off: its last two lines */
-  .pinned { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; flex-direction: column; justify-content: flex-end; max-height: 2.8em; overflow: hidden; margin: 0 10px; padding: 3px 10px; font-size: 12px; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-foreground); background: color-mix(in srgb, var(--vscode-foreground) 14%, var(--vscode-editor-background)); border: 1px solid color-mix(in srgb, var(--vscode-foreground) 10%, transparent); border-top: none; border-left: 3px solid var(--vscode-focusBorder); border-radius: 0 0 8px 8px; cursor: pointer; }
-  .pinned:hover { color: var(--vscode-foreground); }
+  .pinned { position: absolute; top: 0; left: 0; right: 10px; z-index: 2; padding: 4px 10px 14px; background: linear-gradient(to bottom, var(--page-bg) calc(100% - 12px), transparent); cursor: pointer; }
+  /* a copy of the bubble the user sent, so it reads as theirs (as Claude Code pins it): from its start, three whole lines at most */
+  .pinned .text { margin-left: auto; width: fit-content; max-width: 88%; padding: 8px 12px; background: color-mix(in srgb, var(--vscode-foreground) 9%, var(--vscode-editor-background)); border: 1px solid color-mix(in srgb, var(--vscode-foreground) 12%, transparent); border-radius: 12px 12px 4px 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
   .user.queued { opacity: .75; border-style: dashed; }
   .user .tag { float: right; font-size: 10px; color: var(--vscode-descriptionForeground); margin-left: 8px; }
   .user .unq { float: right; margin: -3px -6px 0 6px; padding: 0 4px; border: none; background: none; color: var(--vscode-descriptionForeground); font-size: 14px; line-height: 1; cursor: pointer; border-radius: 3px; }
@@ -628,7 +629,7 @@ ${glyphCss}
   function makePane(tab) {
     const root = el('div', 'pane'); root.hidden = true;
     const log = el('div', 'log');
-    const pinned = el('div', 'pinned'); pinned.hidden = true; pinned.title = 'The prompt this answer is for. Click to go to it.';
+    const pinned = el('div', 'pinned'); pinned.append(el('div', 'text')); pinned.hidden = true; pinned.title = 'The prompt this answer is for. Click to go to it.';
     const work = el('div', 'work'), what = el('span', 'what'), took = el('span', 'for'); work.hidden = true; work.setAttribute('role', 'status');
     work.append(el('span', 'sp'), what, took);
     const subs = el('div', 'subs'); subs.hidden = true;   // the running turn's sub-agents as a table, opened from the count at the foot
@@ -909,7 +910,7 @@ ${glyphCss}
 
   function pin(p) { if (p.stick) p.log.scrollTop = p.log.scrollHeight; repin(p); }
   // The pinned prompt, once a frame: the last prompt that starts above the transcript's top, while none of its bubble
-  // is still on screen (Sean, 2026-11-25: "hard to see what the response is for"). A long one shows its last two lines.
+  // is still on screen (Sean, 2026-11-25: "hard to see what the response is for"). A long one shows what fits from its start.
   function repin(p) {
     if (p.pinRaf) return;
     p.pinRaf = requestAnimationFrame(() => {
@@ -921,10 +922,7 @@ ${glyphCss}
       if (p.pinnedTo === to) return;
       p.pinnedTo = to;
       if (!to) { p.pinned.hidden = true; return; }
-      const lines = (to.promptText || '').replace(/\\s+$/, '').split('\\n');
-      const cut = lines.length > 2;
-      p.pinned.textContent = (cut ? '\\u2026' : '') + lines.slice(-2).join('\\n');
-      p.pinned.classList.toggle('cut', cut);
+      p.pinned.firstChild.textContent = (to.promptText || '').replace(/\\s+$/, '');
       p.pinned.hidden = false;
     });
   }

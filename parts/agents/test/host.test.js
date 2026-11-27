@@ -249,6 +249,27 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
   const v6 = fakeView(); none.registered['perch.main'].resolveWebviewView(v6.view);
   assert(!/<img/.test(v6.view.webview.html) && !/class="k glyph (claude|codex)/.test(v6.view.webview.html), 'no vendor extensions, letters only; the LLM gateway glyph is its own');
 
+  // a company file's icons.claude: the company's mark in place of Claude's, in the theme's text colour on the pages,
+  // light and dark on the editor tabs; Codex keeps its own
+  {
+    const cdir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'perch-icons-'));
+    for (const f of ['mark-black.svg', 'mark-white.svg']) require('fs').writeFileSync(require('path').join(cdir, f), '<svg/>');
+    const company = require('path').join(cdir, 'company.json');
+    require('fs').writeFileSync(company, JSON.stringify({ name: 'Example Co', icons: { claude: { light: 'mark-black.svg', dark: 'mark-white.svg' } } }));
+    const ci = install(undefined, { config: { newTabs: 'editor' }, company }); await flush();
+    const v7 = fakeView(); ci.registered['perch.main'].resolveWebviewView(v7.view);
+    const h = v7.view.webview.html;
+    assert(h.includes(`.k.glyph.claude { -webkit-mask: url("vscode-resource://host${cdir}/mark-black.svg")`), String(h.match(/\.k\.glyph\.claude[^}]*}/)));
+    assert(/\.k\.glyph\.claude \{[^}]*background-color: var\(--vscode-foreground\);/.test(h), 'the company mark in the theme text colour');
+    assert(/\.k\.glyph\.codex \{[^}]*blossom-white\.svg/.test(h), 'Codex keeps its own glyph');
+    assert(h.includes('<span class="k glyph claude"></span>'));
+    assert(v7.view.webview.options.localResourceRoots.some((u) => u.path === cdir), 'the company folder may be read by the page');
+    await ci.commands['perch.newClaude']();
+    const ip = ci.ui.panels[0].iconPath;
+    assert.deepStrictEqual([ip.light.path, ip.dark.path], [`${cdir}/mark-black.svg`, `${cdir}/mark-white.svg`], 'the tab shows the company mark');
+    require('fs').rmSync(cdir, { recursive: true, force: true });
+  }
+
   // settings give new tabs their defaults; an effort the model lacks is dropped; an unlisted model is kept and labelled as itself
   const cfgd = install(undefined, { config: { 'claude.effort': 'high', 'claude.model': 'fable', 'codex.reasoningEffort': 'nonsense', 'codex.model': 'gpt-internal-9' } });
   const v7 = fakeView(); cfgd.registered['perch.main'].resolveWebviewView(v7.view); v7.fire({ type: 'ready' }); await flush();

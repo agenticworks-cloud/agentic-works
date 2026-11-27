@@ -316,23 +316,38 @@ class AgenticWorks {
   }
 
   // A command sign-in, in a VS Code terminal named after the server; `closed` resolves when that terminal closes
-  // (the shell exits once the command succeeds; one that fails stays open, to be read, until it is closed). With the
+  // (the shell exits once the command succeeds; one that fails stays open, to be read). `failed` resolves with the
+  // exit code when the command exits with an error, where shell integration can tell; otherwise it never resolves
+  // and closing the terminal ends the wait. Trying the sign-in again replaces the terminal of the last try. With the
   // company file's email section, the address the Get started page saved is in the terminal's environment (email.env),
   // never on its command line.
   runInTerminal(name, argv) {
     const c = this.company;
     const env = c && c.ok ? companyEmailEnv(c.company, this.base.globalState.get(EMAIL_KEY)) : {};
+    this.signInTerminals = this.signInTerminals || new Map();
+    const last = this.signInTerminals.get(name);
+    if (last) last.dispose();
     const terminal = vscode.window.createTerminal(Object.keys(env).length ? { name, env } : { name });
+    this.signInTerminals.set(name, terminal);
+    let onFail = () => {};
+    const failed = new Promise((resolve) => { onFail = resolve; });
+    const ended = vscode.window.onDidEndTerminalShellExecution
+      ? vscode.window.onDidEndTerminalShellExecution((e) => {
+        if (e.terminal === terminal && typeof e.exitCode === 'number' && e.exitCode !== 0) onFail(e.exitCode);
+      })
+      : { dispose() {} };
     const closed = new Promise((resolve) => {
       const listener = vscode.window.onDidCloseTerminal((t) => {
         if (t !== terminal) return;
         listener.dispose();
+        ended.dispose();
+        if (this.signInTerminals.get(name) === terminal) this.signInTerminals.delete(name);
         resolve();
       });
     });
     terminal.show();
     terminal.sendText(`${argv.map(shellQuote).join(' ')} && exit`);
-    return { terminal, closed };
+    return { terminal, closed, failed };
   }
 
   // A sign-in tool's prompt: the code to the clipboard, the link opened (either alone when that is all there is)

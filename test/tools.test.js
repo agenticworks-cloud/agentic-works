@@ -10,6 +10,7 @@ const path = require('node:path');
 const { Tools, promptOf, platformKey, scrub, TOKEN_DIR, GITHUB_FIRST, NOT_INSTALLED } = require('../src/tools');
 const { readCompany } = require('../src/company');
 const EXAMPLE = require('./fixtures/exampleCompany');
+const within = (p, ms = 1000) => Promise.race([p, new Promise((r) => setTimeout(() => r('timed out'), ms))]);
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'fakeMcpServer.js');
 const temps = [];
@@ -254,6 +255,30 @@ test('connectCommand, signing in again: an existing file is done only once it is
   assert.strictEqual(s.runs.length, 2, 'checked once the terminal closed');
   assert.strictEqual(r2.state, 'notConnected');
   assert.strictEqual(r2.reason, 'not signed in');
+});
+
+test('connectCommand: a sign-in that exits with an error ends the wait at once, and its button tries again', async () => {
+  const s = setup();
+  s.tools.pollMs = 20;
+  let starts = 0;
+  const r = await within(s.tools.connectCommand('tickets', { runInTerminal: () => {
+    starts++;
+    return { closed: new Promise(() => {}), failed: Promise.resolve(1) };
+  } }), 500);
+  assert.notStrictEqual(r, 'timed out', 'no waiting for the terminal to close');
+  assert.strictEqual(r.state, 'notConnected');
+  assert.strictEqual(r.reason, "The sign-in stopped before it finished; its terminal says why. Press the button to try again.");
+  assert.strictEqual(s.runs.length, 0, 'nothing to check');
+  s.runResult.code = 0;
+  const done = path.join(s.home, '.t', 'credentials.json');
+  const r2 = await s.tools.connectCommand('tickets', { runInTerminal: () => {
+    starts++;
+    fs.mkdirSync(path.dirname(done), { recursive: true });
+    fs.writeFileSync(done, '{}');
+    return { closed: new Promise(() => {}), failed: new Promise(() => {}) };
+  } });
+  assert.strictEqual(starts, 2);
+  assert.strictEqual(r2.state, 'connected', r2.reason);
 });
 
 test('connectCommand: polls for the file until it appears', async () => {
