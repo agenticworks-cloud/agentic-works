@@ -46,6 +46,30 @@ const KEY = 'sk-example-0123456789abcdefghijklmnop';
       assert(await gone(p2), 'the whole group is stopped at the timeout');
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   }
+  // progress: each stderr line as it comes, for the page to say what the helper is doing, without the helper's own name
+  // (`name: `) and with anything key-shaped masked
+  const seen = [];
+  assert.deepStrictEqual(await runKeyCommand(fake('progress', KEY), { onProgress: (l) => seen.push(l) }), { ok: true, key: KEY });
+  assert.deepStrictEqual(seen, ['trying your saved sign-in', 'sign in to Example in the window that opens (…)']);
+  // Cancel: an abort ends the run at once, the whole group stopped, answered as cancelled
+  assert.strictEqual(TEXT.cancelled, 'Cancelled.');
+  if (process.platform !== 'win32') {
+    const fs = require('fs'), os = require('os');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-keycancel-'));
+    try {
+      const pid = path.join(tmp, 'c.pid'), ac = new AbortController();
+      const run = runKeyCommand(fake('bgsleep', pid), { signal: ac.signal });
+      while (!fs.existsSync(pid)) await new Promise((r) => setTimeout(r, 20));
+      const t = Date.now(); ac.abort();
+      assert.deepStrictEqual(await run, { ok: false, cancelled: true, text: 'Cancelled.' });
+      assert(Date.now() - t < 4000, `cancelled promptly (${Date.now() - t} ms)`);
+      const child = Number(fs.readFileSync(pid, 'utf8'));
+      let alive = true; for (let i = 0; i < 100 && alive; i++) { try { process.kill(child, 0); await new Promise((r) => setTimeout(r, 50)); } catch (_) { alive = false; } }
+      assert(!alive, 'the browser it left is stopped too');
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  }
+  const pre = new AbortController(); pre.abort();
+  assert.deepStrictEqual(await runKeyCommand(fake('sleep'), { signal: pre.signal }), { ok: false, cancelled: true, text: 'Cancelled.' }, 'aborted before it starts');
   // a key-shaped string in stderr never reaches the reason
   const leaked = await runKeyCommand(fake('fail', `refused ${KEY} and token=abcdefghijklmnopqrstuvwxyz0123 for task-runner`));
   assert.strictEqual(leaked.ok, false);

@@ -2448,6 +2448,25 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert.deepStrictEqual(busyPanel.got.filter((x) => x.type === 'keyFailed'), [{ type: 'keyFailed', text: BUSY[0].text }], 'the panel too');
       assert.deepStrictEqual((await first).map((r) => r.type), ['gatewayKeyFailed']);
       assert.strictEqual((await first)[0].text, 'That took too long.');
+      // while one runs, the page can ask what it is doing (the helper's last line) and cancel it (Sean, 2026-11-27: a
+      // run that used the saved sign-in showed no window and seemed to do nothing)
+      const untilAsk = async (f) => { for (let i = 0; i < 400; i++) { if (f((await ask({ type: 'keyStatus' }))[0])) return; await wait(5); } };
+      assert.deepStrictEqual(await ask({ type: 'keyStatus' }), [{ type: 'gatewayKeyStatus', running: false, progress: '' }], 'none running');
+      assert.deepStrictEqual(await ask({ type: 'cancelKey' }), [], 'nothing to cancel');
+      writeCompany('progress', KEY);
+      m.perch.keyCommandTimeoutMs = 12 * 60e3;
+      fs.rmSync(file, { force: true });
+      const watched = ask({ type: 'getKey' });
+      await untilAsk((st) => st.progress.startsWith('sign in'));
+      assert.deepStrictEqual(await ask({ type: 'keyStatus' }), [{ type: 'gatewayKeyStatus', running: true, progress: 'sign in to Example in the window that opens (…)' }]);
+      assert((await watched).some((r) => r.type === 'gatewaySaved'), 'then saved as before');
+      assert.deepStrictEqual(await ask({ type: 'keyStatus' }), [{ type: 'gatewayKeyStatus', running: false, progress: '' }], 'and over');
+      writeCompany('sleep');
+      const cancelled = ask({ type: 'getKey' });
+      await untilAsk((st) => st.running);
+      assert.deepStrictEqual(await ask({ type: 'cancelKey' }), []);
+      assert.deepStrictEqual(await cancelled, [{ type: 'gatewayKeyFailed', text: 'Cancelled.' }], 'Cancel ends it, with Try again');
+      assert.strictEqual((await ask({ type: 'keyStatus' }))[0].running, false);
       // the manual way: Open the key page
       assert.deepStrictEqual(await ask({ type: 'keyPage' }), []);
       await flush();

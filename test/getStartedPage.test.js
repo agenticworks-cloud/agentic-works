@@ -436,8 +436,10 @@ assert.deepStrictEqual(out.pop(), { type: 'openSettings' });
     [true, true, false, false, false], 'Get a key first; the key field behind Paste a key instead');
   button(c, 'Get a key').click();
   assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'getKey' } });
-  const n = out.length; [...c.querySelectorAll('button')].find((b) => b.textContent === 'Get a key').click();
+  const n = out.length; [...c.querySelectorAll('button')].find((b) => b.textContent === 'Getting a key…').click();
   assert.strictEqual(out.length, n, 'not twice while it runs');
+  assert.ok(button(c, 'Getting a key…') && button(c, 'Getting a key…').disabled && !button(c, 'Get a key'), 'the button says it is running');
+  assert.ok(!!button(c, 'Cancel'), 'Cancel while it runs');
   host({ type: 'state', state: helperState('Getting your Example Gateway key…') });
   assert.ok(shown(c.querySelector('.waiting')) && c.querySelector('.waiting').textContent === 'Getting your Example Gateway key…', 'the step says so (the host\'s waiting line)');
   // it can't: the reason, Try again, Open the key page, the key field, Check and save
@@ -471,6 +473,24 @@ assert.deepStrictEqual(out.pop(), { type: 'openSettings' });
   host({ type: 'agents', error: "Agents (Claude Code and Codex) isn't running." });
   assert.ok(!!button(c, 'Try again') && shown(keyField));
   host({ type: 'agents', replies: [] });
+  // a page opened while a key is being fetched (reloaded): the host's state says so; Cancel stops it
+  host({ type: 'agents', replies: [{ type: 'gatewaySaved', state: { tokenSet: true } }], of: 'getKey' });
+  assert.ok(!button(c, 'Cancel'), 'no Cancel when nothing runs');
+  host({ type: 'state', state: st({ claude: { companyGateway: 'Example Gateway', keyCommand: true, keyRunning: true }, steps: steps('Getting your Example Gateway key… Sign in in the window that opened.') }) });
+  assert.ok(button(c, 'Getting a key…') && button(c, 'Getting a key…').disabled, 'running, as the host says');
+  assert.strictEqual(c.querySelector('.waiting').textContent, 'Getting your Example Gateway key… Sign in in the window that opened.');
+  button(c, 'Cancel').click();
+  assert.deepStrictEqual(out.pop(), { type: 'agents', request: { type: 'cancelKey' } });
+  host({ type: 'agents', replies: [], of: 'cancelKey' });
+  assert.ok(!!button(c, 'Getting a key…'), 'the answer to Cancel is not the end of the run');
+  host({ type: 'agents', replies: [{ type: 'gatewayKeyFailed', text: 'Cancelled.' }], of: 'getKey' });
+  host({ type: 'state', state: helperState() });
+  assert.ok(!!button(c, 'Try again') && !button(c, 'Cancel') && c.textContent.includes('Cancelled.'), 'cancelled: Try again');
+  // a state that no longer says running does not end a run this page started (its answer does)
+  button(c, 'Try again').click(); out.pop();
+  host({ type: 'state', state: helperState() });
+  assert.ok(!!button(c, 'Getting a key…'));
+  host({ type: 'agents', replies: [{ type: 'gatewaySaved', state: { tokenSet: true } }], of: 'getKey' });
 }
 
 // words from the company file are text, never markup

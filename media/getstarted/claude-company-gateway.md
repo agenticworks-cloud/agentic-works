@@ -1,8 +1,9 @@
 Claude runs through **{{gateway}}**, the gateway {{title}} has set up. Claude tabs use it with a key of your own.
 
 **Get a key** gets that key. Where {{title}} has set up a key helper, it signs you in (a browser window may open),
-fetches your key and saves it, and this step says "Getting your {{gateway}} key…" meanwhile. You never see or paste
-the key. If it can't, the step says why and offers **Try again**, **Open the key page** and a key field.
+fetches your key and saves it. Meanwhile this step says "Getting your {{gateway}} key…" and what the helper is doing,
+such as asking you to sign in in the window that opened, and **Cancel** stops it. You never see or paste the key. If
+it can't, the step says why and offers **Try again**, **Open the key page** and a key field.
 
 Without a key helper, **Get a key** opens {{gateway}}'s key page. Create a key there, paste it in **Key**, and press
 **Check and save**. **Paste a key instead** does the same where a helper is set up.

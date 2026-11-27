@@ -19,6 +19,7 @@ const TEXT = {
   signIn: "The sign-in wasn't completed.",
   missing: "The key helper isn't installed.",
   timeout: 'That took too long.',
+  cancelled: 'Cancelled.',
 };
 
 /** A stderr line made safe for the page: key-shaped words masked (sk-…, any run of 20 or more), one line, ≤200. */
@@ -37,13 +38,15 @@ function lastLine(stderr) {
 const failed = (reason) => ({ ok: false, text: `${PREFIX} ${maskReason(reason) || 'the key helper gave no reason.'}` });
 
 /**
- * Run the key helper. Resolves `{ ok: true, key }` or `{ ok: false, text }`; never rejects.
+ * Run the key helper. Resolves `{ ok: true, key }` or `{ ok: false, text }` (with `cancelled: true` when `signal` was
+ * aborted); never rejects. `onProgress` gets each line the helper writes to stderr as it comes, without a leading
+ * `name: ` and masked as a reason is, so a page can say what the helper is doing (signing in, a window open).
  * @param {string[]} argv the program (absolute) and its arguments
- * @param {{ timeoutMs?: number, env?: object, cwd?: string, drainMs?: number, killGraceMs?: number }} [o]
+ * @param {{ timeoutMs?: number, env?: object, cwd?: string, drainMs?: number, killGraceMs?: number, signal?: AbortSignal, onProgress?: (line: string) => void }} [o]
  */
-function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd, drainMs = DRAIN_MS, killGraceMs = KILL_GRACE_MS } = {}) {
+function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd, drainMs = DRAIN_MS, killGraceMs = KILL_GRACE_MS, signal, onProgress } = {}) {
   return new Promise((resolve) => {
-    let child, done = false, out = [], outLen = 0, err = '', timedOut = false, tooMuch = false, exited = false;
+    let child, done = false, out = [], outLen = 0, err = '', partial = '', timedOut = false, tooMuch = false, exited = false;
     const timers = [];
     const later = (ms, f) => { const t = setTimeout(f, ms); timers.push(t); return t; };
     // the helper's whole process group (it runs detached, as a group of its own): a browser or a refresher it left
@@ -58,6 +61,7 @@ function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd, d
     const finish = (r) => {
       if (done) return;
       done = true;
+      if (signal) signal.removeEventListener('abort', cancelled);
       for (const t of timers) clearTimeout(t);
       out = [];   // stdout is held no longer than needed
       // a leftover child may hold the pipes open: they are let go, and what is left of the group is stopped
@@ -90,6 +94,9 @@ function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd, d
       if (code === 2) { finish({ ok: false, text: TEXT.signIn }); return; }
       finish(failed(lastLine(err) || (signal ? `the key helper was stopped (${signal}).` : `the key helper exited with code ${code}.`)));
     };
+    const cancelled = () => finish({ ok: false, cancelled: true, text: TEXT.cancelled });
+    if (signal && signal.aborted) { cancelled(); return; }
+    if (signal) signal.addEventListener('abort', cancelled, { once: true });
     if (!Array.isArray(argv) || !argv.length || typeof argv[0] !== 'string' || !argv[0]) { finish({ ok: false, text: TEXT.missing }); return; }
     try {
       child = spawn(argv[0], argv.slice(1), { shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env, cwd, windowsHide: true });
@@ -103,7 +110,17 @@ function runKeyCommand(argv, { timeoutMs = TIMEOUT_MS, env = process.env, cwd, d
       if (outLen > MAX_STDOUT) { tooMuch = true; out = []; stop(); return; }
       out.push(b);
     });
-    child.stderr.on('data', (b) => { err = (err + b.toString('utf8')).slice(-MAX_STDERR); });
+    child.stderr.on('data', (b) => {
+      const text = b.toString('utf8');
+      err = (err + text).slice(-MAX_STDERR);
+      if (!onProgress) return;
+      const lines = (partial + text).split(/\r?\n/);
+      partial = lines.pop().slice(-MAX_STDERR);
+      for (const l of lines) {
+        const line = maskReason(l.replace(/^\s*[A-Za-z0-9._-]+:\s+(?=\S)/, ''));
+        if (line && !done) { try { onProgress(line); } catch (_) { /* the page's trouble, not the run's */ } }
+      }
+    });
     child.on('error', (e) => {
       // only the code: a spawn error's message names the program, nothing else, but keep to the known words
       if (e && e.code === 'ENOENT') finish({ ok: false, text: TEXT.missing });

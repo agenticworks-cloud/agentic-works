@@ -1055,6 +1055,17 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   (`--page-bg`: the sidebar's or the editor's) that fades into the answer. It still lies over the transcript, so
   nothing flickers, and a click still goes to the prompt. *(Kept the overlay rather than true sticky, which would group
   the transcript into turns: my call.)*
+- **Get a key says what it is doing, can be cancelled, and survives a reload — Built (1.0.3)** *(Sean, 2026-11-27,
+  after a fetch on the saved sign-in looked dead: "the button is doing nothing now"; "yes" to a clearer wait, Cancel,
+  and remembering a running fetch)*. The helper's stderr lines are its progress: the Agents part keeps the last one
+  (its `name:` prefix dropped, anything key-shaped masked), and Get started asks for it every second
+  (`keyStatus` → `gatewayKeyStatus {running, progress}`) and adds it to the step's line as a sentence ("Getting your
+  <gateway> key… Sign in in the window that opened."). While it runs the button reads **Getting a key…** and is
+  disabled, and **Cancel** beside it sends `cancelKey`, which stops the helper's process group and answers the run
+  with "Cancelled." (no trace written); **Try again** and the manual way follow, as for any failure. The state's
+  `claude.keyRunning` tells a page opened or reloaded mid-run that a key is being fetched; the page only takes
+  *running* from it, so a state sent before a run's answer can't end that run early *(my call)*. The gateway panel
+  keeps its own waiting text, without Cancel *(my call: Get started is where the wait was missed)*.
 
 ## Left to the builder
 

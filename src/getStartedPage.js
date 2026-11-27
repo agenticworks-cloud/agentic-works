@@ -8,7 +8,7 @@
 // The words (the heading, the steps' names, the company gateway's name) come from the state, never from here.
 //
 // Host to page: state {state}, state = { title, steps: [{ id, name, done, waiting, details }], email: { domain, value }
-//   or null, claude: { companyGateway, keyCommand }, agents: { autoTab, openTab }, github: { logins }, teams: { rowId,
+//   or null, claude: { companyGateway, keyCommand, keyRunning }, agents: { autoTab, openTab }, github: { logins }, teams: { rowId,
 //   note, code }, jira: { rowId, site, email, form }, parts: [{ id, title, on }] }
 //   (agents.autoTab: the talk step's Claude tab opens by itself, so no New Claude Tab / New Codex Tab; openTab: offer
 //   Open Claude Tab, no Perch tab being open. teams.code: { userCode, verificationUri } while the page's Teams sign-in
@@ -18,7 +18,7 @@
 //   (perch.connectClaude.request's replies; of: the request's type) or agents {error}; jira {error} (null once signed in);
 //   email {error} (null once saved).
 // Page to host: ready; agents {request} (a Connect Claude or renamed gateway form message: getKey runs the company's
-//   key helper when there is one; keyPage opens its key page); github; newTab {kind}; openTab; teamsCopyCode; teamsCancel;
+//   key helper when there is one; cancelKey stops it; keyPage opens its key page); github; newTab {kind}; openTab; teamsCopyCode; teamsCancel;
 //   notNow {step}; codebaseOn; teamsSignIn; jiraSignIn; jiraForm {site, email, token}; emailSave {email}; part {id, on}; partsDone;
 //   openSettings; tool {message} (a tools row's message, {type, id, ...}); openLink {url} (a link clicked in the
 //   details: the host opens it if it is https). No VS Code dependency.
@@ -269,11 +269,12 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       agents({ type: 'getKey' });
       show();
     });
+    v.cancelKey = button('Cancel', 'secondary', () => agents({ type: 'cancelKey' }));
     v.keyPage = button('Open the key page', 'secondary', () => agents({ type: 'keyPage' }));
     v.paste = button('Paste a key instead', 'link', () => { manual = true; show(); v.companyKey.focus(); });
     v.companyManual = el('div', 'manual');
     v.companyManual.append(v.companyKeySet, field('Key', v.companyKey), row(v.companySave));
-    v.company.append(v.companyAbout, row(v.getKey, v.keyPage, v.paste), v.companyManual, v.companyVerdict);
+    v.company.append(v.companyAbout, row(v.getKey, v.cancelKey, v.keyPage, v.paste), v.companyManual, v.companyVerdict);
     // the helper's run has ended: a reason (or a verdict on its key) leaves Try again and the manual way
     const helperEnded = (failed) => { if (!keyRunning) return; keyRunning = false; if (failed) { keyFailed = true; manual = true; } else keyFailed = false; };
 
@@ -350,8 +351,9 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       const h = helper();
       v.companyAbout.textContent = !name ? '' : h ? 'Get a key signs you in to ' + name + ' and gets your key; it is checked with the gateway before it is saved.'
         : 'Get a key from ' + name + '\'s page, paste it below, and it is checked with the gateway before it is saved.';
-      v.getKey.textContent = h && keyFailed ? 'Try again' : 'Get a key';
+      v.getKey.textContent = h && keyRunning ? 'Getting a key…' : h && keyFailed ? 'Try again' : 'Get a key';
       v.getKey.disabled = h && keyRunning;
+      v.cancelKey.hidden = !(h && keyRunning);
       v.keyPage.hidden = !h || !manual;
       v.paste.hidden = !h || manual;
       v.companyManual.hidden = h && !manual;
@@ -427,7 +429,9 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     v.replied = () => { if (keyRunning) { helperEnded(false); show(); } };
     // an error (Agents isn't running) drops Save anyway and the held token too
     v.agentsError = (text) => { v.error.textContent = text || ''; v.error.hidden = !text; if (text) { held = ''; v.gwForce.hidden = true; helperEnded(true); show(); } };
-    v.update = () => show();
+    // a page opened (or reloaded) while a key is being fetched learns it from the host; only running is taken from
+    // it: a run this page started ends with its answer, not with a state sent before that answer
+    v.update = () => { if (helper() && state.claude.keyRunning) keyRunning = true; show(); };
     v.onFirstOpen = () => { agents({ type: 'gatewayReady' }); agents({ type: 'ready' }); };
   }
 

@@ -55,6 +55,8 @@ const WAIT_BROWSER = 'Finish signing in in your browser.';
 const WAIT_CLAUDE = 'Signing in to Claude in the terminal…';
 // the company's key helper is running (Get a key, with gateway.keyCommand): in the Agents part, which keeps the key
 const waitKey = (name) => `Getting your ${name} key…`;
+// the helper's last line, as a sentence after it: what it is doing (signing in, a window open)
+const asSentence = (line) => { const t = str(line).trim(); return t ? t[0].toUpperCase() + t.slice(1) + (/[.!?…]$/.test(t) ? '' : '.') : ''; };
 // chirp.signIn resolved but chirp.signedIn isn't true: cancelled, failed, offline, or the admin-approval wall
 const TEAMS_NOT_SIGNED_IN = "Teams isn't signed in. Try again, or see the Teams view for why.";
 // a configuration change of these refreshes the page
@@ -76,6 +78,10 @@ class GetStarted {
     // claude: how many subscription logins are out (perch.connectClaude.request answers only once one ends)
     // key: how many Get a key requests with the company's key helper are out
     this.waiting = { teams: false, claude: 0, key: 0 };
+    // while a key is being fetched, Agents is asked what its helper is doing (keyStatus) every keyPollMs
+    this.keyProgress = '';
+    this.keyPollMs = 1000;
+    this.keyPollTimer = null;
     this.notes = { teams: '', github: '' };
     // the talk step's tab (gateway.openTabOnTalk): an open out, a retry's timer, how many tried, done for this window
     this.autoTab = { inFlight: false, timer: null, tries: 0, settled: false };
@@ -91,6 +97,23 @@ class GetStarted {
     this.subs.push(vscode.workspace.onDidChangeConfiguration((e) => {
       if (WATCHED_SETTINGS.some((k) => e.affectsConfiguration(k))) this.refresh();
     }));
+  }
+
+  /** While a key is being fetched: ask Agents what its helper is doing, and again in keyPollMs. */
+  schedulePoll() {
+    if (this.disposed || this.keyPollTimer || this.waiting.key <= 0) return;
+    this.keyPollTimer = setTimeout(() => { this.keyPollTimer = null; this.pollKey(); }, this.keyPollMs);
+    if (this.keyPollTimer.unref) this.keyPollTimer.unref();
+  }
+  async pollKey() {
+    if (this.waiting.key <= 0) return;
+    try {
+      const replies = await this.vscode.commands.executeCommand('perch.connectClaude.request', { type: 'keyStatus' });
+      const st = Array.isArray(replies) ? replies.find((r) => r && r.type === 'gatewayKeyStatus') : null;
+      const progress = st && st.running ? str(st.progress) : '';
+      if (this.waiting.key > 0 && progress !== this.keyProgress) { this.keyProgress = progress; this.refresh(); }
+    } catch (_) { /* Agents went away: its answer to getKey ends the wait */ }
+    this.schedulePoll();
   }
 
   open() {
@@ -220,7 +243,7 @@ class GetStarted {
     const teamsCode = !teamsSigned && this.waiting.teams && this.ctx('chirp.signInCodeWaiting') ? this.teamsCode : null;
     const gh = this.agenticWorks.github ? this.agenticWorks.github.flow.state : null;
     const waiting = { github: gh ? WAIT_GITHUB[gh.phase] || '' : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
-      claude: this.waiting.claude > 0 ? WAIT_CLAUDE : this.waiting.key > 0 && gwName ? waitKey(gwName) : '' };
+      claude: this.waiting.claude > 0 ? WAIT_CLAUDE : this.waiting.key > 0 && gwName ? [waitKey(gwName), asSentence(this.keyProgress)].filter(Boolean).join(' ') : '' };
     // the details in the company file's words; the gateway step's are the company gateway's while one is named
     const words = { gateway: gwName, title: str(c && c.title) };
     const steps = (c ? ORDER_COMPANY : ORDER_AGENTIC_WORKS).filter((id) => this.shown(id))
@@ -238,7 +261,7 @@ class GetStarted {
       title: `Get started with ${(c && c.title) || 'Agentic Works'}`,
       steps,
       email: c && c.email ? { domain: c.email.domain, example: c.email.example, value: saved } : null,
-      claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
+      claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand), keyRunning: this.waiting.key > 0 },
       agents: { autoTab, openTab: autoTab && this.offerTab() },
       github: { logins: [...this.logins], running: !!gh, code: gh && gh.code ? { ...gh.code } : null, note: this.notes.github },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams, code: teamsCode ? { ...teamsCode } : null },
@@ -290,6 +313,7 @@ class GetStarted {
           const keyRun = of === 'getKey' && !!(c && c.gateway && c.gateway.keyCommand);
           const waits = login ? 'claude' : keyRun ? 'key' : '';
           if (waits) { this.waiting[waits]++; this.refresh(); }
+          if (waits === 'key') this.schedulePoll();
           let reply;
           try {
             const replies = await run('perch.connectClaude.request', m.request);
@@ -299,6 +323,7 @@ class GetStarted {
             reply = notRunning;
           } finally {
             if (waits) this.waiting[waits]--;
+            if (waits === 'key' && this.waiting.key <= 0) { clearTimeout(this.keyPollTimer); this.keyPollTimer = null; this.keyProgress = ''; }
           }
           this.post(reply, panel);
           if (waits) this.refresh();
@@ -504,6 +529,7 @@ class GetStarted {
   dispose() {
     this.disposed = true;
     this.stopAutoTabRetry();
+    clearTimeout(this.keyPollTimer); this.keyPollTimer = null;
     for (const d of this.subs.splice(0)) d.dispose();
     if (this.panel) this.panel.dispose();
   }

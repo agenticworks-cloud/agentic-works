@@ -186,7 +186,7 @@ test('words and order from the company file; steps of a part that is off are hid
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts']);
   assert.deepStrictEqual(st.steps.slice(1, 4).map((x) => x.name), ['Connect Example Gateway', 'Talk to Claude or Codex', 'Connect your tools']);
   assert.deepStrictEqual(st.steps.map((x) => [x.done, x.waiting]), st.steps.map(() => [false, '']));
-  assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway', keyCommand: false });
+  assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway', keyCommand: false, keyRunning: false });
   assert.strictEqual(st.steps.find((x) => x.id === 'agents').name, 'Talk to Claude or Codex', 'no steps.talk: the default');
   assert.deepStrictEqual(st.parts.map((p) => [p.id, p.on]), [['agents', true], ['jira', true], ['pullRequests', true], ['teams', true]]);
   assert.deepStrictEqual(st.parts[0].title, 'Agents (Claude Code and Codex)');
@@ -256,7 +256,7 @@ test('no company file: Agentic Works\' words and order', async () => {
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
   assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Search your code by meaning', 'Choose your parts']);
-  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false }, { logins: [], running: false, code: null, note: '' }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
+  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false, keyRunning: false }, { logins: [], running: false, code: null, note: '' }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
   await s.extension.deactivate();
 });
 
@@ -360,10 +360,27 @@ test('Get a key with the company\'s key helper: the step says "Getting your <nam
   const pending = s.page.receive({ type: 'agents', request: { type: 'getKey' } });
   assert.deepStrictEqual(got, ['getKey'], 'the request goes to Agents as it is: no key command is run here');
   assert.strictEqual((await s.step('claude')).waiting, 'Getting your Example Gateway key…');
+  assert.strictEqual((await s.stateOf()).claude.keyRunning, true, 'a page opened again mid-run knows one is running');
+  // what the helper is doing, asked of Agents while it runs (Sean, 2026-11-27: a run on the saved sign-in showed no
+  // window and seemed to do nothing)
+  let progress = 'sign in to Example in the window that opens';
+  s.ui.commands['perch.connectClaude.request'] = (m) => { got.push(m.type); return Promise.resolve(m.type === 'keyStatus' ? [{ type: 'gatewayKeyStatus', running: true, progress }] : []); };
+  s.agenticWorks.getStarted.keyPollMs = 10;
+  await s.agenticWorks.getStarted.pollKey();
+  assert.strictEqual((await s.step('claude')).waiting, 'Getting your Example Gateway key… Sign in to Example in the window that opens.');
+  progress = 'done.';
+  await s.agenticWorks.getStarted.pollKey();
+  assert.strictEqual((await s.step('claude')).waiting, 'Getting your Example Gateway key… Done.', 'one full stop');
+  // Cancel goes to Agents like any other request; the run's own answer ends the wait
+  await s.page.receive({ type: 'agents', request: { type: 'cancelKey' } });
+  assert(got.includes('cancelKey'));
   finish([{ type: 'gatewayKeyFailed', text: "The sign-in wasn't completed." }]);
   await pending;
   assert.deepStrictEqual(s.page.posted.filter((m) => m.type === 'agents').pop(), { type: 'agents', replies: [{ type: 'gatewayKeyFailed', text: "The sign-in wasn't completed." }], of: 'getKey' });
   assert.strictEqual((await s.step('claude')).waiting, '', 'the waiting line goes with the answer');
+  assert.strictEqual((await s.stateOf()).claude.keyRunning, false);
+  const asked = got.length; await s.agenticWorks.getStarted.pollKey(); await new Promise((r) => setTimeout(r, 40));
+  assert.strictEqual(got.length, asked, 'no asking once the run is over');
   // an error answer clears it too
   s.ui.commands['perch.connectClaude.request'] = async () => { throw new Error('gone'); };
   await s.page.receive({ type: 'agents', request: { type: 'getKey' } });

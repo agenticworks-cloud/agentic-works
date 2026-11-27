@@ -1295,6 +1295,7 @@ class PerchView {
     this.runArgv = Connections.runArgv;   // Connect Claude's Bedrock check runs the AWS CLI with it; a test puts a fake in its place
     this.keyCommandTimeoutMs = KeyCommand.TIMEOUT_MS;   // the company's key helper's timeout; a test makes it short
     this.keyCommandRunning = false;   // one key helper at a time, for the panel and the page both
+    this.keyRun = null;              // the running one's last progress line and its Cancel
     this.sidebar = { view: null, ready: false };
     this.panels = new Map();         // session id -> { panel, ready }
     this.sessions = [];
@@ -1618,20 +1619,23 @@ class PerchView {
    * the key page opens. One helper at a time: a second Get a key while one runs is answered keyFailed, so the page that
    * asked doesn't wait on a run that isn't its own. With the company file's email section, the address Agentic Works' Get
    * started page saved (globalState EMAIL_KEY, shared with Agentic Works) goes to the helper in the environment variable
-   * email.env, never on its command line; it is never logged.
+   * email.env, never on its command line; it is never logged. While it runs, this.keyRun holds its last progress line
+   * (keyStatus) and the means to cancel it (cancelKey).
    */
   async getCompanyKey(cg, post, { from = 'panel', where = 'gateway form' } = {}) {
     if (!cg.keyCommand) { await this.openKeyPage(cg, where); return null; }
     if (this.keyCommandRunning) { post({ type: 'keyFailed', text: KEY_ALREADY_RUNNING }); return null; }
     this.keyCommandRunning = true;
+    const run = this.keyRun = { abort: new AbortController(), progress: '' };
     let got;
     try {
       const c = this.company();
       const email = c.ok ? companyEmailEnv(c.company, this.context.globalState.get(EMAIL_KEY)) : {};
-      got = await KeyCommand.runKeyCommand(cg.keyCommand, { timeoutMs: this.keyCommandTimeoutMs, env: { ...process.env, ...email } });
-    } finally { this.keyCommandRunning = false; }
+      got = await KeyCommand.runKeyCommand(cg.keyCommand, { timeoutMs: this.keyCommandTimeoutMs, env: { ...process.env, ...email },
+        signal: run.abort.signal, onProgress: (line) => { run.progress = line; } });
+    } finally { this.keyCommandRunning = false; this.keyRun = null; }
     if (!got.ok) {
-      this.trace(`${where}: the key helper: ${got.text}`);   // the reason only, masked as the page has it
+      if (!got.cancelled) this.trace(`${where}: the key helper: ${got.text}`);   // the reason only, masked as the page has it
       post({ type: 'keyFailed', text: got.text });
       return null;
     }
@@ -2359,7 +2363,9 @@ class PerchView {
         const cg = this.companyGateway();
         const gw = cg ? await this.getCompanyKey(cg, postRenamed, { from: 'page', where: 'connect claude' }) : null;
         if (gw) await this.connectSaved('gateway', { gw }, ctx, post);
-      } else if (msg.type === 'keyPage') {
+      } else if (msg.type === 'keyStatus') post({ type: 'gatewayKeyStatus', running: !!this.keyRun, progress: this.keyRun ? this.keyRun.progress : '' });
+      else if (msg.type === 'cancelKey') { if (this.keyRun) this.keyRun.abort.abort(); }
+      else if (msg.type === 'keyPage') {
         const cg = this.companyGateway();
         if (cg) await this.openKeyPage(cg, 'connect claude');
       } else if (msg.type === 'gatewaySave') {
