@@ -7,11 +7,11 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const { readParts } = require(path.join(root, 'src', 'parts.js'));
-const RENAMED = { agents: ['perch', 'agents'], teams: ['chirp', 'teams'], jira: ['jay', 'jira'], pullRequests: ['kestrel', 'pullRequests'] };
+const RENAMED = { agents: ['perch', 'agents'], teams: ['chirp', 'teams'], jira: ['jay', 'jira'], pullRequests: ['kestrel', 'pullRequests'], repos: ['gannet', 'repos'] };
 const read = (p) => fs.readFileSync(p, 'utf8');
 
 const parts = readParts(root).filter((p) => RENAMED[p.id]);
-assert.deepStrictEqual(parts.map((p) => p.id).sort(), Object.keys(RENAMED).sort(), 'the four renamed parts');
+assert.deepStrictEqual(parts.map((p) => p.id).sort(), Object.keys(RENAMED).sort(), 'the renamed parts');
 
 const helper = parts.map((p) => read(path.join(p.dir, 'src', 'settingsCarryOver.js')));
 for (const [i, p] of parts.entries()) assert.strictEqual(helper[i], helper[0], `parts/${path.basename(p.dir)}/src/settingsCarryOver.js is the same as the others`);

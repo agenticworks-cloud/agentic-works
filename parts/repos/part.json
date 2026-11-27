@@ -1,0 +1,1 @@
+{ "id": "repos", "title": "Repos", "entry": "src/extension.js", "needs": [] }

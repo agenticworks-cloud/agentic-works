@@ -1,0 +1,363 @@
+'use strict';
+// The Gannet view: one node per owner an account reaches, each with its recent repos and All repos (the account's
+// full list, kept on disk once read); a repo lists its files from GitHub, a
+// folder at a time, until it is checked out, and from disk after. Errors show as items in place of what failed.
+const fs = require('fs');
+const path = require('path');
+const { labelOf, tilde } = require('./workspaces.js');
+const { toUri } = require('./fsProvider.js');
+const { branchOf, parseOrigin, originOf, isDir } = require('./localRepos.js');
+
+const LARGE = 10 * 1024 * 1024;
+const PUSHED_PAGE = 100;   // Recent's pool from GitHub: one page of the recently pushed repos
+
+const pad = (n) => String(n).padStart(2, '0');
+const byName = (a, b) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0);
+
+/** A folder on disk as tree nodes: folders first, .git hidden; a missing folder says so. */
+function diskChildren(dir) {
+  let ents = [];
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return [{ kind: 'info', label: 'Not found on disk' }]; }
+  return ents.filter((d) => d.name !== '.git')
+    .sort((a, b) => (Number(b.isDirectory()) - Number(a.isDirectory())) || byName(a.name, b.name))
+    .map((d) => ({ kind: 'disk', path: path.join(dir, d.name), dir: d.isDirectory() }));
+}
+
+function diskTreeItem(vs, node) {
+  const it = new vs.TreeItem(path.basename(node.path), node.dir ? vs.TreeItemCollapsibleState.Collapsed : vs.TreeItemCollapsibleState.None);
+  it.resourceUri = vs.Uri.file(node.path);
+  it.iconPath = node.dir ? vs.ThemeIcon.Folder : vs.ThemeIcon.File;   // see entryIcon
+  it.contextValue = node.dir ? 'disk-dir' : 'disk-file';
+  if (!node.dir) it.command = { command: 'vscode.open', title: 'Open', arguments: [it.resourceUri] };
+  return it;
+}
+
+/** A checkout in a tooltip: where it is, its branch, and whom it pushes as. */
+const checkoutLine = (c) => [c.path, branchOf(c.path), c.login && `pushes as ${c.login}`].filter(Boolean).join(' · ');
+
+const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();   // GitHub names ignore case
+
+class GannetTree {
+  constructor({ vscode, accounts, clientFor, recent, local, cache, workspaces, home, hiddenOwners = () => [], hiddenAccounts = () => [], newFolders = null }) {
+    this.hiddenOwners = hiddenOwners;
+    this.hiddenAccounts = hiddenAccounts;
+    this.newFolders = newFolders;
+    Object.assign(this, { vscode, accounts, clientFor, recent, local, cache, workspaces, home });
+    this.changed = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this.changed.event;
+    this.refreshedAt = 0;   // a kept list fetched before this is read again from GitHub when All repos opens
+    this.clear();
+  }
+
+  clear() {
+    this.pushed = new Map();    // login -> Repo[]
+    this.orgs = new Map();      // login -> string[]
+    this.full = new Map();      // login -> Repo[], read this session
+    this.listings = new Map();  // login fullName path -> { entries, truncated }
+  }
+
+  /** ⟳: everything is read again, and each kept list from GitHub when its All repos next opens. */
+  refresh() { this.clear(); this.refreshedAt = Date.now(); this.changed.fire(undefined); }
+
+  /** After a checkout, a workspace or account change: drawn again, the kept lists kept. */
+  redraw() { const full = this.full; this.clear(); this.full = full; this.changed.fire(undefined); }
+
+  async getChildren(node) {
+    try {
+      if (!node) { const owners = await this.owners(); return this.hiddenList().length ? [...owners, { kind: 'hidden' }] : owners; }
+      switch (node.kind) {
+        case 'hidden': return this.hiddenList();
+        case 'owner': return node.error ? [this.errorNode(node.error, node)] : await this.ownerChildren(node);
+        case 'group': return await this.everyRepo(node);
+        case 'repo': return await this.repoChildren(node);
+        case 'entry': return await this.remoteDir(node.account, node.repo, node.entry.path);
+        case 'checkout': return this.diskDir(node.checkout.path);
+        case 'newFolder': return this.diskDir(node.rec.path);
+        case 'disk': return this.diskDir(node.path);
+        default: return [];
+      }
+    } catch (e) {
+      return [this.errorNode(e, node)];
+    }
+  }
+
+  async pushedOf(login) {
+    if (!this.pushed.has(login)) this.pushed.set(login, await this.clientFor(login).listRepos({ sort: 'pushed', max: PUSHED_PAGE }));
+    return this.pushed.get(login);
+  }
+
+  async orgsOf(login) {
+    if (!this.orgs.has(login)) {
+      let orgs = [];
+      try { orgs = await this.clientFor(login).listOrgs(); } catch { /* no read:org: owners come from the repos */ }
+      this.orgs.set(login, orgs);
+    }
+    return this.orgs.get(login);
+  }
+
+  /** The account's full list as far as known without asking GitHub: this session's, else the one kept on disk. */
+  knownList(login) {
+    if (this.full.has(login)) return this.full.get(login);
+    const kept = this.cache && this.cache.get(login);
+    return kept ? kept.repos : [];
+  }
+
+  /** The full list for All repos: kept on disk once read; read again only after ⟳. */
+  async fullList(login) {
+    if (this.full.has(login)) return this.full.get(login);
+    const kept = this.cache && this.cache.get(login);
+    if (kept && !(Date.parse(kept.fetchedAt) < this.refreshedAt)) { this.full.set(login, kept.repos); return kept.repos; }
+    const repos = (await this.clientFor(login).listRepos({ sort: 'full_name' })).slice().sort((a, b) => byName(a.fullName, b.fullName));
+    if (this.cache) this.cache.set(login, repos);
+    this.full.set(login, repos);
+    return repos;
+  }
+
+  /** One node per owner each account reaches: its login, its organizations, and the owners of its repos. */
+  async owners() {
+    const out = [];
+    for (const account of await this.accounts.list()) {
+      const { login } = account;
+      let error = null, pushed = [], orgs = [];
+      try { pushed = await this.pushedOf(login); orgs = await this.orgsOf(login); } catch (e) { error = e; }
+      const found = new Map();   // lowercased -> { owner, org }
+      const add = (owner, org = false) => {
+        if (!owner) return;
+        const k = owner.toLowerCase();
+        if (!found.has(k)) found.set(k, { owner, org });
+        else if (org) found.get(k).org = true;
+      };
+      add(login);
+      if (!error) {
+        for (const o of orgs) add(o, true);
+        for (const r of pushed) add(r.owner);
+        for (const r of this.knownList(login)) add(r.owner);
+      }
+      const hide = new Set((this.hiddenOwners() || []).map((o) => String(o).toLowerCase()));
+      for (const { owner, org } of found.values()) {
+        const own = same(owner, login);
+        if (!own && hide.has(owner.toLowerCase())) continue;
+        out.push({ kind: 'owner', account, owner, own, org: org && !own, hasOrgs: orgs.length > 0, error: own ? error : null });
+      }
+    }
+    return out.sort((a, b) => byName(a.owner, b.owner) || byName(a.account.login, b.account.login));
+  }
+
+  /** What Hide Owner and Hide Account left out, as set, so each can be shown again. */
+  hiddenList() {
+    return [...(this.hiddenOwners() || []).map((owner) => ({ kind: 'hiddenOwner', owner: String(owner) })),
+      ...(this.hiddenAccounts() || []).map((login) => ({ kind: 'hiddenAccount', login: String(login) }))];
+  }
+
+  /** Whether GitHub lists this repo for any account, as far as read: recently pushed, or a kept All repos list. */
+  isListed(fullName) { return !!this.listedBy(fullName); }
+
+  /** The repo as an account's list names it (its exact spelling) and that login, or null. */
+  listedBy(fullName) {
+    const hit = (list) => (list || []).find((r) => same(r.fullName, fullName));
+    for (const [login, list] of this.pushed) { const r = hit(list); if (r) return { login, fullName: r.fullName }; }
+    for (const login of new Set([...this.pushed.keys(), ...this.full.keys()])) { const r = hit(this.knownList(login)); if (r) return { login, fullName: r.fullName }; }
+    return null;
+  }
+
+  /** This owner row's folders not on GitHub yet. A folder gone is forgotten; one whose origin GitHub lists becomes a
+   * checkout of that repo (nothing written in it) and the whole tree redraws, so its owner's rows show it. */
+  async newFolderNodes(account, owner) {
+    if (!this.newFolders) return [];
+    const out = [];
+    let moved = false;
+    for (const rec of this.newFolders.forRow(owner, account.login)) {
+      if (!isDir(rec.path)) { await this.newFolders.forget(rec.path); continue; }
+      const full = parseOrigin(originOf(rec.path));
+      const listed = full && this.listedBy(full);
+      if (listed) {
+        await this.newFolders.forget(rec.path);
+        await this.local.remember(full, { path: rec.path });
+        await this.recent.touch(listed.login, listed.fullName);   // at its owner's top level, even when old
+        moved = true;
+        continue;
+      }
+      out.push({ kind: 'newFolder', account, owner, rec, pending: full });
+    }
+    if (moved) this.redraw();
+    return out;
+  }
+
+  async ownerChildren(node) {
+    const { account, owner } = node;
+    const fresh = await this.newFolderNodes(account, owner);
+    const known = new Map(this.knownList(account.login).map((r) => [r.fullName, r]));
+    const recent = this.recent.merge(account.login, await this.pushedOf(account.login), known, (r) => same(r.owner, owner), this.local.byActivity());
+    return [...fresh, ...recent.map((repo) => ({ kind: 'repo', place: 'recent', account, repo })), { kind: 'group', which: 'all', account, owner }];
+  }
+
+  async everyRepo(node) {
+    return (await this.fullList(node.account.login)).filter((r) => same(r.owner, node.owner)).map((repo) => ({ kind: 'repo', place: 'all', account: node.account, repo }));
+  }
+
+  checkouts(repo) { return this.local.checkoutsOf(repo.fullName); }
+
+  async repoChildren(node) {
+    const copies = this.checkouts(node.repo);
+    if (copies.length === 1) return this.diskDir(copies[0].path);
+    if (copies.length > 1) return copies.map((checkout) => ({ kind: 'checkout', account: node.account, repo: node.repo, checkout }));
+    await this.recent.touch(node.account.login, node.repo.fullName);
+    try {
+      return await this.remoteDir(node.account, node.repo, '');
+    } catch (e) {
+      if (e && e.kind === 'empty') return [{ kind: 'info', label: 'Empty repository' }];
+      if (e && e.kind === 'notFound') {
+        await this.recent.forgetRepo(node.account.login, node.repo.fullName);
+        return [{ kind: 'info', label: 'No longer on GitHub' }];
+      }
+      throw e;
+    }
+  }
+
+  async remoteDir(account, repo, p) {
+    const key = `${account.login} ${repo.fullName} ${p}`;
+    if (!this.listings.has(key)) this.listings.set(key, await this.clientFor(account.login).listDir(repo.owner, repo.name, p));
+    const { entries, truncated } = this.listings.get(key);
+    const out = entries.map((entry) => ({ kind: 'entry', account, repo, entry }));
+    if (truncated) {
+      const url = `https://github.com/${repo.fullName}/tree/${encodeURIComponent(repo.defaultBranch || 'HEAD')}${p ? '/' + p.split('/').map(encodeURIComponent).join('/') : ''}`;
+      out.push({ kind: 'info', label: 'More files — open on GitHub', url });
+    }
+    return out;
+  }
+
+  diskDir(dir) { return diskChildren(dir); }
+
+  errorNode(e, node) {
+    const account = node && node.account;
+    const n = { kind: 'error', error: e, account };
+    if (e && e.kind === 'auth') {
+      if (account && this.accounts.forget) this.accounts.forget(account.login);   // read afresh next time
+      n.label = 'Signed out';
+      return n;
+    }
+    if (e && e.kind === 'sso') { n.label = `${(node && ((node.repo && node.repo.owner) || (node.owner !== undefined && !node.own && node.owner))) || 'An organization'} needs SSO authorization`; return n; }
+    if (e && e.kind === 'rate') { const t = e.retryAt; n.label = t ? `Rate limited — try again at ${pad(t.getHours())}:${pad(t.getMinutes())}` : 'Rate limited — try again later'; return n; }
+    n.label = (e && e.message) || String(e);
+    return n;
+  }
+
+  getTreeItem(node) {
+    const vs = this.vscode, S = vs.TreeItemCollapsibleState;
+    switch (node.kind) {
+      case 'owner': {
+        const { account, owner, own } = node;
+        const open = node.org || (own && (!node.hasOrgs || !!node.error));
+        const it = new vs.TreeItem(owner, open ? S.Expanded : S.Collapsed);
+        it.id = `owner:${account.login.toLowerCase()}:${owner.toLowerCase()}`;
+        if (!own) it.description = `via ${account.login}`;
+        const gh = account.source === 'gh';
+        it.contextValue = !own ? 'owner' : gh ? 'account-gh' : 'account-vscode';
+        it.tooltip = !own ? `${owner}, reached through ${account.login}`
+          : gh ? `${account.login}, logged in with the gh CLI` : `${account.login}, signed in to VS Code. To sign out, use VS Code's Accounts menu; Hide only removes it from Repos.`;
+        it.iconPath = new vs.ThemeIcon(node.org ? 'organization' : 'account');
+        return it;
+      }
+      case 'hidden': {
+        const it = new vs.TreeItem('Hidden', S.Collapsed);
+        it.description = String(this.hiddenList().length);
+        it.tooltip = 'Owners and accounts you hid; the eye on one shows it again';
+        it.contextValue = 'group-hidden';
+        it.iconPath = new vs.ThemeIcon('eye-closed');
+        return it;
+      }
+      case 'hiddenOwner': case 'hiddenAccount': {
+        const owner = node.kind === 'hiddenOwner';
+        const it = new vs.TreeItem(owner ? node.owner : node.login, S.None);
+        it.description = owner ? 'owner' : 'account';
+        it.tooltip = `Hidden; the eye shows ${owner ? 'this owner' : 'this account'} again`;
+        it.contextValue = owner ? 'hidden-owner' : 'hidden-account';
+        it.iconPath = new vs.ThemeIcon(owner ? 'organization' : 'account', new vs.ThemeColor('descriptionForeground'));
+        return it;
+      }
+      case 'group': {
+        const it = new vs.TreeItem('All repos', S.Collapsed);
+        const login = node.account.login;
+        const all = this.full.get(login) || (this.cache && this.cache.get(login) ? this.cache.get(login).repos : null);
+        if (all) it.description = String(all.filter((r) => same(r.owner, node.owner)).length);
+        const kept = this.cache && this.cache.get(login);
+        it.tooltip = kept ? `Fetched ${new Date(kept.fetchedAt).toLocaleString()} — ⟳ fetches again` : 'Every repo of this owner the account can reach';
+        it.contextValue = 'group-all';
+        it.iconPath = new vs.ThemeIcon('repos');   // not a codicon: the sidebar page draws it, two cats
+        return it;
+      }
+      case 'repo': {
+        const { repo } = node;
+        const it = new vs.TreeItem(repo.name, S.Collapsed);
+        const copies = this.checkouts(repo);
+        const list = this.workspaces ? this.workspaces.list() : [];
+        const places = [...new Set(copies.map((c) => labelOf(c.path, list, this.home)))];
+        it.description = [repo.archived && 'archived', ...places].filter(Boolean).join(' · ');
+        it.contextValue = !copies.length ? 'repo-remote' : copies.length > 1 ? 'repo-multi' : copies[0].login ? 'repo-local' : 'repo-local-foreign';
+        it.tooltip = !copies.length ? 'Only on GitHub' : copies.map(checkoutLine).join('\n');   // Sean: the row already names the repo
+        it.iconPath = copies.length ? new vs.ThemeIcon('github-alt', new vs.ThemeColor('charts.green')) : new vs.ThemeIcon('github-alt');
+        return it;
+      }
+      case 'newFolder': {
+        const { rec, pending } = node;
+        const it = new vs.TreeItem(path.basename(rec.path), S.Collapsed);
+        it.description = pending ? `${pending}, not on GitHub yet` : `not on GitHub yet · ${labelOf(rec.path, this.workspaces ? this.workspaces.list() : [], this.home)}`;
+        it.contextValue = 'newfolder';
+        it.tooltip = checkoutLine({ path: rec.path });
+        it.iconPath = new vs.ThemeIcon('github-alt', new vs.ThemeColor('descriptionForeground'));
+        return it;
+      }
+      case 'checkout': {
+        const c = node.checkout;
+        const it = new vs.TreeItem(tilde(c.path, this.home), S.Collapsed);
+        it.contextValue = c.login ? 'checkout-local' : 'checkout-local-foreign';
+        it.tooltip = checkoutLine(c);
+        it.resourceUri = vs.Uri.file(c.path);
+        it.iconPath = vs.ThemeIcon.Folder;
+        return it;
+      }
+      case 'entry': {
+        const e = node.entry;
+        const it = new vs.TreeItem(e.name, e.type === 'dir' ? S.Collapsed : S.None);
+        // with a resource and the File/Folder kind, VS Code draws the file icon theme's icons as its explorer does:
+        // no folder icons under Seti, and file icons lined up with the folders' arrows
+        it.resourceUri = toUri(vs, node.account.login, node.repo.owner, node.repo.name, e.path);
+        if (e.type === 'dir') { it.contextValue = 'dir'; it.iconPath = vs.ThemeIcon.Folder; return it; }
+        if (e.type === 'submodule') {
+          it.contextValue = 'submodule'; it.description = 'submodule';
+          it.command = { command: 'gannet.openUrl', title: 'Open on GitHub', arguments: [e.htmlUrl] };
+          it.iconPath = new vs.ThemeIcon('file-submodule');
+          return it;
+        }
+        it.contextValue = e.size > LARGE ? 'file-large' : 'file';
+        if (e.type === 'symlink') it.description = 'symlink';
+        it.command = { command: 'gannet.openFile', title: 'Open', arguments: [node] };
+        it.iconPath = vs.ThemeIcon.File;
+        return it;
+      }
+      case 'disk': return diskTreeItem(vs, node);
+      case 'info': {
+        const it = new vs.TreeItem(node.label, S.None);
+        it.contextValue = 'info';
+        if (node.url) it.command = { command: 'gannet.openUrl', title: 'Open on GitHub', arguments: [node.url] };
+        return it;
+      }
+      case 'error': {
+        const it = new vs.TreeItem(node.label, S.None);
+        const e = node.error || {};
+        it.iconPath = new vs.ThemeIcon('warning');
+        it.contextValue = e.kind === 'sso' ? 'error-sso' : 'error';
+        it.tooltip = e.message || String(e);
+        if (e.kind === 'auth' && node.account) {
+          if (node.account.source === 'gh') it.description = 'run gh auth login';
+          else it.command = { command: 'gannet.signIn', title: 'Sign in', arguments: [node.account] };
+        }
+        if (e.kind === 'sso' && e.ssoUrl) { it.description = 'Authorize'; it.command = { command: 'gannet.openUrl', title: 'Authorize', arguments: [e.ssoUrl] }; }
+        return it;
+      }
+      default: return new vs.TreeItem('', S.None);
+    }
+  }
+}
+
+module.exports = { GannetTree, LARGE, diskChildren, diskTreeItem, byName };

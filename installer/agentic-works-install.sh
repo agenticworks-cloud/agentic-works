@@ -4,7 +4,7 @@
 #   bash agentic-works-install.sh
 #
 # macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora. Installs VS Code if it
-# is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay and kestrel (after asking),
+# is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay, kestrel and Gannet (after asking),
 # which Agentic Works replaces; installs this release's Agentic Works .vsix (SHA-256 checked), its companion extensions and the
 # GitHub CLI (signed in from Agentic Works' walkthrough, not here); sets VS Code's look and its activity-bar icons (on a
 # VS Code never started), then opens VS Code. It prints a checklist, one line per step. Each step checks first, so
@@ -37,7 +37,7 @@ AGENTIC_WORKS_SHA256="@AGENTIC_WORKS_SHA256@"
 AGENTIC_WORKS_ID="agenticworks.agentic-works"
 AGENTIC_WORKS_VSIX_URL=${AGENTIC_WORKS_INSTALL_VSIX_URL:-"https://github.com/agenticworks-cloud/agentic-works/releases/download/v$AGENTIC_WORKS_VERSION/agentic-works-$AGENTIC_WORKS_VERSION.vsix"}
 LATEST_INSTALLER="https://github.com/agenticworks-cloud/agentic-works/releases/latest/download/agentic-works-install.sh"
-STANDALONE="seanahn.perch seanahn.chirp seanahn.jay seanahn.kestrel-prs"  # the extensions Agentic Works replaces
+STANDALONE="seanahn.perch seanahn.chirp seanahn.jay seanahn.kestrel-prs seanahn.gannet"  # the extensions Agentic Works replaces
 COMPANIONS="anthropic.claude-code openai.chatgpt seanahn.perch-audio"  # Perch runs claude and codex through these
 GH_KEY="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
 GH_RPM_REPO="https://cli.github.com/packages/rpm/gh-cli.repo"
@@ -65,7 +65,7 @@ CODE_DATA=""  # as root on Linux: the --user-data-dir VS Code's CLI insists on (
 AS_ROOT=0
 SUDO=""
 TTY_OPEN=0
-CLASH=""  # why Agentic Works can't go in beside the standalone four; when set, Agentic Works fails and the steps after it stay out
+CLASH=""  # why Agentic Works can't go in beside the standalone five; when set, Agentic Works fails and the steps after it stay out
 VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
 INLINED_HELPER=""  # the released script's own copy of the helper, written to a private temp file at start
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
@@ -544,7 +544,7 @@ ensure_path() {  # `code` on PATH for this run and, through one marked block in 
   fi
 }
 
-# ---- the extensions: the standalone four, Agentic Works, its companions ---------------------------------------------
+# ---- the extensions: the standalone five, Agentic Works, its companions ---------------------------------------------
 
 code_cli() {  # argv for VS Code's CLI; as root on Linux, with the --user-data-dir it insists on
   run "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} "$@"
@@ -578,12 +578,13 @@ version_cmp() {  # $1, $2 = versions (1.2.3): prints lt, eq or gt, numeric by fi
   echo eq
 }
 
-extension_name() {  # $1 = id of one of the standalone four: its name
+extension_name() {  # $1 = id of one of the standalone five: its name
   case $1 in
     seanahn.perch) echo Perch ;;
     seanahn.chirp) echo chirp ;;
     seanahn.jay) echo jay ;;
     seanahn.kestrel-prs) echo kestrel ;;
+    seanahn.gannet) echo Gannet ;;
     *) echo "$1" ;;
   esac
 }
@@ -629,7 +630,18 @@ ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = n
   esac
 }
 
-check_standalone() {  # the standalone four would clash with Agentic Works (the same command ids): uninstall them, or stop
+keep_gannet_state() {  # VS Code deletes an extension's global storage on uninstall: Gannet's machine.json (its folders
+  # and checkouts) goes to Agentic Works' Repos part first, unless Agentic Works already has one
+  local user from to
+  if [ "$OS" = macos ]; then user="$HOME/Library/Application Support/Code/User"; else user="${CODE_DATA:-$HOME/.config/Code}/User"; fi
+  from="$user/globalStorage/seanahn.gannet/machine.json"
+  to="$user/globalStorage/agenticworks.agentic-works/machine.json"
+  [ -f "$from" ] && [ ! -e "$to" ] || return 0
+  mkdir -p "${to%/*}" && cat "$from" > "$to.tmp" && mv "$to.tmp" "$to" || { rm -f "$to.tmp"; printf "couldn't keep Gannet's machine.json\n" >> "$LOG"; }
+  return 0
+}
+
+check_standalone() {  # the standalone five would clash with Agentic Works (the same command ids): uninstall them, or stop
   local installed id found="" failed="" names rc
   skipped standalone "Standalone extensions" && return 0
   find_code || return 0  # no VS Code, no extensions
@@ -658,6 +670,7 @@ check_standalone() {  # the standalone four would clash with Agentic Works (the 
     2) CLASH="$names would clash with Agentic Works, and there is no terminal to ask on; rerun with --yes to uninstall them"
        return 0 ;;
   esac
+  case " $found " in *" seanahn.gannet "*) keep_gannet_state ;; esac
   for id in $found; do
     code_cli --uninstall-extension "$id" || failed="$failed $id"
   done
@@ -850,7 +863,7 @@ ensure_claude_path() {  # ~/.local/bin on the PATH for this run and, in Agentic 
 
 ensure_claude() {  # Claude Code's CLI, from Anthropic's installer (user-level: no sudo): `claude` in a terminal
   local label="Claude Code CLI" tmp rc
-  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
   skipped claude "$label" && return 0
   step_begin "$label"
   if [ -e "$HOME/.local/bin/claude" ]; then
@@ -908,7 +921,7 @@ wait_for_clt() {  # up to AGENTIC_WORKS_INSTALL_CLT_WAIT seconds for Apple's Com
 
 ensure_git() {
   local rc=0
-  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
   skipped git "git" && return 0
   step_begin "git"
   if git_works; then
@@ -992,7 +1005,7 @@ gh_signed_in() {
 
 ensure_github() {  # gh, for kestrel's PRs panel; the sign-in is Agentic Works' walkthrough's, never the terminal's
   local installed="" user
-  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
   skipped github "GitHub" && return 0
   step_begin "GitHub"
   if ! have gh; then
@@ -1032,7 +1045,7 @@ ensure_github() {  # gh, for kestrel's PRs panel; the sign-in is Agentic Works' 
 ensure_homebrew_path() {  # macOS: Homebrew's shellenv in the login profile, when this run used Homebrew or a tool comes from it
   local label="Homebrew on the PATH" profile short brew dir tool found=0 lines
   [ "$OS" = macos ] || return 0
-  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
   skipped homebrew "$label" && return 0
   brew=$(brew_bin)
   dir=$(dirname "$brew")
@@ -1193,7 +1206,7 @@ apply_icons() {  # the activity bar's icons and the vendor buttons on editor tit
 open_vscode() {  # a new VS Code window, once the checklist is done; not as root, nor with --no-open or --dry-run
   skip_named open && return 0
   [ "$NO_OPEN" = 1 ] && return 0
-  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
+  [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
   find_code || [ "$DRY_RUN" = 1 ] || return 0
   if [ "$DRY_RUN" = 1 ]; then
     printf 'Would open VS Code: $ %s --new-window\n' "$CODE"

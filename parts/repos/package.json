@@ -1,0 +1,354 @@
+{
+  "name": "gannet",
+  "displayName": "Repos",
+  "description": "Your GitHub repos as a tree: browse files without cloning, check out into your workspace, push as the right account.",
+  "version": "0.5.7",
+  "publisher": "seanahn",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seanahn/gannet"
+  },
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "scripts": {
+    "check": "for f in src/*.js bin/*.js media/*.js; do [ ! -f \"$f\" ] || node --check \"$f\" || exit 1; done",
+    "test:offline": "node test/newFolders.test.js && node test/github.test.js && node test/accounts.test.js && node test/state.test.js && node test/workspaces.test.js && node test/checkout.test.js && node test/tokenServer.test.js && node test/fsProvider.test.js && node test/tree.test.js && node test/rows.test.js && node test/page.test.js && node test/sidebar.test.js && node test/host.test.js && node test/standalone.test.js && node test/settingsCarryOver.test.js",
+    "test": "npm run -s test:offline && node test/live.test.js"
+  },
+  "main": "./src/extension.js",
+  "icon": "media/icon.png",
+  "activationEvents": [
+    "onStartupFinished",
+    "onFileSystem:gannet"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gannet",
+          "title": "GitHub",
+          "icon": "media/cat.svg"
+        }
+      ]
+    },
+    "views": {
+      "gannet": [
+        {
+          "type": "webview",
+          "id": "gannet.main",
+          "name": ""
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "gannet.addAccount",
+        "title": "Add GitHub Account",
+        "category": "Repos",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gannet.refresh",
+        "title": "Refresh",
+        "category": "Repos",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gannet.hideAccount",
+        "title": "Hide Account",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.hideOwner",
+        "title": "Hide Owner",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.signIn",
+        "title": "Sign In",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.checkout",
+        "title": "Check Out",
+        "category": "Repos",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "gannet.checkoutTo",
+        "title": "Check Out to…",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.openOnGitHub",
+        "title": "Open on GitHub",
+        "category": "Repos",
+        "icon": "$(github)"
+      },
+      {
+        "command": "gannet.revealLocal",
+        "title": "Reveal in Explorer",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.addToWorkspace",
+        "title": "Add to Workspace",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.pushAs",
+        "title": "Push as This Account",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.openFile",
+        "title": "Open File",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.openUrl",
+        "title": "Open URL",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.addWorkspace",
+        "title": "Add Workspace",
+        "category": "Repos",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gannet.revealWorkspace",
+        "title": "Reveal",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.removeWorkspace",
+        "title": "Remove from List",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.newFolder",
+        "title": "New Folder…",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.moveNewFolder",
+        "title": "Move to Owner…",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.forgetNewFolder",
+        "title": "Forget",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.showOwner",
+        "title": "Show Owner",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.addToRecent",
+        "title": "Add to Recent",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.removeFromRecent",
+        "title": "Remove from Recent",
+        "category": "Repos"
+      },
+      {
+        "command": "gannet.showAccount",
+        "title": "Show Account",
+        "category": "Repos"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "gannet.hideAccount",
+          "when": "false"
+        },
+        {
+          "command": "gannet.hideOwner",
+          "when": "false"
+        },
+        {
+          "command": "gannet.signIn",
+          "when": "false"
+        },
+        {
+          "command": "gannet.checkout",
+          "when": "false"
+        },
+        {
+          "command": "gannet.checkoutTo",
+          "when": "false"
+        },
+        {
+          "command": "gannet.openOnGitHub",
+          "when": "false"
+        },
+        {
+          "command": "gannet.revealLocal",
+          "when": "false"
+        },
+        {
+          "command": "gannet.addToWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "gannet.pushAs",
+          "when": "false"
+        },
+        {
+          "command": "gannet.openFile",
+          "when": "false"
+        },
+        {
+          "command": "gannet.openUrl",
+          "when": "false"
+        },
+        {
+          "command": "gannet.removeWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "gannet.revealWorkspace",
+          "when": "false"
+        },
+        {
+          "command": "gannet.newFolder",
+          "when": "false"
+        },
+        {
+          "command": "gannet.moveNewFolder",
+          "when": "false"
+        },
+        {
+          "command": "gannet.forgetNewFolder",
+          "when": "false"
+        },
+        {
+          "command": "gannet.showOwner",
+          "when": "false"
+        },
+        {
+          "command": "gannet.addToRecent",
+          "when": "false"
+        },
+        {
+          "command": "gannet.removeFromRecent",
+          "when": "false"
+        },
+        {
+          "command": "gannet.showAccount",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gannet.addAccount",
+          "when": "view == gannet.main",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gannet.refresh",
+          "when": "view == gannet.main",
+          "group": "navigation@2"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "gannet.checkout",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem =~ /^repo-/",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "gannet.checkoutTo",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem =~ /^repo-/",
+          "group": "1_checkout@2"
+        },
+        {
+          "command": "gannet.revealLocal",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem =~ /^((repo|checkout)-local|newfolder$)/",
+          "group": "1_checkout@3"
+        },
+        {
+          "command": "gannet.addToWorkspace",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem =~ /^((repo|checkout)-local|newfolder$)/",
+          "group": "1_checkout@4"
+        },
+        {
+          "command": "gannet.moveNewFolder",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem == newfolder",
+          "group": "3_newfolder@1"
+        },
+        {
+          "command": "gannet.forgetNewFolder",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem == newfolder",
+          "group": "3_newfolder@2"
+        },
+        {
+          "command": "gannet.pushAs",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem =~ /-local-foreign$/",
+          "group": "1_checkout@5"
+        },
+        {
+          "command": "gannet.openOnGitHub",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem =~ /^repo-/",
+          "group": "2_github@1"
+        },
+        {
+          "command": "gannet.hideAccount",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem =~ /^account-/",
+          "group": "1_account@1"
+        },
+        {
+          "command": "gannet.hideOwner",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem == owner",
+          "group": "1_account@2"
+        },
+        {
+          "command": "gannet.showOwner",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem == hidden-owner",
+          "group": "1_account@1"
+        },
+        {
+          "command": "gannet.showAccount",
+          "when": "webviewId == 'gannet.main' && webviewSection == 'row' && viewItem == hidden-account",
+          "group": "1_account@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Repos",
+      "properties": {
+        "repos.hiddenAccounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "GitHub logins Repos does not show. Hiding never signs an account out of gh or VS Code."
+        },
+        "repos.hiddenOwners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Organizations and other owners not shown (right-click one and choose Hide Owner). An account's own login is hidden with repos.hiddenAccounts."
+        }
+      }
+    }
+  }
+}

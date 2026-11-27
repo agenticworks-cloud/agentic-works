@@ -288,7 +288,7 @@ ships through GitHub releases for now; note [102](102-agentic-works-installer.md
 
 VS Code keeps an extension's SecretStorage and globalState per extension id, so Agentic Works starts without the
 standalone extensions' stored state: **the user signs in to Teams and Jira once more**, and kestrel's hidden-PR
-list and Perch's remembered tab state start empty. Files in `~/.chirp`, `~/.jay` and the agents' own session
+list, Perch's remembered tab state and Gannet's Recent list start empty. Files in `~/.chirp`, `~/.jay` and the agents' own session
 records are shared and carry over. No migration of that state. (Settings are shared by every extension, so the
 standalone ones' `perch.*`, `chirp.*`, `jay.*`, `kestrel.*` values are there for Agentic Works; since the rename each part
 copies them to its new keys once: *Renamed parts and settings*.) *(my call: one sign-in, for one user, is cheaper than
@@ -329,6 +329,7 @@ Built as 0.1.0, the parts kept their standalone names. Then *(Sean, 2026-11-23)*
 | `parts/teams` (`parts/chirp`) | `teams` | `chirp.*` → `teams.*` | "chirp: …" → "Teams: …" |
 | `parts/jira` (`parts/jay`) | `jira` | `jay.*` → `jira.*` | "jay: …" → "Jira: …" |
 | `parts/pull-requests` (`parts/kestrel`) | `pullRequests` | `kestrel.*` → `pullRequests.*` | "kestrel: …" → "Pull Requests: …" |
+| `parts/repos` (added 1.1.0, from Gannet) | `repos` | `gannet.*` → `repos.*` | "Gannet: …" → "Repos: …" |
 
 The folders moved with `git mv`, so `git log --follow` and `git blame` reach back through the import. Part titles
 stay, but for Agents: "Agents (Claude Code and Codex)". Folder order is now agents, jira, pull-requests, teams, so
@@ -1082,6 +1083,30 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     already on *(my call)*. `notes.secrets` gives the company's own text; the name isn't the company file's to change,
     like the code search step's *(my call)*. Not added to VS Code's walkthrough *(my call: Get started is the page
     people use)*.
+- **Gannet as the Repos part — Built (1.1.0)** *(Sean, 2026-11-27: "lets get the gannet merged to agentic works, just
+  like teams or jira"; the id `repos`, "we can also have bitbucket later")*. Gannet came in with its history under
+  `parts/repos`, as the others did. The part is **Repos** rather than GitHub so a Bitbucket host can join it later
+  without a rename *(my call)*. As for the others: settings `gannet.*` → `repos.*`, carried over once; commands
+  "Gannet: …" → "Repos: …" and its messages say Repos; command, view, container (`gannet`, titled GitHub) and
+  globalState ids, the `gannet:` file scheme and the `gannet-credential` helper keep their names. The installer
+  uninstalls a standalone Gannet with the other four. Agentic Works' VS Code floor rose to 1.94, Gannet's.
+  - Gannet keeps its per-machine state in files in its global storage, not globalState: `machine.json` (the
+    directories, the checkouts it knows, new folders), the `gannet-credential` shim and the token sockets. The part
+    uses Agentic Works' own global storage, directly (no subfolder), since the part's code and tests assume a store
+    of its own *(my call)*.
+  - VS Code deletes an extension's global storage folder when it uninstalls it (`postUninstall` in its
+    `extensionLifecycle.ts`), so the standalone's `machine.json` and its shim are gone once Gannet is. The installer
+    copies `machine.json` into Agentic Works' global storage before it uninstalls Gannet, unless one is there. The part
+    also copies it on its first start if the standalone is still installed (the sibling folder `seanahn.gannet`) and
+    this store has none.
+  - Repos the standalone checked out name its shim in their `.git/config`. Once, after writing its own shim, the part
+    finds the checkouts it knows (from that `machine.json`) whose helper names the standalone's shim, and sets them up
+    again with this store's shim and their login, as a new checkout would be *(my call: edit those repos' config, not
+    recreate a folder of an uninstalled extension)*. `repos.checkoutsRepointed` in `machine.json` records it. A
+    checkout the standalone didn't record, or every one when Gannet was uninstalled by hand, falls back to git's own
+    sign-in until checked out again or added to gh. `src/standalone.js`.
+  - The retired `gannet.checkoutFolder`, which only the one-time move to directories reads, is still read under its
+    old name *(my call)*. The Recent list (globalState) starts empty, as other parts' stored state did.
 
 ## Left to the builder
 

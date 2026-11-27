@@ -25,6 +25,7 @@ test:
 	$(MAKE) -C parts/teams test
 	$(MAKE) -C parts/jira test
 	$(MAKE) -C parts/pull-requests test
+	$(MAKE) -C parts/repos test-offline
 	node scripts/build-manifest.js --check
 
 ## Perch's tests, including one tiny live turn through each agent (uses your real logins)
