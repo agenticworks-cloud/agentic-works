@@ -1,54 +1,54 @@
 #!/usr/bin/env bash
-# roost-install — VS Code with Roost on this Mac or Linux desktop, in one command:
+# agentic-works-install — VS Code with Agentic Works on this Mac or Linux desktop, in one command:
 #
-#   bash roost-install.sh
+#   bash agentic-works-install.sh
 #
 # macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora. Installs VS Code if it
 # is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay and kestrel (after asking),
-# which Roost replaces; installs this release's Roost .vsix (SHA-256 checked), its companion extensions and the
-# GitHub CLI (signed in from Roost's walkthrough, not here); sets VS Code's look and its activity-bar icons (on a
+# which Agentic Works replaces; installs this release's Agentic Works .vsix (SHA-256 checked), its companion extensions and the
+# GitHub CLI (signed in from Agentic Works' walkthrough, not here); sets VS Code's look and its activity-bar icons (on a
 # VS Code never started), then opens VS Code. It prints a checklist, one line per step. Each step checks first, so
 # a rerun only fills in what is missing. A failed step is reported and the run goes on; the exit status is 1 when
-# any step failed. Design: docs/notes/102-roost-installer.md.
+# any step failed. Design: docs/notes/102-agentic-works-installer.md.
 #
 # Runs under macOS's /bin/bash 3.2: no associative arrays, mapfile, ${x,,}, |& or [[ -v ]].
 # No `set -e`: each step reports its own result and the run continues.
 #
 # Environment:
 #   NO_COLOR                 plain marks even on a terminal
-#   ROOST_INSTALL_FAKE_OS    test seam only: macos|ubuntu|debian|rhel|fedora instead of detecting the platform
-#   ROOST_INSTALL_FAKE_ARCH  test seam only: instead of `uname -m`
-#   ROOST_INSTALL_NO_MAIN    test seam only: 1 = define the functions and return, for tests that source this file
-#   ROOST_INSTALL_TTY        test seam only: the file answers are read from, one per line, instead of /dev/tty
-#   ROOST_INSTALL_VSIX_URL   test seam only: where Roost's .vsix is downloaded from, instead of this release
-#   ROOST_INSTALL_APT_DIR    test seam only: instead of /etc/apt, where existing apt sources are looked for
-#   ROOST_INSTALL_HELPER     roost-install-helper's path, instead of the one beside this script
-#   ROOST_INSTALL_PYTHON3    test seam only: the python3 path taken as found, instead of `command -v python3`
-#   ROOST_INSTALL_PLATFORM_PYTHON  test seam only: instead of /usr/libexec/platform-python (RHEL 8's system python)
-#   ROOST_INSTALL_GIT        test seam only: the git path taken as found, instead of `command -v git`
-#   ROOST_INSTALL_CLT_WAIT   seconds to wait for Apple's Command Line Tools after `xcode-select --install` (600)
-#   ROOST_INSTALL_CLAUDE_INSTALLER  test seam only: where Claude Code's installer is downloaded from, instead of
+#   AGENTIC_WORKS_INSTALL_FAKE_OS    test seam only: macos|ubuntu|debian|rhel|fedora instead of detecting the platform
+#   AGENTIC_WORKS_INSTALL_FAKE_ARCH  test seam only: instead of `uname -m`
+#   AGENTIC_WORKS_INSTALL_NO_MAIN    test seam only: 1 = define the functions and return, for tests that source this file
+#   AGENTIC_WORKS_INSTALL_TTY        test seam only: the file answers are read from, one per line, instead of /dev/tty
+#   AGENTIC_WORKS_INSTALL_VSIX_URL   test seam only: where Agentic Works' .vsix is downloaded from, instead of this release
+#   AGENTIC_WORKS_INSTALL_APT_DIR    test seam only: instead of /etc/apt, where existing apt sources are looked for
+#   AGENTIC_WORKS_INSTALL_HELPER     agentic-works-install-helper's path, instead of the one beside this script
+#   AGENTIC_WORKS_INSTALL_PYTHON3    test seam only: the python3 path taken as found, instead of `command -v python3`
+#   AGENTIC_WORKS_INSTALL_PLATFORM_PYTHON  test seam only: instead of /usr/libexec/platform-python (RHEL 8's system python)
+#   AGENTIC_WORKS_INSTALL_GIT        test seam only: the git path taken as found, instead of `command -v git`
+#   AGENTIC_WORKS_INSTALL_CLT_WAIT   seconds to wait for Apple's Command Line Tools after `xcode-select --install` (600)
+#   AGENTIC_WORKS_INSTALL_CLAUDE_INSTALLER  test seam only: where Claude Code's installer is downloaded from, instead of
 #                            https://claude.ai/install.sh
 set -u
 
-# Roost's version and its .vsix's SHA-256: written in by `make release`. A copy without them refuses the Roost step.
-ROOST_VERSION="@ROOST_VERSION@"
-ROOST_SHA256="@ROOST_SHA256@"
-ROOST_ID="seanahn.roost"
-ROOST_VSIX_URL=${ROOST_INSTALL_VSIX_URL:-"https://github.com/seanahn/roost/releases/download/v$ROOST_VERSION/roost-$ROOST_VERSION.vsix"}
-LATEST_INSTALLER="https://github.com/seanahn/roost/releases/latest/download/roost-install.sh"
-STANDALONE="seanahn.perch seanahn.chirp seanahn.jay seanahn.kestrel-prs"  # the extensions Roost replaces
+# Agentic Works' version and its .vsix's SHA-256: written in by `make release`. A copy without them refuses the Agentic Works step.
+AGENTIC_WORKS_VERSION="@AGENTIC_WORKS_VERSION@"
+AGENTIC_WORKS_SHA256="@AGENTIC_WORKS_SHA256@"
+AGENTIC_WORKS_ID="agenticworks.agentic-works"
+AGENTIC_WORKS_VSIX_URL=${AGENTIC_WORKS_INSTALL_VSIX_URL:-"https://github.com/agenticworks-cloud/agentic-works/releases/download/v$AGENTIC_WORKS_VERSION/agentic-works-$AGENTIC_WORKS_VERSION.vsix"}
+LATEST_INSTALLER="https://github.com/agenticworks-cloud/agentic-works/releases/latest/download/agentic-works-install.sh"
+STANDALONE="seanahn.perch seanahn.chirp seanahn.jay seanahn.kestrel-prs"  # the extensions Agentic Works replaces
 COMPANIONS="anthropic.claude-code openai.chatgpt seanahn.perch-audio"  # Perch runs claude and codex through these
 GH_KEY="https://cli.github.com/packages/githubcli-archive-keyring.gpg"
 GH_RPM_REPO="https://cli.github.com/packages/rpm/gh-cli.repo"
-APT_DIR=${ROOST_INSTALL_APT_DIR:-/etc/apt}
+APT_DIR=${AGENTIC_WORKS_INSTALL_APT_DIR:-/etc/apt}
 
-STEP_NAMES="vscode path standalone roost companions claude git github homebrew settings icons open"  # what --skip accepts, in run order
+STEP_NAMES="vscode path standalone extension companions claude git github homebrew settings icons open"  # what --skip accepts, in run order
 SUPPORTED="macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora"
 MAC_CODE="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
 DOWNLOAD_URL="https://code.visualstudio.com/download"
 HOMEBREW_INSTALLER="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
-CLAUDE_INSTALLER=${ROOST_INSTALL_CLAUDE_INSTALLER:-"https://claude.ai/install.sh"}
+CLAUDE_INSTALLER=${AGENTIC_WORKS_INSTALL_CLAUDE_INSTALLER:-"https://claude.ai/install.sh"}
 MS_KEY="https://packages.microsoft.com/keys/microsoft.asc"
 ORIG_PATH=$PATH  # the PATH a new terminal would have, before this run adds to it
 
@@ -65,7 +65,7 @@ CODE_DATA=""  # as root on Linux: the --user-data-dir VS Code's CLI insists on (
 AS_ROOT=0
 SUDO=""
 TTY_OPEN=0
-CLASH=""  # why Roost can't go in beside the standalone four; when set, Roost fails and the steps after it stay out
+CLASH=""  # why Agentic Works can't go in beside the standalone four; when set, Agentic Works fails and the steps after it stay out
 VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
 INLINED_HELPER=""  # the released script's own copy of the helper, written to a private temp file at start
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
@@ -220,7 +220,7 @@ have() {  # $1 = command: on PATH
 
 unsupported() {  # $1 = what this system is: the Platform step fails, and the run stops
   step_end failed "$1 isn't supported"
-  printf '\nroost-install supports %s.\n\n' "$SUPPORTED"
+  printf '\nagentic-works-install supports %s.\n\n' "$SUPPORTED"
   tally
   exit 1
 }
@@ -242,8 +242,8 @@ os_from_release() {  # $1 = an os-release file: prints ubuntu|debian|rhel|fedora
 
 detect_platform() {  # sets OS=macos|ubuntu|debian|rhel|fedora and ARCH=arm64|x86_64; exits 1 anywhere else
   local kernel machine release=/etc/os-release
-  if [ -n "${ROOST_INSTALL_FAKE_OS:-}" ]; then
-    OS=$ROOST_INSTALL_FAKE_OS
+  if [ -n "${AGENTIC_WORKS_INSTALL_FAKE_OS:-}" ]; then
+    OS=$AGENTIC_WORKS_INSTALL_FAKE_OS
     case $OS in macos|ubuntu|debian|rhel|fedora) ;; *) unsupported "$OS" ;; esac
   else
     kernel=$(uname -s)
@@ -256,7 +256,7 @@ detect_platform() {  # sets OS=macos|ubuntu|debian|rhel|fedora and ARCH=arm64|x8
       *) unsupported "$kernel" ;;
     esac
   fi
-  machine=${ROOST_INSTALL_FAKE_ARCH:-$(uname -m)}
+  machine=${AGENTIC_WORKS_INSTALL_FAKE_ARCH:-$(uname -m)}
   case $machine in
     arm64|aarch64) ARCH=arm64 ;;
     x86_64|amd64) ARCH=x86_64 ;;
@@ -265,8 +265,8 @@ detect_platform() {  # sets OS=macos|ubuntu|debian|rhel|fedora and ARCH=arm64|x8
   if [ "$(id -u)" != 0 ]; then
     SUDO=sudo
   elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
-    # `sudo bash roost-install.sh`: VS Code, its settings and the PATH block would go to root, not to this user.
-    step_end failed "Run it without sudo: bash roost-install.sh — it asks for your password when it needs it."
+    # `sudo bash agentic-works-install.sh`: VS Code, its settings and the PATH block would go to root, not to this user.
+    step_end failed "Run it without sudo: bash agentic-works-install.sh — it asks for your password when it needs it."
     printf '\n'
     tally
     exit 1
@@ -340,7 +340,7 @@ ensure_homebrew() {  # macOS: Homebrew, from its own installer (which needs an a
   find_brew && return 0
   case $HOMEBREW_STATE in planned) return 0 ;; failed) return 1 ;; esac
   step_wait "Homebrew is missing; installing it first (a few minutes)"
-  tmp=$(mktemp "${TMPDIR:-/tmp}/roost-install-homebrew.XXXXXX") || return 1
+  tmp=$(mktemp "${TMPDIR:-/tmp}/agentic-works-install-homebrew.XXXXXX") || return 1
   sudo_keepalive_start
   # Downloaded first, then run: a failed download stops here rather than running an empty script.
   run curl -fsSL -o "$tmp" "$HOMEBREW_INSTALLER" && run env NONINTERACTIVE=1 /bin/bash "$tmp"
@@ -379,7 +379,7 @@ add_apt_repo() {  # $1 = key URL, $2 = keyring path, $3 = sources.list.d file, $
   # The sources.list line is written only once the keyring is in place and non-empty: a line without its key
   # makes every later apt-get update fail, on every rerun.
   local tmp
-  tmp=$(mktemp "${TMPDIR:-/tmp}/roost-install-key.XXXXXX") || return 1
+  tmp=$(mktemp "${TMPDIR:-/tmp}/agentic-works-install-key.XXXXXX") || return 1
   if ! run curl -fsSL -o "$tmp" "$1" || { [ "$DRY_RUN" != 1 ] && [ ! -s "$tmp" ]; }; then
     rm -f "$tmp"
     return 1
@@ -494,8 +494,8 @@ ensure_vscode() {
 
 # ---- code on the PATH ----------------------------------------------------------------------------------------
 
-PATH_MARK="# added by roost-install"
-PATH_END="# end roost-install"
+PATH_MARK="# added by agentic-works-install"
+PATH_END="# end agentic-works-install"
 
 shell_profile() {  # the login shell's profile file
   case ${SHELL:-} in
@@ -544,7 +544,7 @@ ensure_path() {  # `code` on PATH for this run and, through one marked block in 
   fi
 }
 
-# ---- the extensions: the standalone four, Roost, its companions ---------------------------------------------
+# ---- the extensions: the standalone four, Agentic Works, its companions ---------------------------------------------
 
 code_cli() {  # argv for VS Code's CLI; as root on Linux, with the --user-data-dir it insists on
   run "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} "$@"
@@ -629,7 +629,7 @@ ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = n
   esac
 }
 
-check_standalone() {  # the standalone four would clash with Roost (the same command ids): uninstall them, or stop
+check_standalone() {  # the standalone four would clash with Agentic Works (the same command ids): uninstall them, or stop
   local installed id found="" failed="" names rc
   skipped standalone "Standalone extensions" && return 0
   find_code || return 0  # no VS Code, no extensions
@@ -642,7 +642,7 @@ check_standalone() {  # the standalone four would clash with Roost (the same com
   names=$(names_of $found)
   if [ "$DRY_RUN" = 1 ]; then
     step_begin "Standalone extensions"
-    step_say "Roost replaces $names: asks to uninstall them (or --yes)"
+    step_say "Agentic Works replaces $names: asks to uninstall them (or --yes)"
     for id in $found; do code_cli --uninstall-extension "$id"; done
     step_end done "dry run"
     return 0
@@ -650,12 +650,12 @@ check_standalone() {  # the standalone four would clash with Roost (the same com
   if [ "$YES" = 1 ]; then
     rc=0
   else
-    ask_yn "Roost replaces $names. Uninstall them and use Roost? [Y/n]"
+    ask_yn "Agentic Works replaces $names. Uninstall them and use Agentic Works? [Y/n]"
     rc=$?
   fi
   case $rc in
-    1) CLASH="stopped — Roost would clash with $names; uninstall them, or rerun and answer Y"; return 0 ;;
-    2) CLASH="$names would clash with Roost, and there is no terminal to ask on; rerun with --yes to uninstall them"
+    1) CLASH="stopped — Agentic Works would clash with $names; uninstall them, or rerun and answer Y"; return 0 ;;
+    2) CLASH="$names would clash with Agentic Works, and there is no terminal to ask on; rerun with --yes to uninstall them"
        return 0 ;;
   esac
   for id in $found; do
@@ -663,7 +663,7 @@ check_standalone() {  # the standalone four would clash with Roost (the same com
   done
   if [ -n "$failed" ]; then
     # shellcheck disable=SC2086
-    CLASH="couldn't uninstall $(names_of $failed), and Roost would clash with it; see $LOG,"
+    CLASH="couldn't uninstall $(names_of $failed), and Agentic Works would clash with it; see $LOG,"
     CLASH="$CLASH uninstall it in VS Code, then rerun"
     return 0
   fi
@@ -671,9 +671,9 @@ check_standalone() {  # the standalone four would clash with Roost (the same com
   step_end done "uninstalled $names"
 }
 
-roost_stamped() {  # true when make release wrote this script's Roost version and SHA-256 in
-  case $ROOST_VERSION$ROOST_SHA256 in *@*) return 1 ;; esac
-  [ -n "$ROOST_VERSION" ] && [ -n "$ROOST_SHA256" ]
+agentic_works_stamped() {  # true when make release wrote this script's Agentic Works version and SHA-256 in
+  case $AGENTIC_WORKS_VERSION$AGENTIC_WORKS_SHA256 in *@*) return 1 ;; esac
+  [ -n "$AGENTIC_WORKS_VERSION" ] && [ -n "$AGENTIC_WORKS_SHA256" ]
 }
 
 lower() {  # $1 = text: in lowercase
@@ -692,70 +692,70 @@ file_sha256() {  # $1 = file: prints its SHA-256; false when neither sha256sum n
   printf '%s' "${out%% *}"
 }
 
-install_roost_vsix() {  # $1 = temp dir: download this release's .vsix there, check it, install it; sets ROOST_ERROR
-  local vsix="$1/roost-$ROOST_VERSION.vsix" sum  # code installs a path only when it ends in .vsix
-  ROOST_ERROR=""
+install_agentic_works_vsix() {  # $1 = temp dir: download this release's .vsix there, check it, install it; sets AGENTIC_WORKS_ERROR
+  local vsix="$1/agentic-works-$AGENTIC_WORKS_VERSION.vsix" sum  # code installs a path only when it ends in .vsix
+  AGENTIC_WORKS_ERROR=""
   if [ "$DRY_RUN" != 1 ] && ! have curl; then
-    ROOST_ERROR="curl isn't installed, to download $ROOST_VSIX_URL"
-  elif ! run curl -fsSL -o "$vsix" "$ROOST_VSIX_URL"; then
-    ROOST_ERROR="couldn't download $ROOST_VSIX_URL; check the network, then run the installer again"
+    AGENTIC_WORKS_ERROR="curl isn't installed, to download $AGENTIC_WORKS_VSIX_URL"
+  elif ! run curl -fsSL -o "$vsix" "$AGENTIC_WORKS_VSIX_URL"; then
+    AGENTIC_WORKS_ERROR="couldn't download $AGENTIC_WORKS_VSIX_URL; check the network, then run the installer again"
   elif [ "$DRY_RUN" = 1 ]; then
     code_cli --install-extension "$vsix"
   elif ! sum=$(file_sha256 "$vsix"); then
-    ROOST_ERROR="no sha256sum or shasum to check the download with"
-  elif [ "$(lower "$sum")" != "$(lower "$ROOST_SHA256")" ]; then
-    ROOST_ERROR="the download did not match its checksum — run the installer again"
+    AGENTIC_WORKS_ERROR="no sha256sum or shasum to check the download with"
+  elif [ "$(lower "$sum")" != "$(lower "$AGENTIC_WORKS_SHA256")" ]; then
+    AGENTIC_WORKS_ERROR="the download did not match its checksum — run the installer again"
   elif ! code_cli --install-extension "$vsix"; then
-    # Roost's extension pack is its companions, which VS Code fetches from the Marketplace as it installs Roost.
-    ROOST_ERROR="VS Code couldn't install it; it also fetches Claude Code, ChatGPT and Perch's audio from the"
-    ROOST_ERROR="$ROOST_ERROR Marketplace, which may be unreachable from here — see $LOG"
+    # Agentic Works' extension pack is its companions, which VS Code fetches from the Marketplace as it installs Agentic Works.
+    AGENTIC_WORKS_ERROR="VS Code couldn't install it; it also fetches Claude Code, ChatGPT and Perch's audio from the"
+    AGENTIC_WORKS_ERROR="$AGENTIC_WORKS_ERROR Marketplace, which may be unreachable from here — see $LOG"
   fi
-  [ -z "$ROOST_ERROR" ]
+  [ -z "$AGENTIC_WORKS_ERROR" ]
 }
 
-ROOST_IN_PLACE=0  # 1 when the Roost step leaves a Roost installed (this release's, an older or a newer one)
+AGENTIC_WORKS_IN_PLACE=0  # 1 when the Agentic Works step leaves a Agentic Works installed (this release's, an older or a newer one)
 
-ensure_roost() {  # this release's Roost: installed, upgraded over an older one, or a newer one left alone
-  local current="" detail="installed $ROOST_VERSION"
-  skipped roost "Roost" && return 0
-  step_begin "Roost"
+ensure_agentic_works() {  # this release's Agentic Works: installed, upgraded over an older one, or a newer one left alone
+  local current="" detail="installed $AGENTIC_WORKS_VERSION"
+  skipped extension "Agentic Works" && return 0
+  step_begin "Agentic Works"
   if [ -n "$CLASH" ]; then
     step_end failed "$CLASH"
     return 0
   fi
-  if ! roost_stamped; then
-    step_end failed "this copy of the installer has no Roost release in it; run a released installer: $LATEST_INSTALLER"
+  if ! agentic_works_stamped; then
+    step_end failed "this copy of the installer has no Agentic Works release in it; run a released installer: $LATEST_INSTALLER"
     return 0
   fi
   if find_code; then
-    current=$(installed_version "$ROOST_ID" "$(installed_extensions)")
+    current=$(installed_version "$AGENTIC_WORKS_ID" "$(installed_extensions)")
   elif [ "$DRY_RUN" != 1 ]; then
     step_end skipped "VS Code isn't installed"
     return 0
   fi
-  [ -z "$current" ] || ROOST_IN_PLACE=1
+  [ -z "$current" ] || AGENTIC_WORKS_IN_PLACE=1
   if [ -n "$current" ]; then
-    case $(version_cmp "$current" "$ROOST_VERSION") in
+    case $(version_cmp "$current" "$AGENTIC_WORKS_VERSION") in
       eq) step_end already; return 0 ;;
-      gt) step_end skipped "$current is newer than this installer's $ROOST_VERSION; left as is"; return 0 ;;
+      gt) step_end skipped "$current is newer than this installer's $AGENTIC_WORKS_VERSION; left as is"; return 0 ;;
     esac
-    detail="upgraded from $current to $ROOST_VERSION"
+    detail="upgraded from $current to $AGENTIC_WORKS_VERSION"
   fi
   case $OS in ubuntu|debian) apt_prereqs curl ;; esac  # not in a minimal system; a failure is reported just below
-  if ! VSIX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/roost-install-vsix.XXXXXX"); then
+  if ! VSIX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/agentic-works-install-vsix.XXXXXX"); then
     VSIX_DIR=""
     step_end failed "couldn't make a temp dir for the download"
     return 0
   fi
-  install_roost_vsix "$VSIX_DIR"
+  install_agentic_works_vsix "$VSIX_DIR"
   rm -rf "$VSIX_DIR"
   VSIX_DIR=""
-  if [ -n "$ROOST_ERROR" ]; then
-    step_end failed "$ROOST_ERROR"
+  if [ -n "$AGENTIC_WORKS_ERROR" ]; then
+    step_end failed "$AGENTIC_WORKS_ERROR"
   elif [ "$DRY_RUN" = 1 ]; then
     step_end done "dry run"
   else
-    ROOST_IN_PLACE=1
+    AGENTIC_WORKS_IN_PLACE=1
     step_end done "$detail"
     [ -z "$current" ] || step_say "Reload any open VS Code window to use the new version."
   fi
@@ -766,7 +766,7 @@ ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and co
   skipped companions "Companions" && return 0
   step_begin "Companions"
   if [ -n "$CLASH" ]; then
-    step_end skipped "skipped — Roost was not installed"
+    step_end skipped "skipped — Agentic Works was not installed"
     return 0
   fi
   if find_code; then
@@ -788,7 +788,7 @@ ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and co
   case $failed in
     *anthropic.claude-code*|*openai.chatgpt*)
       agents="; Perch's tabs need Claude Code or ChatGPT to run an agent"
-      [ "$ROOST_IN_PLACE" = 0 ] || agents="; Roost works, but${agents#;}" ;;
+      [ "$AGENTIC_WORKS_IN_PLACE" = 0 ] || agents="; Agentic Works works, but${agents#;}" ;;
   esac
   # shellcheck disable=SC2086
   if [ "$DRY_RUN" = 1 ]; then
@@ -802,8 +802,8 @@ ensure_companions() {  # Claude Code and ChatGPT (Perch runs their claude and co
 
 # ---- Claude Code's command-line tool, for a terminal ---------------------------------------------------------
 
-profile_block_add() {  # $1 = profile, $2 = a line: into Roost's PATH block (made when there is none); false on failure
-  # The block is the one whose marker is a whole line "# added by roost-install": the Homebrew block's marker
+profile_block_add() {  # $1 = profile, $2 = a line: into Agentic Works' PATH block (made when there is none); false on failure
+  # The block is the one whose marker is a whole line "# added by agentic-works-install": the Homebrew block's marker
   # ("...: Homebrew") is another block, and the line never goes into it.
   local profile=$1 line=$2 text="" row start=0 end=0 i=0 n=0
   if [ -f "$profile" ]; then
@@ -833,7 +833,7 @@ claude_local_bin_planned() {  # true when ~/.local/bin isn't on the PATH a new t
   return 0
 }
 
-ensure_claude_path() {  # ~/.local/bin on the PATH for this run and, in Roost's block, for new terminals; false on failure
+ensure_claude_path() {  # ~/.local/bin on the PATH for this run and, in Agentic Works' block, for new terminals; false on failure
   local dir="$HOME/.local/bin" profile line
   case ":$PATH:" in *":$dir:"*) ;; *) PATH="$dir:$PATH" ;; esac
   claude_local_bin_planned || return 0
@@ -841,7 +841,7 @@ ensure_claude_path() {  # ~/.local/bin on the PATH for this run and, in Roost's 
   line="case \":\$PATH:\" in *\":$dir:\"*) ;; *) export PATH=\"$dir:\$PATH\" ;; esac"
   if [ -f "$profile" ] && grep -qF "$line" "$profile"; then return 0; fi
   if [ "$DRY_RUN" = 1 ]; then
-    step_say "\$ add to $profile, inside Roost's block:"
+    step_say "\$ add to $profile, inside Agentic Works' block:"
     step_say "$line"
     return 0
   fi
@@ -866,7 +866,7 @@ ensure_claude() {  # Claude Code's CLI, from Anthropic's installer (user-level: 
     return 0
   fi
   case $OS in ubuntu|debian) apt_prereqs curl ;; esac  # not in a minimal system
-  tmp=$(mktemp "${TMPDIR:-/tmp}/roost-install-claude.XXXXXX") || { step_end failed "couldn't make a temp file; see $LOG"; return 0; }
+  tmp=$(mktemp "${TMPDIR:-/tmp}/agentic-works-install-claude.XXXXXX") || { step_end failed "couldn't make a temp file; see $LOG"; return 0; }
   # Downloaded first, then run, as Homebrew's is: a failed download stops here rather than running an empty script.
   run curl -fsSL -o "$tmp" "$CLAUDE_INSTALLER" && run bash "$tmp"
   rc=$?
@@ -886,7 +886,7 @@ ensure_claude() {  # Claude Code's CLI, from Anthropic's installer (user-level: 
 # ---- git, which Claude Code, Codex and the PRs part expect to run --------------------------------------------
 
 git_works() {  # true when `git --version` runs; on a Mac, Apple's /usr/bin/git shim without the CLT is never run
-  local git=${ROOST_INSTALL_GIT:-}
+  local git=${AGENTIC_WORKS_INSTALL_GIT:-}
   [ -n "$git" ] || git=$(command -v git 2> /dev/null) || return 1
   if [ "$OS" = macos ] && [ "$git" = /usr/bin/git ] && ! xcode-select -p > /dev/null 2>&1; then
     return 1  # the shim would open Apple's install dialog
@@ -895,8 +895,8 @@ git_works() {  # true when `git --version` runs; on a Mac, Apple's /usr/bin/git 
   "$git" --version < /dev/null >> "$LOG" 2>&1
 }
 
-wait_for_clt() {  # up to ROOST_INSTALL_CLT_WAIT seconds for Apple's Command Line Tools; polled every 5 s (1 s if short)
-  local wait=${ROOST_INSTALL_CLT_WAIT:-600} step=5 elapsed=0
+wait_for_clt() {  # up to AGENTIC_WORKS_INSTALL_CLT_WAIT seconds for Apple's Command Line Tools; polled every 5 s (1 s if short)
+  local wait=${AGENTIC_WORKS_INSTALL_CLT_WAIT:-600} step=5 elapsed=0
   case $wait in ''|*[!0-9]*) wait=600 ;; esac
   [ "$wait" -lt 10 ] && step=1
   while ! xcode-select -p > /dev/null 2>&1; do
@@ -990,7 +990,7 @@ gh_signed_in() {
   gh auth status < /dev/null >> "$LOG" 2>&1
 }
 
-ensure_github() {  # gh, for kestrel's PRs panel; the sign-in is Roost's walkthrough's, never the terminal's
+ensure_github() {  # gh, for kestrel's PRs panel; the sign-in is Agentic Works' walkthrough's, never the terminal's
   local installed="" user
   [ -n "$CLASH" ] && return 0  # the run stopped at the standalone four
   skipped github "GitHub" && return 0
@@ -1025,7 +1025,7 @@ ensure_github() {  # gh, for kestrel's PRs panel; the sign-in is Roost's walkthr
     fi
   else
     if [ -n "$installed" ]; then step_end done "$installed"; else step_end already; fi
-    step_say "sign in from Roost's walkthrough in VS Code (Sign in to GitHub)"
+    step_say "sign in from Agentic Works' walkthrough in VS Code (Sign in to GitHub)"
   fi
 }
 
@@ -1066,7 +1066,7 @@ ensure_homebrew_path() {  # macOS: Homebrew's shellenv in the login profile, whe
   fi
 }
 
-# ---- the look: settings and icons, through roost-install-helper; then VS Code opens ---------------------------
+# ---- the look: settings and icons, through agentic-works-install-helper; then VS Code opens ---------------------------
 
 HELPER_OUT=""
 PYTHON=""  # the python3 the helper runs with; python_ok finds it
@@ -1077,10 +1077,10 @@ write_inlined_helper() {  # a released script carries the helper as a here-docum
   return 1
 }
 
-helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, the inlined one (a released script), or the one beside this script (the source tree)
+helper_path() {  # prints agentic-works-install-helper's path: $AGENTIC_WORKS_INSTALL_HELPER, the inlined one (a released script), or the one beside this script (the source tree)
   local here
-  if [ -n "${ROOST_INSTALL_HELPER:-}" ]; then
-    printf '%s' "$ROOST_INSTALL_HELPER"
+  if [ -n "${AGENTIC_WORKS_INSTALL_HELPER:-}" ]; then
+    printf '%s' "$AGENTIC_WORKS_INSTALL_HELPER"
     return 0
   fi
   # The inlined copy first: under `curl | bash`, $0 is `bash` and the sibling lookup would search the current directory.
@@ -1089,13 +1089,13 @@ helper_path() {  # prints roost-install-helper's path: $ROOST_INSTALL_HELPER, th
     return 0
   fi
   here=$(dirname "${BASH_SOURCE[0]:-$0}")
-  [ -f "$here/roost-install-helper" ] || return 1
-  printf '%s' "$here/roost-install-helper"
+  [ -f "$here/agentic-works-install-helper" ] || return 1
+  printf '%s' "$here/agentic-works-install-helper"
 }
 
 python_ok() {  # true when there is a python3 to run the helper with (in PYTHON); else PYTHON_WHY says why not
-  local platform_python=${ROOST_INSTALL_PLATFORM_PYTHON:-/usr/libexec/platform-python}
-  PYTHON=${ROOST_INSTALL_PYTHON3:-$(command -v python3 2> /dev/null)}
+  local platform_python=${AGENTIC_WORKS_INSTALL_PLATFORM_PYTHON:-/usr/libexec/platform-python}
+  PYTHON=${AGENTIC_WORKS_INSTALL_PYTHON3:-$(command -v python3 2> /dev/null)}
   PYTHON_WHY=""
   # RHEL 8 has no python3 command until `dnf install python3`, but always has dnf's own Python 3.6, which the
   # helper runs on.
@@ -1124,7 +1124,7 @@ run_helper() {  # $* = subcommand and its options: its stdout in HELPER_OUT; ret
   local helper rc
   HELPER_OUT=""
   if ! helper=$(helper_path); then
-    HELPER_OUT="roost-install-helper isn't beside this script; run a released installer: $LATEST_INSTALLER"
+    HELPER_OUT="agentic-works-install-helper isn't beside this script; run a released installer: $LATEST_INSTALLER"
     return 1
   fi
   if [ "$DRY_RUN" = 1 ]; then
@@ -1133,7 +1133,7 @@ run_helper() {  # $* = subcommand and its options: its stdout in HELPER_OUT; ret
   fi
   printf '$ %s %s %s\n' "$PYTHON" "$helper" "$*" >> "$LOG"
   # As root on Linux, the user data dir the code calls use.
-  HELPER_OUT=$(env ${CODE_DATA:+"ROOST_VSCODE_USER_DIR=$CODE_DATA/User"} "$PYTHON" "$helper" "$@" \
+  HELPER_OUT=$(env ${CODE_DATA:+"AGENTIC_WORKS_VSCODE_USER_DIR=$CODE_DATA/User"} "$PYTHON" "$helper" "$@" \
     < /dev/null 2>> "$LOG")
   rc=$?
   case $rc in 0|2) ;; *) HELPER_OUT="" ;; esac  # an error's own words are in the log
@@ -1145,7 +1145,7 @@ look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand (and options
   skipped "$1" "$2" && return 0
   step_begin "$2"
   if [ -n "$CLASH" ]; then
-    step_end skipped "skipped — Roost was not installed"
+    step_end skipped "skipped — Agentic Works was not installed"
     return 0
   fi
   if ! python_ok; then
@@ -1212,30 +1212,30 @@ open_vscode() {  # a new VS Code window, once the checklist is done; not as root
 
 # ---- sudo, the terminal, flags, main -------------------------------------------------------------------------
 
-roost_download_planned() {  # true when the Roost step is going to download the .vsix: no Roost yet, or an older one
+agentic_works_download_planned() {  # true when the Agentic Works step is going to download the .vsix: no Agentic Works yet, or an older one
   local current
-  skip_named roost && return 1
-  roost_stamped || return 1
+  skip_named extension && return 1
+  agentic_works_stamped || return 1
   find_code || return 0  # the VS Code step installs it first
-  current=$(installed_version "$ROOST_ID" "$(installed_extensions)") || return 0
-  [ "$(version_cmp "$current" "$ROOST_VERSION")" = lt ]
+  current=$(installed_version "$AGENTIC_WORKS_ID" "$(installed_extensions)") || return 0
+  [ "$(version_cmp "$current" "$AGENTIC_WORKS_VERSION")" = lt ]
 }
 
 system_changes() {  # what the steps that are going to run add system-wide, one per line, in run order; or nothing
-  local vscode=0 gh=0 roost=0 ms_repo=0 gh_repo=0 git=0 claude=0
+  local vscode=0 gh=0 ext=0 ms_repo=0 gh_repo=0 git=0 claude=0
   skip_named vscode || find_code || vscode=1
   # the claude step runs Anthropic's installer as the user (no sudo); only the curl it downloads with may be a system install
   skip_named claude || [ -n "$CLASH" ] || [ -e "$HOME/.local/bin/claude" ] || have claude || claude=1
   skip_named git || [ -n "$CLASH" ] || git_works || git=1
   skip_named github || have gh || gh=1
-  if { [ "$vscode" = 1 ] || find_code; } && roost_download_planned; then roost=1; fi
+  if { [ "$vscode" = 1 ] || find_code; } && agentic_works_download_planned; then ext=1; fi
   case $OS in
     macos)  # VS Code and gh come through Homebrew, whose installer needs administrator rights
       if [ "$vscode$gh" != 00 ] && ! find_brew; then echo "Homebrew"; fi ;;
     ubuntu|debian)
       [ "$vscode" = 1 ] && ! apt_has_source "packages.microsoft.com/repos/code" && ms_repo=1
       [ "$gh" = 1 ] && ! apt_has_source "cli.github.com/packages" && gh_repo=1
-      if ! have curl && [ "$ms_repo$gh_repo$roost$claude" != 0000 ]; then echo "curl and ca-certificates"; fi
+      if ! have curl && [ "$ms_repo$gh_repo$ext$claude" != 0000 ]; then echo "curl and ca-certificates"; fi
       if [ "$ms_repo" = 1 ] && ! have gpg; then echo "gnupg"; fi
       [ "$ms_repo" = 1 ] && echo "Microsoft's VS Code package repository and its signing key"
       [ "$vscode" = 1 ] && echo "VS Code"
@@ -1272,25 +1272,25 @@ prepare_sudo() {  # one password prompt up front, only when something needs inst
 
 open_tty() {  # fd 3 = the terminal the answers come from; TTY_OPEN=1 when there is one
   [ "$DRY_RUN" = 1 ] && return 0
-  if { exec 3< "${ROOST_INSTALL_TTY:-/dev/tty}"; } 2> /dev/null; then
+  if { exec 3< "${AGENTIC_WORKS_INSTALL_TTY:-/dev/tty}"; } 2> /dev/null; then
     TTY_OPEN=1
   fi
 }
 
 usage() {
   cat <<EOF
-roost-install — VS Code with Roost, on macOS and Linux desktops ($SUPPORTED)
+agentic-works-install — VS Code with Agentic Works, on macOS and Linux desktops ($SUPPORTED)
 
-  bash roost-install.sh [options]
+  bash agentic-works-install.sh [options]
 
 Options:
   --dry-run      print each command instead of running it
   --skip <step>  leave a step out; repeatable. Steps: $STEP_NAMES
-  --yes          answer yes when asked to uninstall the standalone extensions Roost replaces (needed with no
+  --yes          answer yes when asked to uninstall the standalone extensions Agentic Works replaces (needed with no
                  terminal)
   --no-open      don't open VS Code at the end
   --codebase-search
-                 turn codebase search on in Claude and Codex tabs (off otherwise; Roost's walkthrough offers it)
+                 turn codebase search on in Claude and Codex tabs (off otherwise; Agentic Works' walkthrough offers it)
   --teams-app <clientId>:<tenant>
                  sign Teams in with your company's own Microsoft app: its Application (client) ID, then the
                  Directory (tenant) ID or domain, from your IT team (added only when not already set)
@@ -1317,22 +1317,22 @@ parse_args() {
       --codebase-search) CODEBASE_SEARCH=1 ;;
       --no-codebase-search) ;;  # 0.2.0–0.3.3 asked, and this said no; it is off now unless asked for
       --teams-app)
-        [ $# -ge 2 ] || { printf 'roost-install: --teams-app needs <clientId>:<tenant>\n' >&2; exit 2; }
+        [ $# -ge 2 ] || { printf 'agentic-works-install: --teams-app needs <clientId>:<tenant>\n' >&2; exit 2; }
         teams_app_ok "$2" || {
-          printf "roost-install: --teams-app '%s' isn't <clientId>:<tenant> (a GUID, then a tenant GUID or a domain)\n" "$2" >&2
+          printf "agentic-works-install: --teams-app '%s' isn't <clientId>:<tenant> (a GUID, then a tenant GUID or a domain)\n" "$2" >&2
           exit 2
         }
         TEAMS_APP=$2
         shift ;;
       --skip)
-        [ $# -ge 2 ] || { printf 'roost-install: --skip needs a step: %s\n' "$STEP_NAMES" >&2; exit 2; }
+        [ $# -ge 2 ] || { printf 'agentic-works-install: --skip needs a step: %s\n' "$STEP_NAMES" >&2; exit 2; }
         case " $STEP_NAMES " in
           *" $2 "*) SKIPS="$SKIPS$2 " ;;
-          *) printf "roost-install: no step '%s'; steps: %s\n" "$2" "$STEP_NAMES" >&2; exit 2 ;;
+          *) printf "agentic-works-install: no step '%s'; steps: %s\n" "$2" "$STEP_NAMES" >&2; exit 2 ;;
         esac
         shift ;;
       --help|-h) usage; exit 0 ;;
-      *) printf "roost-install: unknown option '%s'\n\n" "$1" >&2; usage >&2; exit 2 ;;
+      *) printf "agentic-works-install: unknown option '%s'\n\n" "$1" >&2; usage >&2; exit 2 ;;
     esac
     shift
   done
@@ -1357,19 +1357,19 @@ finish() {
 
 main() {  # the steps, in order
   parse_args "$@"
-  LOG=$(mktemp "${TMPDIR:-/tmp}/roost-install-log.XXXXXX")
+  LOG=$(mktemp "${TMPDIR:-/tmp}/agentic-works-install-log.XXXXXX")
   trap cleanup EXIT
   trap 'exit 130' INT  # through the EXIT trap, so an interrupted run leaves no download behind
   trap 'exit 143' TERM
   write_inlined_helper || INLINED_HELPER=""
-  printf 'roost-install — VS Code with Roost%s\n\n' "$([ "$DRY_RUN" = 1 ] && echo ' (dry run)')"
+  printf 'agentic-works-install — VS Code with Agentic Works%s\n\n' "$([ "$DRY_RUN" = 1 ] && echo ' (dry run)')"
   check_platform
   prepare_sudo
   open_tty
   ensure_vscode
   ensure_path
   check_standalone
-  ensure_roost
+  ensure_agentic_works
   ensure_companions
   ensure_claude
   ensure_git
@@ -1382,4 +1382,4 @@ main() {  # the steps, in order
   [ "$N_FAIL" = 0 ]
 }
 
-[ "${ROOST_INSTALL_NO_MAIN:-}" = 1 ] || main "$@"
+[ "${AGENTIC_WORKS_INSTALL_NO_MAIN:-}" = 1 ] || main "$@"

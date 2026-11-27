@@ -1,11 +1,11 @@
-"""Tests for installer/roost-install.sh: the platform, VS Code, `code` on the PATH, the standalone four, Roost,
+"""Tests for installer/agentic-works-install.sh: the platform, VS Code, `code` on the PATH, the standalone four, Agentic Works,
 its companions, GitHub, the settings and icons, and opening VS Code.
 
 Each test runs the script in a subprocess with HOME in a temp dir and a PATH of only stubs (brew, apt-get, dnf,
 sudo, code, curl, gh, ... each logging its argv to $STUB_LOG) plus the handful of system tools the script needs, so
-"is it installed" is whatever the test puts on PATH. ROOST_INSTALL_FAKE_OS picks the platform. The script run is a
-copy stamped with a test version and SHA-256, as `make release` stamps it; ROOST_INSTALL_HELPER points it at
-installer/roost-install-helper, which a python3 stub stands in for unless a test puts the real python3 on PATH.
+"is it installed" is whatever the test puts on PATH. AGENTIC_WORKS_INSTALL_FAKE_OS picks the platform. The script run is a
+copy stamped with a test version and SHA-256, as `make release` stamps it; AGENTIC_WORKS_INSTALL_HELPER points it at
+installer/agentic-works-install-helper, which a python3 stub stands in for unless a test puts the real python3 on PATH.
 The `.vsix` downloads go to a local HTTP server, with the real curl. One case runs under bash 3.2, the bash macOS
 ships, in the bash:3.2 container (skipped without Docker). No network.
 """
@@ -29,8 +29,8 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SCRIPT = HERE.parent / "roost-install.sh"
-HELPER = HERE.parent / "roost-install-helper"
+SCRIPT = HERE.parent / "agentic-works-install.sh"
+HELPER = HERE.parent / "agentic-works-install-helper"
 IMAGE = "bash:3.2"
 DOWNLOAD = "https://code.visualstudio.com/download"
 
@@ -41,10 +41,10 @@ ALL_PRESENT = ("brew", "curl", "gpg", "code", "sudo", "apt-get", "dnf", "rpm", "
                "git", "claude")
 
 VERSION = "1.2.3"  # what the test copy of the script is stamped with
-VSIX = b"PK roost 1.2.3, as released"
+VSIX = b"PK agentic-works 1.2.3, as released"
 SHA = hashlib.sha256(VSIX).hexdigest()
 COMPANIONS = ("anthropic.claude-code", "openai.chatgpt", "seanahn.perch-audio")
-INSTALLED = f"seanahn.roost@{VERSION} anthropic.claude-code@2.0.1 openai.chatgpt@0.4.2 seanahn.perch-audio@0.1.0"
+INSTALLED = f"agenticworks.agentic-works@{VERSION} anthropic.claude-code@2.0.1 openai.chatgpt@0.4.2 seanahn.perch-audio@0.1.0"
 
 STUB = """#!/bin/sh
 printf '%s\\n' "{name} $*" >> "$STUB_LOG"
@@ -71,8 +71,8 @@ for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "
 INSTALLS = ('case " $* " in *" install "*) for w in "$@"; do [ -f "${STUB_INSTALLS:-/nonexistent}/$w" ] && '
             '{ cat "$STUB_INSTALLS/$w" > "${0%/*}/$w"; chmod 755 "${0%/*}/$w"; }; done ;; esac\n')
 # python3 (running the helper) prints $PY_SETTINGS_OUT / $PY_LAYOUT_OUT and exits $PY_SETTINGS_RC / $PY_LAYOUT_RC;
-# it notes the ROOST_VSCODE_USER_DIR it was given.
-PYTHON3 = r"""[ -z "${ROOST_VSCODE_USER_DIR:-}" ] || printf 'user-dir %s\n' "$ROOST_VSCODE_USER_DIR" >> "$STUB_LOG"
+# it notes the AGENTIC_WORKS_VSCODE_USER_DIR it was given.
+PYTHON3 = r"""[ -z "${AGENTIC_WORKS_VSCODE_USER_DIR:-}" ] || printf 'user-dir %s\n' "$AGENTIC_WORKS_VSCODE_USER_DIR" >> "$STUB_LOG"
 case "$*" in
   *vscode-layout*) [ -z "${PY_LAYOUT_OUT:-}" ] || printf '%s\n' "$PY_LAYOUT_OUT"; exit "${PY_LAYOUT_RC:-0}" ;;
   *) [ -z "${PY_SETTINGS_OUT:-}" ] || printf '%s\n' "$PY_SETTINGS_OUT"; exit "${PY_SETTINGS_RC:-0}" ;;
@@ -117,7 +117,7 @@ def _write_stubs(directory: Path, names: tuple[str, ...]) -> None:
 def stamp(dest: Path, version: str = VERSION, sha: str = SHA) -> Path:
     """A copy of the script with its placeholders filled in, as `make release` does."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(SCRIPT.read_text().replace("@ROOST_VERSION@", version).replace("@ROOST_SHA256@", sha))
+    dest.write_text(SCRIPT.read_text().replace("@AGENTIC_WORKS_VERSION@", version).replace("@AGENTIC_WORKS_SHA256@", sha))
     return dest
 
 
@@ -142,13 +142,13 @@ class _Installer(unittest.TestCase):
     """A temp HOME, a stubs dir and a system-tools dir per test."""
 
     def setUp(self) -> None:
-        self.tmp = Path(tempfile.mkdtemp(prefix="roost-install-test-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="agentic-works-install-test-"))
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.home = self.tmp / "home"
         self.home.mkdir()
         self.log = self.tmp / "stub.log"
         self.log.touch()
-        self.script = stamp(self.tmp / "dist" / "roost-install.sh")
+        self.script = stamp(self.tmp / "dist" / "agentic-works-install.sh")
         self.gh_auth = self.tmp / "gh-auth"  # signed in to GitHub while this exists
         self.gh_auth.touch()
         self.installs = self.tmp / "installs"  # what sudo or brew "install" puts on PATH
@@ -175,12 +175,12 @@ class _Installer(unittest.TestCase):
             "HOME": str(self.home),
             "PATH": self._path(stubs, real),
             "STUB_LOG": str(self.log),
-            "ROOST_INSTALL_FAKE_OS": os_name,
-            "ROOST_INSTALL_FAKE_ARCH": "x86_64",
-            "ROOST_INSTALL_TTY": "/dev/null",
-            "ROOST_INSTALL_APT_DIR": str(self.apt),
-            "ROOST_INSTALL_VSIX_URL": "http://127.0.0.1:9/nothing-listens-here.vsix",
-            "ROOST_INSTALL_HELPER": str(HELPER),
+            "AGENTIC_WORKS_INSTALL_FAKE_OS": os_name,
+            "AGENTIC_WORKS_INSTALL_FAKE_ARCH": "x86_64",
+            "AGENTIC_WORKS_INSTALL_TTY": "/dev/null",
+            "AGENTIC_WORKS_INSTALL_APT_DIR": str(self.apt),
+            "AGENTIC_WORKS_INSTALL_VSIX_URL": "http://127.0.0.1:9/nothing-listens-here.vsix",
+            "AGENTIC_WORKS_INSTALL_HELPER": str(HELPER),
             "CODE_EXTENSIONS": INSTALLED,
             "GH_AUTH_FILE": str(self.gh_auth),
             "STUB_INSTALLS": str(self.installs),
@@ -192,7 +192,7 @@ class _Installer(unittest.TestCase):
         return env
 
     def tty(self, *answers: str) -> str:
-        """A file of answers, one per line, for ROOST_INSTALL_TTY."""
+        """A file of answers, one per line, for AGENTIC_WORKS_INSTALL_TTY."""
         path = self.tmp / "tty"
         path.write_text("".join(f"{answer}\n" for answer in answers))
         return str(path)
@@ -203,8 +203,8 @@ class _Installer(unittest.TestCase):
         return result.returncode, (result.stdout + result.stderr).decode()
 
     def run_sourced(self, env: dict[str, str], probe: str, *args: str) -> tuple[int, str]:
-        """Source the script (ROOST_INSTALL_NO_MAIN=1), then run probe, a bash snippet; $1.. are args."""
-        env = {**env, "ROOST_INSTALL_NO_MAIN": "1"}
+        """Source the script (AGENTIC_WORKS_INSTALL_NO_MAIN=1), then run probe, a bash snippet; $1.. are args."""
+        env = {**env, "AGENTIC_WORKS_INSTALL_NO_MAIN": "1"}
         result = subprocess.run([shutil.which("bash"), "-c", f'. "$0"; {probe}', str(self.script), *args], env=env,
                                 stdin=subprocess.DEVNULL, capture_output=True, timeout=60, check=False)
         return result.returncode, (result.stdout + result.stderr).decode()
@@ -369,7 +369,7 @@ class TestVSCode(_Installer):
         failed = [line for line in out.splitlines() if line.startswith("  ✗ VS Code: ")]
         self.assertEqual(len(failed), 1, out)
         self.assertIn("Homebrew couldn't be installed", failed[0])
-        self.assertIn(f"see {self.tmp}/roost-install-log.", failed[0])
+        self.assertIn(f"see {self.tmp}/agentic-works-install-log.", failed[0])
         self.assertIn(DOWNLOAD, failed[0])
         self.assertNotIn("administrator", failed[0])
 
@@ -444,7 +444,7 @@ class TestVSCode(_Installer):
                 self.assertEqual("microsoft.asc" in out, adds, out)
                 self.assertEqual("/etc/apt/sources.list.d/vscode.list" in out, adds, out)
                 self.assertEqual("gnupg" in out, adds, out)
-                self.assertIn("apt-get install -y curl ca-certificates", out)  # Roost's download needs curl
+                self.assertIn("apt-get install -y curl ca-certificates", out)  # Agentic Works' download needs curl
 
         # curl there already: nothing to install first.
         rc, out = self.run_pipe(self.env("ubuntu", ("sudo", "apt-get", "gh", "curl")), "--dry-run")
@@ -472,12 +472,12 @@ class TestVSCode(_Installer):
             ("ubuntu, nothing there", "ubuntu", ("sudo", "apt-get"), {},
              ["curl and ca-certificates", "gnupg", ms, "VS Code", gh_repo, "gh"]),
             ("debian, gh only", "debian", ("sudo", "apt-get", "curl", "code"), {}, [gh_repo, "gh"]),
-            ("debian, no curl, Roost there", "debian", ("sudo", "apt-get", "code", "gh"), {}, None),
+            ("debian, no curl, Agentic Works there", "debian", ("sudo", "apt-get", "code", "gh"), {}, None),
             # the claude step: Anthropic's installer runs without sudo, but the curl it is downloaded with is a system install
             ("debian, no curl, claude missing", "debian", ("sudo", "apt-get", "code", "gh", "git"), {},
              ["curl and ca-certificates"]),
-            ("debian, no curl, Roost older", "debian", ("sudo", "apt-get", "code", "gh"),
-             {"CODE_EXTENSIONS": "seanahn.roost@1.0.0"}, ["curl and ca-certificates"]),
+            ("debian, no curl, Agentic Works older", "debian", ("sudo", "apt-get", "code", "gh"),
+             {"CODE_EXTENSIONS": "agenticworks.agentic-works@1.0.0"}, ["curl and ca-certificates"]),
             ("rhel, VS Code only", "rhel", ("sudo", "dnf", "rpm", "curl", "gh"), {}, [ms, "VS Code"]),
             ("rhel, gh only", "rhel", ("sudo", "dnf", "rpm", "curl", "code"), {},
              ["GitHub's gh package repository and its signing key (with dnf's config-manager plugin)", "gh"]),
@@ -513,13 +513,13 @@ class TestVSCode(_Installer):
     def test_fresh_fedora_names_openssl3(self) -> None:
         (self.installs / "code").write_text(STUB.format(name="code", extra=CODE))
         rc, out = self.run_pipe(self.env("fedora", ("sudo", "dnf", "rpm", "curl", "gh"), RPM_MISSING="libssl.so.3"),
-                                "--skip", "roost", "--skip", "companions")
+                                "--skip", "extension", "--skip", "companions")
         self.assertIn("  ✓ VS Code (installed, with OpenSSL 3 for VS Code's extension signature checks)", out)
 
         # Without the need: just "installed".
         self.log.write_text("")
         rc, out = self.run_pipe(self.env("fedora", ("sudo", "dnf", "rpm", "curl", "gh")),
-                                "--skip", "roost", "--skip", "companions")
+                                "--skip", "extension", "--skip", "companions")
         self.assertIn("  ✓ VS Code (installed)\n", out)
 
     def test_install_that_gives_no_code_fails(self) -> None:
@@ -561,10 +561,10 @@ class TestPlatform(_Installer):
                 self.assertEqual(out.strip().splitlines()[-1], want, out)
 
     def test_sudo_is_refused(self) -> None:
-        """`sudo bash roost-install.sh`: stop at Platform, before anything is installed as root for someone else."""
+        """`sudo bash agentic-works-install.sh`: stop at Platform, before anything is installed as root for someone else."""
         rc, out = self.run_sourced(self.env("ubuntu", ALL_PRESENT, SUDO_USER="alice"), 'id() { echo 0; }; main')
         self.assertEqual(rc, 1, out)
-        self.assertIn("  ✗ Platform: Run it without sudo: bash roost-install.sh — it asks for your password when it "
+        self.assertIn("  ✗ Platform: Run it without sudo: bash agentic-works-install.sh — it asks for your password when it "
                       "needs it.\n", out)
         self.assertEqual([mark.split(":")[0] for mark in self.marks(out)], ["✗ Platform"], out)
         self.assertRegex(out, r"\nDone: 0 ✓  0 –  1 ✗\n")
@@ -579,7 +579,7 @@ class TestPlatform(_Installer):
                 self.assertIn("  ✓ Platform (ubuntu, x86_64)", out)
 
     def test_platform_line(self) -> None:
-        rc, out = self.run_pipe(self.env("fedora", ALL_PRESENT, ROOST_INSTALL_FAKE_ARCH="aarch64"))
+        rc, out = self.run_pipe(self.env("fedora", ALL_PRESENT, AGENTIC_WORKS_INSTALL_FAKE_ARCH="aarch64"))
         self.assertEqual(rc, 0, out)
         self.assertIn("  ✓ Platform (fedora, arm64)", out)
 
@@ -587,7 +587,7 @@ class TestPlatform(_Installer):
 class TestPath(_Installer):
     """ensure_path: one marked block in the login profile, only when `code` isn't on the PATH already."""
 
-    PROBE = ('MAC_CODE=$1; main --skip vscode --skip roost --skip companions --skip claude --skip git '
+    PROBE = ('MAC_CODE=$1; main --skip vscode --skip extension --skip companions --skip claude --skip git '
              '--skip github --skip homebrew')
 
     def mac_app(self) -> Path:
@@ -605,8 +605,8 @@ class TestPath(_Installer):
             self.assertEqual(rc, 0, out)
         self.assertIn("  ✓ code on the PATH (.zprofile) (already)", out)
         text = (self.home / ".zprofile").read_text()
-        self.assertEqual(text.count("# added by roost-install"), 1, text)
-        self.assertEqual(text.count("# end roost-install"), 1, text)
+        self.assertEqual(text.count("# added by agentic-works-install"), 1, text)
+        self.assertEqual(text.count("# end agentic-works-install"), 1, text)
         self.assertIn(str(code.parent), text)
         self.assertFalse((self.home / ".profile").exists())
 
@@ -622,8 +622,8 @@ class TestPath(_Installer):
         text = (self.home / ".zprofile").read_text()
         self.assertIn(f'eval "$({self.tmp}/stubs/brew shellenv)"', text)
 
-    HOMEBREW_BLOCK = ('# added by roost-install: Homebrew\n[ -x /opt/homebrew/bin/brew ] && '
-                      'eval "$(/opt/homebrew/bin/brew shellenv)"\n# end roost-install\n')
+    HOMEBREW_BLOCK = ('# added by agentic-works-install: Homebrew\n[ -x /opt/homebrew/bin/brew ] && '
+                      'eval "$(/opt/homebrew/bin/brew shellenv)"\n# end agentic-works-install\n')
 
     def test_homebrew_block_alone_does_not_count_as_the_path_block(self) -> None:
         code = self.mac_app()
@@ -633,11 +633,11 @@ class TestPath(_Installer):
         self.assertNotIn("code on the PATH (.zprofile) (already)", out)
         text = (self.home / ".zprofile").read_text()
         self.assertTrue(text.startswith(self.HOMEBREW_BLOCK), text)
-        self.assertEqual(text.splitlines().count("# added by roost-install"), 1, text)
+        self.assertEqual(text.splitlines().count("# added by agentic-works-install"), 1, text)
         self.assertIn(str(code.parent), text.split(self.HOMEBREW_BLOCK, 1)[1])
 
     def test_local_bin_goes_in_the_path_block_not_the_homebrew_block(self) -> None:
-        path_block = '# added by roost-install\nexport PATH="/opt/code/bin:$PATH"\n# end roost-install\n'
+        path_block = '# added by agentic-works-install\nexport PATH="/opt/code/bin:$PATH"\n# end agentic-works-install\n'
         for name, text in (("homebrew first", self.HOMEBREW_BLOCK + path_block),
                            ("homebrew last", path_block + self.HOMEBREW_BLOCK)):
             with self.subTest(name):
@@ -649,10 +649,10 @@ class TestPath(_Installer):
                 got = (self.home / ".profile").read_text()
                 lines = got.splitlines()
                 local = next(i for i, line in enumerate(lines) if "/.local/bin" in line)
-                start = lines.index("# added by roost-install")
+                start = lines.index("# added by agentic-works-install")
                 self.assertEqual(lines[start + 1], 'export PATH="/opt/code/bin:$PATH"', lines)
                 self.assertEqual(local, start + 2, lines)
-                self.assertEqual(lines[local + 1], "# end roost-install", lines)
+                self.assertEqual(lines[local + 1], "# end agentic-works-install", lines)
                 self.assertEqual(len([l for l in lines if "/.local/bin" in l]), 1, got)
                 (self.home / ".local" / "bin" / "claude").unlink()
 
@@ -668,7 +668,7 @@ class TestPath(_Installer):
         (self.home / ".bash_profile").write_text("# mine\n")
         rc, out = self.run_sourced(self.env("macos", ("brew",)), self.PROBE, str(code))
         self.assertEqual(rc, 0, out)
-        self.assertIn("# added by roost-install", (self.home / ".bash_profile").read_text())
+        self.assertIn("# added by agentic-works-install", (self.home / ".bash_profile").read_text())
         self.assertFalse((self.home / ".profile").exists())
 
 
@@ -686,7 +686,7 @@ class TestFlags(_Installer):
             self.assertTrue(begin.startswith("  … "), out)
             self.assertTrue(end[4:].startswith(begin[4:]), (begin, end))
         self.assertEqual([mark.split(" (")[0] for mark in self.marks(out)],
-                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✓ Roost", "✓ Companions", "✓ Claude Code CLI",
+                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✓ Agentic Works", "✓ Companions", "✓ Claude Code CLI",
                           "✓ git", "✓ GitHub", "✓ Settings", "✓ Icons"], out)
         self.assertRegex(out, r"\nDone: 10 ✓  0 –  0 ✗\n")
 
@@ -697,7 +697,7 @@ class TestFlags(_Installer):
         self.assertNotIn("apt-get install -y code", out)
 
     def test_every_step_name_and_flag_is_accepted(self) -> None:
-        names = "vscode path standalone roost companions claude git github homebrew settings icons open".split()
+        names = "vscode path standalone extension companions claude git github homebrew settings icons open".split()
         skips = tuple(arg for name in names for arg in ("--skip", name))
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), "--yes", "--no-open", *skips)
         self.assertEqual(rc, 0, out)
@@ -721,7 +721,7 @@ class TestFlags(_Installer):
         rc, out = self.run_pipe(self.env("macos", ALL_PRESENT), "--help")
         self.assertEqual(rc, 0, out)
         for text in ("--dry-run", "--skip", "--yes", "--no-open", "--teams-app <clientId>:<tenant>",
-                     "vscode path standalone roost companions claude git github homebrew settings icons open"):
+                     "vscode path standalone extension companions claude git github homebrew settings icons open"):
             self.assertIn(text, out)
         self.assertEqual(self.stub_log(), [])
 
@@ -743,11 +743,11 @@ class TestBash32(_Installer):
             "HOME": "/tmp/h",
             "PATH": "/stubs:/usr/local/bin:/usr/bin:/bin",
             "STUB_LOG": "/tmp/stub.log",
-            "ROOST_INSTALL_FAKE_OS": "ubuntu",
-            "ROOST_INSTALL_HELPER": "/s/roost-install-helper",
+            "AGENTIC_WORKS_INSTALL_FAKE_OS": "ubuntu",
+            "AGENTIC_WORKS_INSTALL_HELPER": "/s/agentic-works-install-helper",
         }.items():
             cmd += ["-e", f"{name}={value}"]
-        script = 'mkdir -p /tmp/h; echo "bash=$BASH_VERSION"; bash /s/roost-install.sh --dry-run; echo "rc=$?"'
+        script = 'mkdir -p /tmp/h; echo "bash=$BASH_VERSION"; bash /s/agentic-works-install.sh --dry-run; echo "rc=$?"'
         cmd += [IMAGE, "bash", "-c", script]
         result = subprocess.run(cmd, capture_output=True, timeout=120, check=False, stdin=subprocess.DEVNULL)
         out = (result.stdout + result.stderr).decode()
@@ -760,7 +760,7 @@ class TestBash32(_Installer):
         self.assertIn("apt-get install -y gh", out)
         self.assertIn("apt-get install -y git", out)
         self.assertIn("https://claude.ai/install.sh", out)
-        self.assertIn("$ python3 /s/roost-install-helper vscode-layout", out)
+        self.assertIn("$ python3 /s/agentic-works-install-helper vscode-layout", out)
         self.assertRegex(out, r"\nDone: 10 ✓  0 –  0 ✗\n")
 
 
@@ -796,7 +796,7 @@ class _Served(_Installer):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.served = Path(tempfile.mkdtemp(prefix="roost-install-served-"))
+        cls.served = Path(tempfile.mkdtemp(prefix="agentic-works-install-served-"))
         (cls.served / "good.vsix").write_bytes(VSIX)
         (cls.served / "bad.vsix").write_bytes(VSIX + b"!")
         handler = functools.partial(_Quiet, directory=str(cls.served))
@@ -814,19 +814,19 @@ class _Served(_Installer):
 
     def served_env(self, path: str = "good.vsix", **extra: str) -> dict[str, str]:
         """ubuntu, VS Code and gh in place, the real curl, the .vsix from the local server."""
-        return self.env("ubuntu", self.STUBS, real=("curl",), ROOST_INSTALL_VSIX_URL=f"{self.url}/{path}", **extra)
+        return self.env("ubuntu", self.STUBS, real=("curl",), AGENTIC_WORKS_INSTALL_VSIX_URL=f"{self.url}/{path}", **extra)
 
     def vsix_installs(self) -> list[str]:
         return [line for line in self.logged("--install-extension") if line.endswith(".vsix")]
 
 
 class TestStandalone(_Served):
-    """check_standalone: the four standalone extensions go before Roost comes, or Roost doesn't come."""
+    """check_standalone: the four standalone extensions go before Agentic Works comes, or Agentic Works doesn't come."""
 
     def test_no_standalone_no_question(self) -> None:
-        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("n")))
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, AGENTIC_WORKS_INSTALL_TTY=self.tty("n")))
         self.assertEqual(rc, 0, out)
-        self.assertNotIn("Roost replaces", out)
+        self.assertNotIn("Agentic Works replaces", out)
         self.assertNotIn("Standalone", out)
         self.assertEqual(self.logged("--uninstall-extension"), [])
 
@@ -840,36 +840,36 @@ class TestStandalone(_Served):
         for name, tty, args in cases:
             with self.subTest(name):
                 self.log.write_text("")
-                rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed, ROOST_INSTALL_TTY=tty), *args)
+                rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed, AGENTIC_WORKS_INSTALL_TTY=tty), *args)
                 self.assertEqual(rc, 0, out)
                 if args:
                     self.assertNotIn("[Y/n]", out)
                 else:
-                    self.assertIn("      Roost replaces Perch and jay. Uninstall them and use Roost? [Y/n]", out)
+                    self.assertIn("      Agentic Works replaces Perch and jay. Uninstall them and use Agentic Works? [Y/n]", out)
                 self.assertIn("  ✓ Standalone extensions (uninstalled Perch and jay)", out)
-                self.assertIn(f"  ✓ Roost (installed {VERSION})", out)
+                self.assertIn(f"  ✓ Agentic Works (installed {VERSION})", out)
                 log = self.stub_log()
                 perch = _index(log, "--uninstall-extension seanahn.perch")
                 jay = _index(log, "--uninstall-extension seanahn.jay")
-                roost = _index(log, "vsix-present ")
-                self.assertTrue(0 <= perch < jay < roost, log)
+                ext = _index(log, "vsix-present ")
+                self.assertTrue(0 <= perch < jay < ext, log)
                 self.assertNotIn("chirp", "\n".join(self.logged("--uninstall-extension")))
                 self.assertEqual(self.leftovers(), [])
 
     def test_standalone_stop_skips_the_rest(self) -> None:
         installed = f"seanahn.kestrel-prs@0.2.0 seanahn.chirp@0.3.0"
-        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed, ROOST_INSTALL_TTY=self.tty("n")))
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed, AGENTIC_WORKS_INSTALL_TTY=self.tty("n")))
         self.assertEqual(rc, 1, out)
-        self.assertIn("Roost replaces chirp and kestrel. Uninstall them and use Roost? [Y/n]", out)
-        roost = [mark for mark in self.marks(out) if mark.startswith("✗ Roost: ")]
-        self.assertEqual(len(roost), 1, out)
-        self.assertIn("stopped", roost[0])
+        self.assertIn("Agentic Works replaces chirp and kestrel. Uninstall them and use Agentic Works? [Y/n]", out)
+        ext = [mark for mark in self.marks(out) if mark.startswith("✗ Agentic Works: ")]
+        self.assertEqual(len(ext), 1, out)
+        self.assertIn("stopped", ext[0])
         self.assertEqual([mark.split(":")[0].split(" (")[0] for mark in self.marks(out)],
-                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✗ Roost", "– Companions",
+                         ["✓ Platform", "✓ VS Code", "✓ code on the PATH", "✗ Agentic Works", "– Companions",
                           "– Settings", "– Icons"], out)
-        self.assertIn("  – Companions: skipped — Roost was not installed", out)
-        self.assertIn("  – Settings: skipped — Roost was not installed", out)
-        self.assertIn("  – Icons: skipped — Roost was not installed", out)
+        self.assertIn("  – Companions: skipped — Agentic Works was not installed", out)
+        self.assertIn("  – Settings: skipped — Agentic Works was not installed", out)
+        self.assertIn("  – Icons: skipped — Agentic Works was not installed", out)
         self.assertEqual(self.logged("--new-window"), [])  # nor is VS Code opened
         self.assertEqual(self.logged("--install-extension"), [])
         self.assertEqual(self.logged("--uninstall-extension"), [])
@@ -877,70 +877,70 @@ class TestStandalone(_Served):
         self.assertRegex(out, r"\nDone: 3 ✓  3 –  1 ✗\n")
 
     def test_no_terminal_without_yes_stops(self) -> None:
-        env = self.served_env(CODE_EXTENSIONS="seanahn.jay@0.5.0", ROOST_INSTALL_TTY=str(self.tmp / "no-tty"))
+        env = self.served_env(CODE_EXTENSIONS="seanahn.jay@0.5.0", AGENTIC_WORKS_INSTALL_TTY=str(self.tmp / "no-tty"))
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 1, out)
         self.assertNotIn("[Y/n]", out)
-        roost = [mark for mark in self.marks(out) if mark.startswith("✗ Roost: ")]
-        self.assertEqual(len(roost), 1, out)
-        self.assertIn("jay", roost[0])
-        self.assertIn("--yes", roost[0])
+        ext = [mark for mark in self.marks(out) if mark.startswith("✗ Agentic Works: ")]
+        self.assertEqual(len(ext), 1, out)
+        self.assertIn("jay", ext[0])
+        self.assertIn("--yes", ext[0])
         self.assertEqual(self.logged("--uninstall-extension"), [])
         self.assertEqual(self.logged("--install-extension"), [])
 
         # A terminal that gives no answer (end of input) is not a yes either.
         self.log.write_text("")
-        rc, out = self.run_pipe({**env, "ROOST_INSTALL_TTY": "/dev/null"})
+        rc, out = self.run_pipe({**env, "AGENTIC_WORKS_INSTALL_TTY": "/dev/null"})
         self.assertEqual(rc, 1, out)
         self.assertEqual(self.logged("--uninstall-extension"), [])
 
-    def test_failed_uninstall_installs_no_roost(self) -> None:
+    def test_failed_uninstall_installs_no_agentic_works(self) -> None:
         env = self.served_env(CODE_EXTENSIONS="seanahn.perch@0.9.0 seanahn.jay@0.5.0",
                               CODE_FAIL_ON="--uninstall-extension seanahn.jay")
         rc, out = self.run_pipe(env, "--yes")
         self.assertEqual(rc, 1, out)
-        roost = [mark for mark in self.marks(out) if mark.startswith("✗ Roost: ")]
-        self.assertEqual(len(roost), 1, out)
-        self.assertIn("couldn't uninstall jay", roost[0])
-        self.assertNotIn("Perch", roost[0])
+        ext = [mark for mark in self.marks(out) if mark.startswith("✗ Agentic Works: ")]
+        self.assertEqual(len(ext), 1, out)
+        self.assertIn("couldn't uninstall jay", ext[0])
+        self.assertNotIn("Perch", ext[0])
         self.assertEqual(self.logged("--install-extension"), [])
-        self.assertIn("  – Companions: skipped — Roost was not installed", out)
+        self.assertIn("  – Companions: skipped — Agentic Works was not installed", out)
         self.assertNotIn("GitHub", out)
 
 
-class TestRoost(_Served):
-    """ensure_roost: the release's .vsix, version-aware, SHA-256 checked."""
+class TestAgenticWorks(_Served):
+    """ensure_agentic_works: the release's .vsix, version-aware, SHA-256 checked."""
 
     def test_same_version_already(self) -> None:
         rc, out = self.run_pipe(self.served_env())
         self.assertEqual(rc, 0, out)
-        self.assertIn("  ✓ Roost (already)", out)
+        self.assertIn("  ✓ Agentic Works (already)", out)
         self.assertEqual(self.logged("--install-extension"), [])
 
     def test_older_version_upgraded(self) -> None:
-        installed = "seanahn.roost@1.1.9 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)
+        installed = "agenticworks.agentic-works@1.1.9 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"  ✓ Roost (upgraded from 1.1.9 to {VERSION})\n"
+        self.assertIn(f"  ✓ Agentic Works (upgraded from 1.1.9 to {VERSION})\n"
                       "      Reload any open VS Code window to use the new version.\n", out)
         installs = self.vsix_installs()
         self.assertEqual(len(installs), 1, self.stub_log())
-        self.assertTrue(installs[0].endswith(f"/roost-{VERSION}.vsix"), installs)
+        self.assertTrue(installs[0].endswith(f"/agentic-works-{VERSION}.vsix"), installs)
         self.assertEqual(len(self.logged("vsix-present ")), 1, self.stub_log())  # the file was there for code
         self.assertEqual(self.leftovers(), [])  # and is gone after
 
-    def test_newer_roost_is_left_alone(self) -> None:
-        installed = "seanahn.roost@1.10.0 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)  # 1.10 > 1.2
+    def test_newer_agentic_works_is_left_alone(self) -> None:
+        installed = "agenticworks.agentic-works@1.10.0 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)  # 1.10 > 1.2
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"  – Roost: 1.10.0 is newer than this installer's {VERSION}; left as is", out)
+        self.assertIn(f"  – Agentic Works: 1.10.0 is newer than this installer's {VERSION}; left as is", out)
         self.assertEqual(self.logged("--install-extension"), [])
 
     def test_prerelease_counts_as_its_release(self) -> None:
-        installed = f"seanahn.roost@{VERSION}-beta.1 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)
+        installed = f"agenticworks.agentic-works@{VERSION}-beta.1 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
-        self.assertIn("  ✓ Roost (already)", out)
+        self.assertIn("  ✓ Agentic Works (already)", out)
         for a, b, want in (("1.2.3-beta.1", "1.2.3", "eq"), ("1.2.3", "1.2.4-rc.9", "lt"), ("1.10.0", "1.9.9", "gt")):
             rc, out = self.run_sourced(self.served_env(), 'version_cmp "$1" "$2"', a, b)
             self.assertEqual(out.strip(), want, (a, b))
@@ -953,12 +953,12 @@ class TestRoost(_Served):
             with self.subTest(os=os_name):
                 self.log.write_text("")
                 shutil.rmtree(self.tmp / "stubs", ignore_errors=True)
-                env = self.env(os_name, ("code", "sudo", "apt-get", "gh", "git", "claude"), ROOST_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
+                env = self.env(os_name, ("code", "sudo", "apt-get", "gh", "git", "claude"), AGENTIC_WORKS_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
                                CODE_EXTENSIONS=" ".join(f"{c}@1.0.0" for c in COMPANIONS))
                 rc, out = self.run_pipe(env)
                 self.assertEqual(rc, 0, out)
                 self.assertIn("Some installs need administrator rights", out)
-                self.assertIn(f"  ✓ Roost (installed {VERSION})", out)
+                self.assertIn(f"  ✓ Agentic Works (installed {VERSION})", out)
                 log = self.stub_log()
                 curl = _index(log, "sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates")
                 self.assertTrue(0 <= _index(log, "sudo -v") < curl < _index(log, "vsix-present "), log)
@@ -972,7 +972,7 @@ class TestRoost(_Served):
         stamp(self.script, sha=SHA.upper())
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=" ".join(f"{c}@1.0.0" for c in COMPANIONS)))
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"  ✓ Roost (installed {VERSION})", out)
+        self.assertIn(f"  ✓ Agentic Works (installed {VERSION})", out)
 
     def test_interrupted_install_leaves_nothing(self) -> None:
         """Ctrl-C (SIGINT to the process group) while code installs the .vsix: its temp dir still goes."""
@@ -998,44 +998,44 @@ class TestRoost(_Served):
         installed = " ".join(f"{c}@1.0.0" for c in COMPANIONS)
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"  ✓ Roost (installed {VERSION})", out)
-        self.assertNotIn("Reload", out)  # only an upgrade replaces a running Roost
+        self.assertIn(f"  ✓ Agentic Works (installed {VERSION})", out)
+        self.assertNotIn("Reload", out)  # only an upgrade replaces a running Agentic Works
         self.assertEqual(len(self.vsix_installs()), 1, self.stub_log())
         self.assertEqual(self.leftovers(), [])
 
     def test_checksum_mismatch_refuses(self) -> None:
         rc, out = self.run_pipe(self.served_env("bad.vsix", CODE_EXTENSIONS=""))
         self.assertEqual(rc, 1, out)
-        self.assertIn("  ✗ Roost: the download did not match its checksum — run the installer again", out)
+        self.assertIn("  ✗ Agentic Works: the download did not match its checksum — run the installer again", out)
         self.assertEqual(self.vsix_installs(), [])
         self.assertEqual(self.logged("vsix-present"), [])
         self.assertEqual(self.leftovers(), [])
         self.assertIn("  ✓ Companions (installed", out)  # the run goes on
 
     def test_marketplace_blocked(self) -> None:
-        """Installing Roost's .vsix makes VS Code fetch its extension pack (the companions) from the Marketplace; with
-        the Marketplace blocked that install fails: the Roost line says it may be the Marketplace, and the
-        Companions line doesn't claim Roost works."""
+        """Installing Agentic Works' .vsix makes VS Code fetch its extension pack (the companions) from the Marketplace; with
+        the Marketplace blocked that install fails: the Agentic Works line says it may be the Marketplace, and the
+        Companions line doesn't claim Agentic Works works."""
         gallery = ("Error while installing extensions: Failed Installing Extensions: anthropic.claude-code "
                    "(getaddrinfo ENOTFOUND marketplace.visualstudio.com)")
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS="", CODE_FAIL_ON="--install-extension",
                                                 CODE_FAIL_MSG=gallery))
         self.assertEqual(rc, 1, out)
-        roost = [mark for mark in self.marks(out) if mark.startswith("✗ Roost: ")]
-        self.assertEqual(len(roost), 1, out)
-        self.assertTrue(roost[0].startswith("✗ Roost: VS Code couldn't install it; it also fetches Claude Code, "
+        ext = [mark for mark in self.marks(out) if mark.startswith("✗ Agentic Works: ")]
+        self.assertEqual(len(ext), 1, out)
+        self.assertTrue(ext[0].startswith("✗ Agentic Works: VS Code couldn't install it; it also fetches Claude Code, "
                                             "ChatGPT and Perch's audio from the Marketplace, which may be unreachable "
-                                            "from here — see "), roost)
+                                            "from here — see "), ext)
         companions = [mark for mark in self.marks(out) if mark.startswith("✗ Companions: ")]
         self.assertEqual(len(companions), 1, out)
         self.assertIn("Perch's tabs need Claude Code or ChatGPT to run an agent", companions[0])
-        self.assertNotIn("Roost works", companions[0])
+        self.assertNotIn("Agentic Works works", companions[0])
         self.assertIn(gallery, Path(out.split("Details of what failed: ")[1].split()[0]).read_text())
 
     def test_download_failure_reported(self) -> None:
         rc, out = self.run_pipe(self.served_env("missing.vsix", CODE_EXTENSIONS=""))
         self.assertEqual(rc, 1, out)
-        failed = [mark for mark in self.marks(out) if mark.startswith("✗ Roost: ")]
+        failed = [mark for mark in self.marks(out) if mark.startswith("✗ Agentic Works: ")]
         self.assertEqual(len(failed), 1, out)
         self.assertIn("couldn't download", failed[0])
         self.assertIn(f"{self.url}/missing.vsix", failed[0])
@@ -1045,7 +1045,7 @@ class TestRoost(_Served):
     def test_unstamped_script_refuses(self) -> None:
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=""), script=SCRIPT)
         self.assertEqual(rc, 1, out)
-        failed = [mark for mark in self.marks(out) if mark.startswith("✗ Roost: ")]
+        failed = [mark for mark in self.marks(out) if mark.startswith("✗ Agentic Works: ")]
         self.assertEqual(len(failed), 1, out)
         self.assertIn("run a released installer", failed[0])
         self.assertEqual(self.vsix_installs(), [])
@@ -1054,7 +1054,7 @@ class TestRoost(_Served):
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=""), "--dry-run")
         self.assertEqual(rc, 0, out)
         self.assertIn(f"{self.url}/good.vsix", out)
-        self.assertIn("  ✓ Roost (dry run)", out)
+        self.assertIn("  ✓ Agentic Works (dry run)", out)
         self.assertEqual(self.logged("--install-extension"), [])
         self.assertEqual(self.leftovers(), [])
 
@@ -1070,7 +1070,7 @@ class TestRoost(_Served):
 
 class TestCompanions(_Installer):
     def test_companions_installed_when_missing(self) -> None:
-        installed = f"seanahn.roost@{VERSION} OpenAI.chatgpt@0.4.2"  # listed case doesn't matter
+        installed = f"agenticworks.agentic-works@{VERSION} OpenAI.chatgpt@0.4.2"  # listed case doesn't matter
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
         self.assertIn("  ✓ Companions (installed anthropic.claude-code, seanahn.perch-audio)", out)
@@ -1078,14 +1078,14 @@ class TestCompanions(_Installer):
         self.assertEqual(installs, ["anthropic.claude-code", "seanahn.perch-audio"])
 
     def test_companion_failure_noted(self) -> None:
-        env = self.env("ubuntu", ALL_PRESENT, CODE_EXTENSIONS=f"seanahn.roost@{VERSION}",
+        env = self.env("ubuntu", ALL_PRESENT, CODE_EXTENSIONS=f"agenticworks.agentic-works@{VERSION}",
                        CODE_FAIL_ON="--install-extension openai.chatgpt")
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 1, out)
         failed = [mark for mark in self.marks(out) if mark.startswith("✗ Companions: ")]
         self.assertEqual(len(failed), 1, out)
         self.assertTrue(failed[0].startswith("✗ Companions: openai.chatgpt "), failed)
-        self.assertIn("; Roost works, but Perch's tabs need Claude Code or ChatGPT", failed[0])
+        self.assertIn("; Agentic Works works, but Perch's tabs need Claude Code or ChatGPT", failed[0])
         installs = [line.split()[-1] for line in self.logged("--install-extension")]
         self.assertEqual(installs, list(COMPANIONS))  # the others still went in
 
@@ -1098,12 +1098,12 @@ class TestCompanions(_Installer):
 
     def test_no_vscode_skips_both(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ("gh",)), "--skip", "vscode")
-        self.assertIn("  – Roost: VS Code isn't installed", out)
+        self.assertIn("  – Agentic Works: VS Code isn't installed", out)
         self.assertIn("  – Companions: VS Code isn't installed", out)
 
 
 class TestGitHub(_Installer):
-    """ensure_github: gh for kestrel's PRs panel; never a sign-in (Roost's walkthrough signs in)."""
+    """ensure_github: gh for kestrel's PRs panel; never a sign-in (Agentic Works' walkthrough signs in)."""
 
     def test_gh_installed_when_missing(self) -> None:
         no_gh = tuple(name for name in ALL_PRESENT if name != "gh")
@@ -1160,7 +1160,7 @@ class TestGitHub(_Installer):
         self.assertIn("apt-get install -y gh", out)
 
     def test_gh_signed_in_no_question(self) -> None:
-        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("n")))
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, AGENTIC_WORKS_INSTALL_TTY=self.tty("n")))
         self.assertEqual(rc, 0, out)
         self.assertIn("  ✓ GitHub (already)\n      signed in as octocat\n", out)
         self.assertNotIn("Sign in to GitHub", out)
@@ -1172,13 +1172,13 @@ class TestGitHub(_Installer):
         self.gh_auth.unlink()
         tty = self.tty("y", "y")
         no_tty = str(self.tmp / "no-tty")
-        for args, env in (((), {"ROOST_INSTALL_TTY": tty}), (("--yes",), {"ROOST_INSTALL_TTY": no_tty})):
+        for args, env in (((), {"AGENTIC_WORKS_INSTALL_TTY": tty}), (("--yes",), {"AGENTIC_WORKS_INSTALL_TTY": no_tty})):
             with self.subTest(args=args):
                 self.log.write_text("")
                 rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, **env), *args)
                 self.assertEqual(rc, 0, out)
                 self.assertIn("  ✓ GitHub (already)\n"
-                              "      sign in from Roost's walkthrough in VS Code (Sign in to GitHub)\n", out)
+                              "      sign in from Agentic Works' walkthrough in VS Code (Sign in to GitHub)\n", out)
                 self.assertNotIn("[Y/n]", out.split("… GitHub")[-1])
                 self.assertEqual(self.logged("gh auth login"), [])
                 self.assertNotIn("credential helper", out)
@@ -1188,7 +1188,7 @@ class TestGitHub(_Installer):
         rc, out = self.run_pipe(self.env("fedora", tuple(n for n in ALL_PRESENT if n != "gh")))
         self.assertEqual(rc, 0, out)
         self.assertIn("  ✓ GitHub (installed gh)\n"
-                      "      sign in from Roost's walkthrough in VS Code (Sign in to GitHub)\n", out)
+                      "      sign in from Agentic Works' walkthrough in VS Code (Sign in to GitHub)\n", out)
         self.assertEqual(self.logged("gh auth login"), [])
 
 
@@ -1233,7 +1233,7 @@ class TestClaudeCLI(_Installer):
         self.assertTrue((self.home / ".local" / "bin" / "claude").exists())
         self.assertEqual(self.logged("sudo"), [], "needs no sudo")
         text = self.profile()
-        self.assertEqual(text.count("# added by roost-install"), 1, text)
+        self.assertEqual(text.count("# added by agentic-works-install"), 1, text)
         self.assertIn(f'export PATH="{self.home}{self.LOCAL_BIN}:$PATH"', text)
         self.assertEqual([p.name for p in self.tmp.iterdir() if "claude" in p.name], [], "temp file removed")
 
@@ -1249,7 +1249,7 @@ class TestClaudeCLI(_Installer):
 
     def test_installer_url_seam(self) -> None:
         env = self.env("ubuntu", self.NO_CLAUDE, CURL_BODY=self.FAKE_INSTALL,
-                       ROOST_INSTALL_CLAUDE_INSTALLER="http://127.0.0.1:9/install.sh")
+                       AGENTIC_WORKS_INSTALL_CLAUDE_INSTALLER="http://127.0.0.1:9/install.sh")
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.logged("http://127.0.0.1:9/install.sh")), 1)
@@ -1262,7 +1262,7 @@ class TestClaudeCLI(_Installer):
             with self.subTest(name):
                 rc, out = self.run_pipe(self.env("ubuntu", self.NO_CLAUDE, **extra))
                 self.assertEqual(rc, 1, out)
-                self.assertRegex(out, r"  ✗ Claude Code CLI: couldn't be installed; see \S+roost-install-log")
+                self.assertRegex(out, r"  ✗ Claude Code CLI: couldn't be installed; see \S+agentic-works-install-log")
                 self.assertNotIn(f"{self.home}{self.LOCAL_BIN}", self.profile())
                 self.assertEqual([p.name for p in self.tmp.iterdir() if "claude" in p.name], [])
 
@@ -1293,21 +1293,21 @@ class TestClaudeCLI(_Installer):
         self.assertNotIn(self.LOCAL_BIN, self.profile())
 
     def test_local_bin_goes_inside_the_existing_block(self) -> None:
-        (self.home / ".profile").write_text("# mine\n\n# added by roost-install\n"
-                                            'export PATH="/opt/code/bin:$PATH"\n# end roost-install\n# after\n')
+        (self.home / ".profile").write_text("# mine\n\n# added by agentic-works-install\n"
+                                            'export PATH="/opt/code/bin:$PATH"\n# end agentic-works-install\n# after\n')
         env = self.env("ubuntu", self.NO_CLAUDE, CURL_BODY=self.FAKE_INSTALL)
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 0, out)
         lines = self.profile().splitlines()
-        self.assertEqual(lines.count("# added by roost-install"), 1, lines)
-        self.assertEqual(lines.count("# end roost-install"), 1, lines)
+        self.assertEqual(lines.count("# added by agentic-works-install"), 1, lines)
+        self.assertEqual(lines.count("# end agentic-works-install"), 1, lines)
         local = next(i for i, line in enumerate(lines) if self.LOCAL_BIN in line)
-        self.assertTrue(lines.index("# added by roost-install") < local < lines.index("# end roost-install"), lines)
+        self.assertTrue(lines.index("# added by agentic-works-install") < local < lines.index("# end agentic-works-install"), lines)
         self.assertEqual(lines[-1], "# after")
 
     def test_stopped_at_the_standalone_four_skips_it(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", self.NO_CLAUDE, CODE_EXTENSIONS="seanahn.chirp@0.3.0",
-                                         ROOST_INSTALL_TTY=self.tty("n")))
+                                         AGENTIC_WORKS_INSTALL_TTY=self.tty("n")))
         self.assertEqual(rc, 1, out)
         self.assertNotIn("Claude Code CLI", out)
         self.assertEqual(self.logged("claude.ai"), [])
@@ -1353,7 +1353,7 @@ class TestGit(_Installer):
         (Path(env["PATH"].split(":")[0]) / "sudo").write_text("#!/bin/sh\nexit 1\n")
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 1, out)
-        self.assertRegex(out, r"  ✗ git: couldn't be installed; see \S+roost-install-log")
+        self.assertRegex(out, r"  ✗ git: couldn't be installed; see \S+agentic-works-install-log")
 
     def test_broken_git_is_installed_over(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, GIT_BROKEN="1"))
@@ -1367,7 +1367,7 @@ class TestGit(_Installer):
         self.assertIn("  ✓ git (dry run)", out)
 
     def test_macos_apple_git_without_clt_is_not_run(self) -> None:
-        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, ROOST_INSTALL_GIT="/usr/bin/git", XCODE_SELECT_FAIL="1"),
+        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, AGENTIC_WORKS_INSTALL_GIT="/usr/bin/git", XCODE_SELECT_FAIL="1"),
                                 "--skip", "settings", "--skip", "icons")
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.logged("brew install git"), [f"brew install git"])
@@ -1375,7 +1375,7 @@ class TestGit(_Installer):
         self.assertIn("  ✓ git (installed)", out)
 
     def test_macos_apple_git_with_clt_is_run(self) -> None:
-        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, ROOST_INSTALL_GIT="/usr/bin/git"))
+        rc, out = self.run_pipe(self.env("macos", ALL_PRESENT, AGENTIC_WORKS_INSTALL_GIT="/usr/bin/git"))
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.logged("brew install git"), [])
         self.assertIn("  ✓ git (already)", out)
@@ -1383,7 +1383,7 @@ class TestGit(_Installer):
     def test_macos_git_without_brew_waits_for_clt(self) -> None:
         no_brew = tuple(name for name in self.NO_GIT if name != "brew")
         clt = self.tmp / "clt"
-        env = self.env("macos", no_brew, ROOST_INSTALL_CLT_WAIT="3", CLT_FILE=str(clt))
+        env = self.env("macos", no_brew, AGENTIC_WORKS_INSTALL_CLT_WAIT="3", CLT_FILE=str(clt))
         self.git_stubs(env)
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 0, out)
@@ -1392,7 +1392,7 @@ class TestGit(_Installer):
 
         # Apple's dialog never finishes: the wait ends, and says what to do.
         clt.unlink()
-        env = self.env("macos", no_brew, ROOST_INSTALL_CLT_WAIT="2", CLT_FILE=str(clt), CLT_NEVER="1")
+        env = self.env("macos", no_brew, AGENTIC_WORKS_INSTALL_CLT_WAIT="2", CLT_FILE=str(clt), CLT_NEVER="1")
         self.git_stubs(env)
         started = time.time()
         rc, out = self.run_pipe(env)
@@ -1417,8 +1417,8 @@ class TestGit(_Installer):
         self.assertEqual(self.logged("brew install gh"), ["brew install gh"])
         self.assertIn("  ✓ Homebrew on the PATH (.zprofile)", out)
         text = (self.home / ".zprofile").read_text()
-        self.assertTrue(text.endswith(f'# added by roost-install: Homebrew\n[ -x {brew_dir}/brew ] && '
-                                      f'eval "$({brew_dir}/brew shellenv)"\n# end roost-install\n'), text)
+        self.assertTrue(text.endswith(f'# added by agentic-works-install: Homebrew\n[ -x {brew_dir}/brew ] && '
+                                      f'eval "$({brew_dir}/brew shellenv)"\n# end agentic-works-install\n'), text)
 
     def test_brew_shellenv_once(self) -> None:
         stubs = tuple(name for name in ALL_PRESENT if name not in ("brew", "gh"))
@@ -1460,7 +1460,7 @@ class TestGit(_Installer):
 
     def test_stopped_at_the_standalone_four_skips_git(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", self.NO_GIT, CODE_EXTENSIONS="seanahn.chirp@0.3.0",
-                                         ROOST_INSTALL_TTY=self.tty("n")))
+                                         AGENTIC_WORKS_INSTALL_TTY=self.tty("n")))
         self.assertEqual(rc, 1, out)
         self.assertNotIn("git", "\n".join(self.marks(out)))
         self.assertEqual(self.logged("install -y git"), [])
@@ -1509,7 +1509,7 @@ class TestLook(_Installer):
         self.assertIn("  ✓ Icons (dry run)", out)
 
     def test_codebase_search_flag(self) -> None:
-        """Off unless --codebase-search (Roost's walkthrough offers it); never asked; --no-codebase-search still accepted."""
+        """Off unless --codebase-search (Agentic Works' walkthrough offers it); never asked; --no-codebase-search still accepted."""
         question = "Turn on codebase search"
         hint = "to search by meaning too, run Agents: Install Codebase Search by Meaning"
         for label, args, on in [
@@ -1519,7 +1519,7 @@ class TestLook(_Installer):
         ]:
             with self.subTest(label):
                 self.log.write_text("")
-                env = self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=self.tty("y"),
+                env = self.env("ubuntu", ALL_PRESENT, AGENTIC_WORKS_INSTALL_TTY=self.tty("y"),
                                PY_SETTINGS_OUT="codebase search added" if on else "")
                 rc, out = self.run_pipe(env, *args)
                 self.assertEqual(rc, 0, out)
@@ -1540,15 +1540,15 @@ class TestLook(_Installer):
         self.assertEqual(rc, 0, out)
         self.assertIn(f"$ python3 {HELPER} vscode-settings --teams-app {app}", out)
         self.log.write_text("")
-        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, ROOST_INSTALL_TTY=str(self.tmp / "no-tty")))
+        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT, AGENTIC_WORKS_INSTALL_TTY=str(self.tmp / "no-tty")))
         self.assertEqual(rc, 0, out)
         self.assertNotIn("--teams-app", self.python3_calls()[0])
 
     def test_helper_found_beside_the_script(self) -> None:
-        """Without ROOST_INSTALL_HELPER, the helper next to the script is used, as in a clone."""
+        """Without AGENTIC_WORKS_INSTALL_HELPER, the helper next to the script is used, as in a clone."""
         env = self.env("ubuntu", ALL_PRESENT)
-        del env["ROOST_INSTALL_HELPER"]
-        rc, out = self.run_pipe(env, script=SCRIPT)  # unstamped: Roost fails, the rest goes on
+        del env["AGENTIC_WORKS_INSTALL_HELPER"]
+        rc, out = self.run_pipe(env, script=SCRIPT)  # unstamped: Agentic Works fails, the rest goes on
         self.assertEqual(rc, 1, out)
         self.assertEqual(self.python3_calls()[0], f"python3 {HELPER} vscode-settings")
         self.assertIn("  ✓ Settings (added to settings.json)", out)
@@ -1604,9 +1604,9 @@ class TestLook(_Installer):
     def test_no_python3_skips_settings_and_icons(self) -> None:
         """macOS's /usr/bin/python3 without the Command Line Tools would open Apple's install dialog: not run.
         Any other python3 (Homebrew's) runs without them."""
-        # The shim, no Command Line Tools: both skipped, the shim never run. ROOST_INSTALL_PYTHON3 stands in for
+        # The shim, no Command Line Tools: both skipped, the shim never run. AGENTIC_WORKS_INSTALL_PYTHON3 stands in for
         # what `command -v python3` finds, since a stub can't live at /usr/bin.
-        env = self.env("macos", ALL_PRESENT, XCODE_SELECT_FAIL="1", ROOST_INSTALL_PYTHON3="/usr/bin/python3")
+        env = self.env("macos", ALL_PRESENT, XCODE_SELECT_FAIL="1", AGENTIC_WORKS_INSTALL_PYTHON3="/usr/bin/python3")
         rc, out = self.run_pipe(env)
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.python3_calls(), [], self.stub_log())
@@ -1650,7 +1650,7 @@ class TestLook(_Installer):
         for os_name, used in (("rhel", True), ("fedora", False)):
             with self.subTest(os=os_name):
                 self.log.write_text("")
-                rc, out = self.run_pipe(self.env(os_name, stubs, ROOST_INSTALL_PLATFORM_PYTHON=str(platform_python)))
+                rc, out = self.run_pipe(self.env(os_name, stubs, AGENTIC_WORKS_INSTALL_PLATFORM_PYTHON=str(platform_python)))
                 self.assertEqual(rc, 0, out)
                 if used:
                     self.assertEqual(len(self.logged("platform-python ")), 2, self.stub_log())
@@ -1663,7 +1663,7 @@ class TestLook(_Installer):
         # The shim with the Command Line Tools there (xcode-select -p succeeds): it is a real python3, and used.
         # Probed through python_ok alone, since the seam's /usr/bin/python3 is this machine's own, not a stub.
         self.log.write_text("")
-        env = self.env("macos", ALL_PRESENT, ROOST_INSTALL_PYTHON3="/usr/bin/python3")
+        env = self.env("macos", ALL_PRESENT, AGENTIC_WORKS_INSTALL_PYTHON3="/usr/bin/python3")
         rc, out = self.run_sourced(env, 'OS=macos; python_ok && echo "ok $PYTHON"')
         self.assertEqual(out.strip(), "ok /usr/bin/python3", out)
         self.assertEqual(self.logged("xcode-select"), ["xcode-select -p"])

@@ -6,7 +6,7 @@ EXT_ID = agenticworks.agentic-works-$(VERSION)
 EXT_DIRS ?= $(HOME)/.vscode/extensions $(HOME)/.local/share/code-server/extensions $(HOME)/.vscode-server/extensions
 PARTS = $(patsubst %/package-lock.json,%,$(wildcard parts/*/package-lock.json))
 
-.PHONY: manifest deps test test-live install package test-package release release-test release-publish-check release-publish clean
+.PHONY: manifest deps test test-live install package test-package release release-test release-publish-check release-publish release-site clean
 
 manifest: ; node scripts/build-manifest.js
 
@@ -67,10 +67,19 @@ release-publish: release-publish-check
 	@sha=$$(cd dist && (sha256sum $(VSIX) 2> /dev/null || shasum -a 256 $(VSIX)) | cut -d' ' -f1); \
 	  grep -q "^AGENTIC_WORKS_SHA256=\"$$sha\"$$" dist/agentic-works-install.sh || { echo "dist/ is stale (the .vsix doesn't match the installer's checksum); run make release"; exit 1; }; \
 	  [ ! -f $(VSIX) ] || cmp -s $(VSIX) dist/$(VSIX) || { echo "dist/ is stale (differs from $(VSIX)); run make release"; exit 1; }
-	@printf 'Agentic Works %s\n\nInstall: curl -fsSL https://github.com/agenticworks-cloud/agentic-works/releases/latest/download/agentic-works-install.sh | bash\n' \
+	@printf 'Agentic Works %s\n\nInstall: curl -fsSL https://agenticworks.cloud/install | bash\n' \
 	  "$(VERSION)" > dist/release-notes.md
 	gh release create v$(VERSION) dist/agentic-works-install.sh dist/$(VSIX) --repo agenticworks-cloud/agentic-works --title "Agentic Works $(VERSION)" \
 	  --target "$$(git rev-parse HEAD)" --notes-file dist/release-notes.md
+
+## Copy dist/'s installer into the Pages site (a clone of agenticworks-cloud.github.io) as `install`, committed there;
+## pushing it is the owner's step, after release-publish
+release-site:
+	@[ -n "$(SITE)" ] && [ -d "$(SITE)/.git" ] || { echo "SITE= must name a clone of the Pages repo"; exit 1; }
+	@grep -q '^AGENTIC_WORKS_VERSION="$(VERSION)"$$' dist/agentic-works-install.sh || { echo "dist/ is stale (not $(VERSION)); run make release"; exit 1; }
+	cp dist/agentic-works-install.sh "$(SITE)/install"
+	git -C "$(SITE)" add install
+	git -C "$(SITE)" commit -q -m "install: Agentic Works $(VERSION)"
 
 clean:
 	rm -rf dist

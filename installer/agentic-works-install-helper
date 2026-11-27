@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""roost-install-helper: the JSON and SQLite edits the bash installer `roost-install.sh` delegates to.
+"""agentic-works-install-helper: the JSON and SQLite edits the bash installer `agentic-works-install.sh` delegates to.
 
 Each subcommand exits 0 when done, 2 when it skipped (reason on stdout), 1 on error.
 
@@ -33,7 +33,7 @@ GUID = r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]
 DOMAIN = r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}"
 TEAMS_APP = re.compile(r"^(%s):(%s|%s)$" % (GUID, GUID, DOMAIN))
 PINNED_KEY = "workbench.activity.pinnedViewlets2"
-LAYOUT_RECORD_KEY = "roost.installer.layoutWritten"  # in state.vscdb: the layout was written once; never again
+LAYOUT_RECORD_KEY = "agenticWorks.installer.layoutWritten"  # in state.vscdb: the layout was written once; never again
 SHOWN_VIEWLETS = [
     "workbench.view.explorer",
     "workbench.view.search",
@@ -71,7 +71,7 @@ def hidden_commands(value: Optional[str]) -> Optional[str]:
 
 
 def user_dir() -> Path:
-    override = os.environ.get("ROOST_VSCODE_USER_DIR")
+    override = os.environ.get("AGENTIC_WORKS_VSCODE_USER_DIR")
     if override:
         return Path(override)
     if sys.platform == "darwin":
@@ -80,7 +80,7 @@ def user_dir() -> Path:
 
 
 def extensions_dir() -> Path:
-    override = os.environ.get("ROOST_VSCODE_EXTENSIONS_DIR")
+    override = os.environ.get("AGENTIC_WORKS_VSCODE_EXTENSIONS_DIR")
     return Path(override) if override else Path.home() / ".vscode" / "extensions"
 
 
@@ -111,7 +111,7 @@ def _write_atomic(path: Path, text: str) -> None:
     A symlink is followed: its target is replaced and the link stays (a dotfiles repo's settings.json)."""
     path = Path(os.path.realpath(path))
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".roost-tmp")
+    tmp = path.with_name(path.name + ".agentic-works-tmp")
     try:
         tmp.unlink()
     except FileNotFoundError:
@@ -154,7 +154,7 @@ def cmd_vscode_settings(args: argparse.Namespace) -> int:
         try:
             pair = teams_app(args.teams_app)
         except ValueError as exc:
-            print(f"roost-install-helper: {exc}", file=sys.stderr)
+            print(f"agentic-works-install-helper: {exc}", file=sys.stderr)
             return EXIT_ERROR
     try:
         text = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -303,10 +303,10 @@ def cmd_vscode_layout(_args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="roost-install-helper", description=__doc__)
+    parser = argparse.ArgumentParser(prog="agentic-works-install-helper", description=__doc__)
     sub = parser.add_subparsers(dest="command")
     sub.required = True  # add_subparsers(required=) is 3.7+
-    settings = sub.add_parser("vscode-settings", help="merge Roost's keys into VS Code user settings.json")
+    settings = sub.add_parser("vscode-settings", help="merge Agentic Works' keys into VS Code user settings.json")
     settings.add_argument("--codebase-search", action="store_true", help="also turn on the agents' codebase search")
     settings.add_argument("--teams-app", metavar="CLIENT_ID:TENANT",
                           help="also set the Teams sign-in's company app (teams.signIn.clientId and .tenant)")
@@ -322,7 +322,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         return args.func(args)
     except (OSError, sqlite3.Error) as exc:
-        print(f"roost-install-helper: {exc}", file=sys.stderr)
+        print(f"agentic-works-install-helper: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
 

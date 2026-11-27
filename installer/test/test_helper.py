@@ -1,4 +1,4 @@
-"""Tests for installer/roost-install-helper: VS Code settings merge and activity-bar layout.
+"""Tests for installer/agentic-works-install-helper: VS Code settings merge and activity-bar layout.
 
 Python 3.6-safe, as the helper is: test_install.TestPython36 runs this file under 3.6."""
 
@@ -17,9 +17,9 @@ from pathlib import Path
 from typing import List, Tuple
 from unittest import mock
 
-SCRIPT = Path(__file__).resolve().parents[1] / "roost-install-helper"
+SCRIPT = Path(__file__).resolve().parents[1] / "agentic-works-install-helper"
 KEY = "workbench.activity.pinnedViewlets2"
-MARKER = "roost.installer.layoutWritten"
+MARKER = "agenticWorks.installer.layoutWritten"
 SHOWN = [
     "workbench.view.explorer",
     "workbench.view.search",
@@ -38,8 +38,8 @@ HIDDEN = [
 
 
 def _load_script():
-    loader = SourceFileLoader("roost_install_helper", str(SCRIPT))
-    spec = importlib.util.spec_from_loader("roost_install_helper", loader)
+    loader = SourceFileLoader("agentic_works_install_helper", str(SCRIPT))
+    spec = importlib.util.spec_from_loader("agentic_works_install_helper", loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
@@ -55,7 +55,7 @@ class _Case(unittest.TestCase):
         self.exts = self.tmp / "extensions"
         env = mock.patch.dict(
             "os.environ",
-            {"ROOST_VSCODE_USER_DIR": str(self.user), "ROOST_VSCODE_EXTENSIONS_DIR": str(self.exts)},
+            {"AGENTIC_WORKS_VSCODE_USER_DIR": str(self.user), "AGENTIC_WORKS_VSCODE_EXTENSIONS_DIR": str(self.exts)},
         )
         env.start()
         self.addCleanup(env.stop)
