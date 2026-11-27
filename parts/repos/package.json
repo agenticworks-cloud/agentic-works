@@ -35,7 +35,7 @@
       "activitybar": [
         {
           "id": "gannet",
-          "title": "GitHub",
+          "title": "Repos",
           "icon": "media/cat.svg"
         }
       ]

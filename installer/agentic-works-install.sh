@@ -66,6 +66,8 @@ AS_ROOT=0
 SUDO=""
 TTY_OPEN=0
 CLASH=""  # why Agentic Works can't go in beside the standalone five; when set, Agentic Works fails and the steps after it stay out
+VSCODE_WAITED=0  # asked once a run whether VS Code is closed
+RELOAD_VSCODE=0  # VS Code stayed open while its extensions changed: say to reload it
 VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
 INLINED_HELPER=""  # the released script's own copy of the helper, written to a private temp file at start
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
@@ -641,6 +643,30 @@ keep_gannet_state() {  # VS Code deletes an extension's global storage on uninst
   return 0
 }
 
+vscode_open() {  # true while VS Code's own app runs here (not a Remote window's server, which runs as node)
+  have pgrep || return 1
+  case $OS in
+    macos) pgrep -f '/Visual Studio Code.app/Contents/MacOS/' > /dev/null 2>&1 ;;
+    *) pgrep -x code > /dev/null 2>&1 ;;
+  esac
+}
+
+wait_vscode_closed() {  # before extensions change: open windows would run the old ones beside the new until reloaded
+  local tries=0 answer
+  [ "$DRY_RUN" = 1 ] && return 0
+  [ "$VSCODE_WAITED" = 1 ] && return 0
+  VSCODE_WAITED=1
+  while vscode_open; do
+    if [ "$TTY_OPEN" != 1 ] || [ "$YES" = 1 ] || [ "$tries" -ge 3 ]; then RELOAD_VSCODE=1; return 0; fi
+    tries=$((tries + 1))
+    spinner_stop
+    if [ "$LINE_OPEN" = 1 ]; then printf '\n'; LINE_OPEN=0; fi
+    printf '      %s ' "VS Code is open on this computer. Close its windows (Remote ones can stay open), then press Enter."
+    if ! IFS= read -r answer <&3; then printf '\n'; RELOAD_VSCODE=1; return 0; fi
+    [ -t 1 ] || printf '\n'
+  done
+}
+
 check_standalone() {  # the standalone five would clash with Agentic Works (the same command ids): uninstall them, or stop
   local installed id found="" failed="" names rc
   skipped standalone "Standalone extensions" && return 0
@@ -670,6 +696,7 @@ check_standalone() {  # the standalone five would clash with Agentic Works (the 
     2) CLASH="$names would clash with Agentic Works, and there is no terminal to ask on; rerun with --yes to uninstall them"
        return 0 ;;
   esac
+  wait_vscode_closed
   case " $found " in *" seanahn.gannet "*) keep_gannet_state ;; esac
   for id in $found; do
     code_cli --uninstall-extension "$id" || failed="$failed $id"
@@ -760,6 +787,7 @@ ensure_agentic_works() {  # this release's Agentic Works: installed, upgraded ov
     step_end failed "couldn't make a temp dir for the download"
     return 0
   fi
+  wait_vscode_closed
   install_agentic_works_vsix "$VSIX_DIR"
   rm -rf "$VSIX_DIR"
   VSIX_DIR=""
@@ -1203,13 +1231,13 @@ apply_icons() {  # the activity bar's icons and the vendor buttons on editor tit
   esac
 }
 
-open_vscode() {  # a new VS Code window, once the checklist is done; not as root, nor with --no-open or --dry-run
+open_vscode() {  # VS Code, with the windows it had (a plain start brings them back with their layouts), once the checklist is done; not as root, nor with --no-open or --dry-run
   skip_named open && return 0
   [ "$NO_OPEN" = 1 ] && return 0
   [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
   find_code || [ "$DRY_RUN" = 1 ] || return 0
   if [ "$DRY_RUN" = 1 ]; then
-    printf 'Would open VS Code: $ %s --new-window\n' "$CODE"
+    printf 'Would open VS Code: $ %s\n' "$CODE"
   elif [ "$AS_ROOT" = 1 ]; then
     if [ -n "$CODE_DATA" ]; then
       printf 'Running as root, so VS Code is not opened. To start it: %s --no-sandbox --user-data-dir %s\n' \
@@ -1219,7 +1247,7 @@ open_vscode() {  # a new VS Code window, once the checklist is done; not as root
     fi
   else
     printf 'Opening VS Code.\n'
-    run "$CODE" --new-window || printf "VS Code didn't open; open it from your applications.\n"
+    run "$CODE" || printf "VS Code didn't open; open it from your applications.\n"
   fi
 }
 
@@ -1366,6 +1394,7 @@ cleanup() {  # on exit: the log is kept, and named, only when a step failed and 
 finish() {
   printf '\n'
   tally
+  [ "$RELOAD_VSCODE" != 1 ] || printf 'VS Code was open: reload its windows on this computer to use Agentic Works.\n'
 }
 
 main() {  # the steps, in order

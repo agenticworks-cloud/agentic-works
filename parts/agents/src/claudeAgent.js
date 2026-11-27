@@ -73,7 +73,7 @@ class ClaudeAgent {
       // a company's gateway can have more than one address (one on the VPN, one off it): the first that answers now
       const target = await resolveGatewayTarget(this.opts.gateway, { onProbed: (baseUrl) => this.emit({ kind: 'gatewayResolved', baseUrl }) });
       if (this.abort.signal.aborted) { this.emit({ kind: 'busy', busy: false }); return; }   // the tab closed while the addresses were asked
-      try { this.relay = new Relay({ target, onCall: (c) => this.emit(Object.assign({ kind: 'relay' }, c)) }); await this.relay.start(); env.ANTHROPIC_BASE_URL = this.relay.url(); }
+      try { this.relay = new Relay({ target, onCall: (c) => this.emit(Object.assign({ kind: 'relay' }, c)), onRefused: (r) => this.emit(Object.assign({ kind: 'gatewayRefused' }, r)) }); await this.relay.start(); env.ANTHROPIC_BASE_URL = this.relay.url(); }
       catch (err) { this.emit({ kind: 'error', text: 'the gateway relay could not start: ' + String(err && err.message || err) }); this.emit({ kind: 'busy', busy: false }); return; }
     }
     const options = {

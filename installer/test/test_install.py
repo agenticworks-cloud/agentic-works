@@ -91,6 +91,9 @@ STUB_EXTRA = {
     # sudo -n -v (the keepalive during Homebrew's install) notes the pid of the loop running it.
     "sudo": '[ "$*" = "-n -v" ] && printf \'keepalive-ppid %s\\n\' "$PPID" >> "$STUB_LOG"\n' + INSTALLS,
     "brew": INSTALLS,
+    # pgrep finds VS Code running while the number in $VSCODE_OPEN_COUNT (a file) is above 0, counting it down each time.
+    "pgrep": ('f=${VSCODE_OPEN_COUNT:-/nonexistent}; [ -f "$f" ] || exit 1; n=$(cat "$f"); [ "$n" -gt 0 ] || exit 1; '
+              'echo $((n - 1)) > "$f"; exit 0\n'),
 }
 # gh: signed in while $GH_AUTH_FILE exists (the installer never runs `gh auth login`; the tests check it isn't).
 GH = r"""#!/bin/sh
@@ -215,6 +218,10 @@ class _Installer(unittest.TestCase):
     def logged(self, needle: str) -> list[str]:
         """The stub log lines containing needle."""
         return [line for line in self.stub_log() if needle in line]
+
+    def opens(self) -> list[str]:
+        """VS Code started: `code` with no arguments (the stub logs "code " for it)."""
+        return [line for line in self.stub_log() if line in ("code ", "code --new-window")]
 
     def marks(self, out: str) -> list[str]:
         """The checklist's result lines, without their two-space indent."""
@@ -820,6 +827,46 @@ class _Served(_Installer):
         return [line for line in self.logged("--install-extension") if line.endswith(".vsix")]
 
 
+class TestVSCodeOpen(_Served):
+    """VS Code's local windows open while its extensions change: the old ones run on beside the new (2026-11-27)."""
+
+    def open_env(self, times: int, **extra: str) -> dict[str, str]:
+        count = self.tmp / "vscode-open"
+        count.write_text(str(times))
+        env = self.env("ubuntu", self.STUBS + ("pgrep",), real=("curl",), AGENTIC_WORKS_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
+                       VSCODE_OPEN_COUNT=str(count), CODE_EXTENSIONS="seanahn.perch@0.9.0 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS))
+        env.update(extra)
+        return env
+
+    WAIT = "VS Code is open on this computer. Close its windows (Remote ones can stay open), then press Enter."
+
+    def test_waits_until_closed_then_changes_extensions(self) -> None:
+        rc, out = self.run_pipe(self.open_env(2, AGENTIC_WORKS_INSTALL_TTY=self.tty("y", "", "")))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(out.count(self.WAIT), 2, out)  # asked again while still open; once closed, on
+        self.assertIn("  ✓ Standalone extensions (uninstalled Perch)", out)
+        self.assertNotIn("Reload", out)
+        self.assertLess(out.index(self.WAIT), out.index("✓ Standalone"))
+
+    def test_closed_no_question(self) -> None:
+        rc, out = self.run_pipe(self.open_env(0, AGENTIC_WORKS_INSTALL_TTY=self.tty("y")))
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(self.WAIT, out)
+
+    def test_no_terminal_goes_on_and_says_reload(self) -> None:
+        rc, out = self.run_pipe(self.open_env(5, AGENTIC_WORKS_INSTALL_TTY=str(self.tmp / "no-tty")), "--yes")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(self.WAIT, out)
+        self.assertIn("✓ Standalone extensions (uninstalled Perch)", out)
+        self.assertIn("VS Code was open: reload its windows on this computer to use Agentic Works.", out)
+
+    def test_gave_up_waiting_goes_on_and_says_reload(self) -> None:
+        rc, out = self.run_pipe(self.open_env(9, AGENTIC_WORKS_INSTALL_TTY=self.tty("y", "", "", "")))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(out.count(self.WAIT), 3, out)
+        self.assertIn("VS Code was open: reload its windows on this computer to use Agentic Works.", out)
+
+
 class TestStandalone(_Served):
     """check_standalone: the four standalone extensions go before Agentic Works comes, or Agentic Works doesn't come."""
 
@@ -870,7 +917,7 @@ class TestStandalone(_Served):
         self.assertIn("  – Companions: skipped — Agentic Works was not installed", out)
         self.assertIn("  – Settings: skipped — Agentic Works was not installed", out)
         self.assertIn("  – Icons: skipped — Agentic Works was not installed", out)
-        self.assertEqual(self.logged("--new-window"), [])  # nor is VS Code opened
+        self.assertEqual(self.opens(), [])  # nor is VS Code opened
         self.assertEqual(self.logged("--install-extension"), [])
         self.assertEqual(self.logged("--uninstall-extension"), [])
         self.assertEqual([line for line in self.stub_log() if line.startswith("gh ")], [])
@@ -1692,22 +1739,24 @@ class TestLook(_Installer):
     def test_no_open_flag(self) -> None:
         rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
         self.assertEqual(rc, 0, out)
-        opens = self.logged("--new-window")
-        self.assertEqual(opens, [f"code --new-window"], self.stub_log())
-        self.assertGreater(_index(self.stub_log(), "--new-window"), _index(self.stub_log(), "vscode-layout"))
+        # plain `code`, as starting it from the dock does: VS Code brings back the windows it had, each with its
+        # layout; --new-window gave an empty window, whose layout VS Code doesn't keep (2026-11-27)
+        opens = self.opens()
+        self.assertEqual(opens, ["code "], self.stub_log())
+        self.assertGreater(self.stub_log().index("code "), _index(self.stub_log(), "vscode-layout"))
 
         for args in (("--no-open",), ("--skip", "open"), ("--dry-run",)):
             with self.subTest(args=args):
                 self.log.write_text("")
                 rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), *args)
                 self.assertEqual(rc, 0, out)
-                self.assertEqual(self.logged("--new-window"), [])
-        self.assertIn("code --new-window", out)  # the dry run shows it
+                self.assertEqual(self.opens(), [])
+        self.assertRegex(out, r"Would open VS Code: \$ \S*/code\n")  # the dry run shows it, with no --new-window
 
     def test_root_does_not_open(self) -> None:
         rc, out = self.run_sourced(self.env("ubuntu", ALL_PRESENT), 'id() { echo 0; }; main')
         self.assertEqual(rc, 0, out)
-        self.assertEqual(self.logged("--new-window"), [])
+        self.assertEqual(self.opens(), [])
         self.assertIn(f"--user-data-dir {self.home}/.config/Code", out)  # how to start it
         self.assertIn("--no-sandbox", out)
         # The helper edits the user data dir the code calls use.

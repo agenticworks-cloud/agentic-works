@@ -360,6 +360,12 @@ test('no setting has an old prefix, and no palette title an old name', () => {
   assert.deepStrictEqual(titles.filter((t) => /^(Perch|chirp|jay|kestrel): /.test(t)), []);
 });
 
+test('the side bar names each part by its own name: Repos, not GitHub (2026-11-27)', () => {
+  const real = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const titles = Object.fromEntries(real.contributes.viewsContainers.activitybar.map((v) => [v.id, v.title]));
+  assert.strictEqual(titles.gannet, 'Repos');
+});
+
 test('checked-in manifest equals a fresh build', () => {
   const r = spawnSync(process.execPath, [script, '--check'], { cwd: root, encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr || r.stdout);

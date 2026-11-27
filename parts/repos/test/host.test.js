@@ -552,8 +552,9 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
     }
     assert.ok(!('dependencies' in manifest) || !manifest.dependencies['jsonc-parser']);
     assert.ok(!manifest.contributes.configuration.properties['gannet.checkoutFolder'], 'retired');
-    // the sidebar's title says what it shows, GitHub, not the extension's name (Sean)
-    assert.strictEqual(manifest.contributes.viewsContainers.activitybar.find((c) => c.id === 'gannet').title, 'GitHub');
+    // the sidebar's title is the part's name, Repos: it shows repos, GitHub's now and other hosts' later (Sean, 2026-11-27;
+    // it said GitHub while this was the standalone Gannet)
+    assert.strictEqual(manifest.contributes.viewsContainers.activitybar.find((c) => c.id === 'gannet').title, 'Repos');
     // its activity-bar icon is the cat the rows use (codicon github-alt without its circle), not a gannet
     {
       const bar = manifest.contributes.viewsContainers.activitybar.find((c) => c.id === 'gannet');

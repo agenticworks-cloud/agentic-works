@@ -26,15 +26,26 @@ function shortModel(name) {
   return parts.slice(i).join('.');
 }
 
+/** A refusal's reason from the gateway's JSON body: its first sentence, token-like words hidden; '' when there is none. */
+function refusalReason(body) {
+  let m = '';
+  try { const j = JSON.parse(body); m = String((j && j.error && j.error.message) || (j && j.message) || ''); } catch (_) { return ''; }
+  m = m.split(/\.\s/)[0].replace(/\.$/, '').trim().slice(0, 200);
+  return m.replace(/\b(sk|pk|key|tok)[-_][A-Za-z0-9_-]{4,}/g, '[hidden]');
+}
+
 class Relay {
   /**
    * @param {object} o
    * @param {string} o.target               the gateway's base URL, as ANTHROPIC_BASE_URL would be; a path prefix is kept
    * @param {(call: object) => void} [o.onCall]  each response, once its headers are in: { path, status, model, group, fallbacks, cost, callId }
+   * @param {(r: {status: number, message: string}) => void} [o.onRefused]  a 401 or 403, once its body is in: the gateway's
+   *   reason, to its first sentence, with any token-like word hidden ('' when the body says none)
    */
-  constructor({ target, onCall }) {
+  constructor({ target, onCall, onRefused }) {
     this.target = new URL(target);
     this.onCall = onCall || (() => {});
+    this.onRefused = onRefused || (() => {});
     this.server = null;
     this.port = 0;
     this.calls = 0;
@@ -68,6 +79,11 @@ class Relay {
       const out = {};
       for (const [k, v] of Object.entries(h)) if (!HOP.has(k)) out[k] = v;
       res.writeHead(ur.statusCode, out);
+      if (ur.statusCode === 401 || ur.statusCode === 403) {   // the key refused: its reason read as it passes, for the tab to say
+        let body = '';
+        ur.on('data', (d) => { if (body.length < 4096) body += d; });
+        ur.on('end', () => { try { this.onRefused({ status: ur.statusCode, message: refusalReason(body) }); } catch (_) { /* a listener must not break the relay */ } });
+      }
       ur.pipe(res);
       ur.on('error', () => res.destroy());
     });

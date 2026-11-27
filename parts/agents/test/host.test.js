@@ -1602,6 +1602,39 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.perch.dispose();
   }
 
+  // ---- the gateway refuses the tab's key (seen 2026-11-27: 401 "Key is blocked"). Claude Code retried for minutes and
+  // the tab only said Working…: now the first refusal of a turn stops it, says the gateway's reason, puts the message back
+  // in the box, and offers Get a Key (the gateway panel) or leaving the gateway; a second refusal in the turn says nothing more
+  {
+    const m = install(); await flush();
+    const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+    v.fire({ type: 'new', kind: 'claude' }); const c = v.lastTabs().active; const s = m.perch.get(c);
+    v.fire({ type: 'send', sid: c, text: 'Hello' }); await flush();
+    const ag = created[created.length - 1];
+    s.gateway = true; const n0 = v.events(c).filter((e) => e.kind === 'note').length;
+    s.post({ kind: 'gatewayRefused', status: 401, message: 'Authentication Error, Key is blocked' });
+    s.post({ kind: 'gatewayRefused', status: 401, message: 'Authentication Error, Key is blocked' });
+    const notes = v.events(c).filter((e) => e.kind === 'note').slice(n0);
+    assert.strictEqual(notes.length, 1, 'one note a turn');
+    assert.deepStrictEqual([notes[0].nid, notes[0].actions.map((a) => a.id), notes[0].text],
+      ['gatewayKey', ['gatewayKey', 'gatewayLeave'], 'The gateway refused this tab\'s key (401: Authentication Error, Key is blocked). Get a new key, then send the message again. The message is back in the box.'], 'the reason and the ways on');
+    assert.strictEqual(ag.interrupted, 1, 'the turn stops, rather than retrying for minutes');
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'insert').pop().text, 'Hello', 'the message, back in the box');
+    m.ui.executed.length = 0;
+    v.fire({ type: 'noteAction', sid: c, action: 'gatewayKey' }); await flush();
+    assert.deepStrictEqual(m.ui.executed, ['perch.connectClaude'], 'Get a Key opens the gateway panel, where a key is got');
+    // the next turn may be refused again, and is said again; no reason given: the status alone
+    ag.finish(); await flush();
+    v.fire({ type: 'send', sid: c, text: 'again' }); await flush();
+    s.post({ kind: 'gatewayRefused', status: 403, message: '' });
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'note').pop().text, 'The gateway refused this tab\'s key (403). Get a new key, then send the message again. The message is back in the box.');
+    // off the gateway, nothing (the relay only runs on it)
+    s.gateway = false; const n1 = v.events(c).filter((e) => e.kind === 'note').length;
+    s.post({ kind: 'gatewayRefused', status: 401, message: 'x' });
+    assert.strictEqual(v.events(c).filter((e) => e.kind === 'note').length, n1);
+    m.perch.dispose();
+  }
+
   // ---- a tab the user has not named takes the title of its agent's record, so the tab and its row in the sessions list say the same name
   {
     const m = install(); await flush();

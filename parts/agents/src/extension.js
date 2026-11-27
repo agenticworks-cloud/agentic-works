@@ -765,6 +765,16 @@ class Session {
         if (back) this.view.deliver(this.id, back);
         return;
       }
+      case 'gatewayRefused': {       // the gateway refused the tab's key (401/403): Claude Code would retry for minutes behind Working…
+        if (!this.gateway || this.refusedSaid) return;   // once a turn
+        this.refusedSaid = true;
+        const back = this.turnText && String(this.turnText).trim() ? this.turnText : '';
+        this.interrupt();
+        this.post({ kind: 'note', nid: 'gatewayKey', text: `The gateway refused this tab's key (${ev.status}${ev.message ? ': ' + ev.message : ''}). Get a new key, then send the message again.` + (back ? ' The message is back in the box.' : ''),
+          actions: [{ id: 'gatewayKey', label: 'Get a Key' }, { id: 'gatewayLeave', label: 'Leave the Gateway' }] });
+        if (back) this.view.deliver(this.id, back);
+        return;
+      }
       case 'gatewayResolved':        // the process found which of a company's addresses answers: for the host's listeners, not the page
         for (const f of this.view.onGatewayResolved) { try { f(ev.baseUrl); } catch (e) { this.view.trace(`gateway resolved: ${(e && e.message) || e}`); } }
         return;
@@ -847,7 +857,7 @@ class Session {
         const period = this.periods[this.periods.length - 1];
         if (period && !period.said) { period.said = true; this.view.persist(); }   // this stretch of the tab has words now: it is kept, and read back
       }
-        if (!ev.queued) this.turnText = ev.text;   // the running turn's message: put back in the box if the agent's login is refused
+        if (!ev.queued) { this.turnText = ev.text; this.refusedSaid = false; }   // the running turn's message: put back in the box if the agent's login or key is refused
         // A queued Codex message is shown when it is queued. When its turn starts, the agent reports it again: that echo is dropped.
         if (this.kind === 'codex' && !ev.queued && this.shown && this.shown[0] === ev.text) { this.shown.shift(); return; }
         if (ev.images && this.thumbs.length) { const t = this.thumbs.shift(); if (t.some(Boolean)) ev.thumbs = t; this.keep(t); }
@@ -2863,6 +2873,7 @@ class PerchView {
       case 'noteAction':             // a button under a note: the gateway file, or this tab off the gateway. Old notes keep their buttons, so each is safe to press again
         if (msg.action === 'gatewayFile') this.openGatewayFile();
         else if (msg.action === 'gatewayLeave') { if (s && s.gateway) s.setGateway(false); }
+        else if (msg.action === 'gatewayKey') vscode.commands.executeCommand('perch.connectClaude');   // the gateway panel, where Get a key is
         // the ways into Claude and Codex. A button may be an old note's: each acts only on what still applies
         else if (msg.action === 'claudeSettings') this.openSettingsFile();
         else if (msg.action === 'handoffPreview') this.previewHandoff(s);   // what the next message carries after a switch (note 202)

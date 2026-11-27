@@ -1132,6 +1132,24 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   revealed again with focus, so the keyboard stays in it. *(my calls: only a step really done (its signal), not
   Not Now; nothing for steps done before the page first showed its state, so opening the page or restarting VS Code
   never moves the side bar; nothing for a part that is off.)*
+- **A refused gateway key is said — Built** *(Sean, 2026-11-27: "Hello" in the first Claude tab only showed Working…;
+  the gateway had answered every request 401 "Key is blocked", and Claude Code retried for three minutes)*. The relay
+  reads the body of a 401 or 403 as it passes (the response still reaches Claude Code unchanged) and gives the tab the
+  gateway's reason, to its first sentence, with token-like words hidden. The first refusal of a turn stops the turn,
+  puts the message back in the box, and leaves a note: "The gateway refused this tab's key (401: …). Get a new key,
+  then send the message again.", with **Get a Key** (the gateway panel) and **Leave the Gateway**. *(my calls: once a
+  turn; 429 and 5xx are not refusals and keep Claude Code's own retrying.)*
+- **The side bar says Repos — Built** *(Sean, 2026-11-27, "yes, do that")*. The Repos part's view container was still
+  titled GitHub, from the standalone Gannet; it shows repos, GitHub's now and other hosts' later.
+- **The installer waits for VS Code to close, then starts it plainly — Built** *(Sean, 2026-11-27: "when i close the
+  works and starts again, it does not remember the layout anymore")*. Two causes: VS Code's local windows stayed open
+  while the standalone extensions went and Agentic Works came, so the old ones ran beside the new until a reload, and
+  a running VS Code never restores windows; and the installer opened `code --new-window`, an empty window whose layout
+  VS Code doesn't keep. Now, before it changes extensions, the installer checks for VS Code's own app (`pgrep -x code`;
+  on macOS the app bundle's path), not a Remote window's server; on a terminal it asks to close the local windows
+  (Remote ones can stay) and press Enter, checking again, up to three times; with no terminal, with `--yes`, or after
+  three it goes on and says at the end to reload VS Code's windows. At the end it runs plain `code`, which brings back
+  the windows VS Code had, each with its layout.
 
 ## Left to the builder
 

@@ -53,6 +53,28 @@ assert.deepStrictEqual(['global.openai.gpt-6-luna', 'global.anthropic.claude-opu
   assert.deepStrictEqual([e.status, e.body, calls.length, calls[1].status, calls[1].model], [401, '{"type":"error","error":{"type":"authentication_error","message":"nope"}}', 2, 401, ''], 'the 401 reaches Claude Code; the call is noted with no model');
   mode = 'stream';
 
+  // ---- the gateway refusing the key (401/403): the reason is read off the body as it passes, for the tab to say; a
+  // token-like word in it is never repeated; other statuses and a body that isn't JSON say no more than the status
+  {
+    const refused = [];
+    let reply = { status: 401, body: '{"error":{"message":"Authentication Error, Key is blocked. Update via `/key/unblock` if you\'re an admin.","type":"auth_error","code":"401"}}' };
+    const gw = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.writeHead(reply.status, { 'content-type': 'application/json' }); res.end(reply.body); }); });
+    await new Promise((r) => gw.listen(0, '127.0.0.1', r));
+    const rr = new Relay({ target: `http://127.0.0.1:${gw.address().port}/llm-api`, onRefused: (x) => refused.push(x) });
+    const rp = await rr.start();
+    const send = () => new Promise((resolve, reject) => { const q = http.request({ hostname: '127.0.0.1', port: rp, method: 'POST', path: '/v1/messages' }, (res) => { let b = ''; res.on('data', (x) => { b += x; }); res.on('end', () => resolve({ status: res.statusCode, body: b })); }); q.on('error', reject); q.end('{}'); });
+    const a = await send();
+    assert.deepStrictEqual([a.status, a.body], [401, reply.body], 'the refusal still reaches Claude Code as it was');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepStrictEqual(refused, [{ status: 401, message: 'Authentication Error, Key is blocked' }], 'its reason, up to the first sentence');
+    reply = { status: 403, body: '{"error":{"message":"Invalid key sk-abc123XYZ for team"}}' }; await send();
+    reply = { status: 401, body: 'not json' }; await send();
+    reply = { status: 429, body: '{"error":{"message":"slow down"}}' }; await send();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepStrictEqual(refused.slice(1), [{ status: 403, message: 'Invalid key [hidden] for team' }, { status: 401, message: '' }], 'a token is hidden; no JSON, no reason; a 429 is not a refusal');
+    rr.stop(); gw.close();
+  }
+
   // ---- the gateway down: a 502 in the API's error shape, so Claude Code shows a reason rather than hanging
   const dead = new Relay({ target: 'http://127.0.0.1:1/llm-api' });
   const dport = await dead.start();
