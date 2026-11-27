@@ -92,4 +92,24 @@ async function migrate({ memento, home = os.homedir(), checkoutFolder }) {
   await memento.update(MIGRATED, VERSION);
 }
 
-module.exports = { createWorkspaces, workspaceOf, labelOf, tilde, parseJsonc, migrate, exists, isGitRepo, KEY, MIGRATED };
+const SKIP = new Set(['Library']);   // macOS's Library: thousands of folders, never repos
+const subdirs = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.')).map((d) => path.join(dir, d.name)); } catch { return []; } };
+const holdsRepos = (dir) => !isGitRepo(dir) && subdirs(dir).some(isGitRepo);
+
+/**
+ * The directories a machine starts with: `extra` (platformDirectories; absolute or ~/) and those one level under home
+ * that hold git repos, each once, then home if it holds a repo itself; home alone when none do.
+ */
+/** Where else a platform's people keep repos: /git on Linux. */
+const platformDirectories = (platform) => (platform === 'linux' ? ['/git'] : []);
+
+function defaultDirectories({ home = os.homedir(), extra = [] } = {}) {
+  const out = [];
+  const add = (d) => { if (!out.includes(d)) out.push(d); };
+  for (const e of extra) { const d = path.resolve(expandHome(e, home)); if (holdsRepos(d)) add(d); }
+  for (const d of subdirs(home).filter((d) => !SKIP.has(path.basename(d))).sort()) if (holdsRepos(d)) add(d);
+  if (!out.length || holdsRepos(home)) add(home);
+  return out;
+}
+
+module.exports = { createWorkspaces, defaultDirectories, platformDirectories, workspaceOf, labelOf, tilde, parseJsonc, migrate, exists, isGitRepo, KEY, MIGRATED };

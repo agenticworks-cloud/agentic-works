@@ -27,7 +27,7 @@ const { carryOverSettings, settingKeys } = require('./settingsCarryOver.js');
 
 const PENDING = 'gannet.pending';
 
-async function activateWith(context, { run = runProcess, fetch = globalThis.fetch, home = os.homedir(), startServer = startTokenServer } = {}) {
+async function activateWith(context, { run = runProcess, fetch = globalThis.fetch, home = os.homedir(), startServer = startTokenServer, extraDirectories = W.platformDirectories(process.platform) } = {}) {
   const store = context.globalStorageUri.fsPath;
   // Gannet's settings became repos.*: each one set is copied over once (the old ones stay)
   carryOverSettings(vscode, context.globalState, { from: 'gannet', to: 'repos', keys: settingKeys(require('../package.json'), 'repos'), log: () => {} }).catch(() => {});
@@ -49,6 +49,12 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
   const local = createLocalRepos({ memento: machine, home });
   const workspaces = W.createWorkspaces({ memento: machine, home });
   const listed = () => workspaces.list().filter(W.exists);
+  // once per machine, one with no directories yet starts with the folders that hold repos (/git on Linux, and those
+  // under home), else home itself
+  if (!machine.get('repos.directoriesDefaulted')) {
+    if (!workspaces.list().length) for (const d of W.defaultDirectories({ home, extra: extraDirectories })) await workspaces.add(d);
+    await machine.update('repos.directoriesDefaulted', true);
+  }
 
   // after a restart (adding a workspace folder can cause one): drop half clones, forget deleted ones, find clones
   for (const f of listed()) local.cleanPartials(f);

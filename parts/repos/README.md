@@ -59,7 +59,9 @@ Explorer when it is in this window, else in your file manager; in a remote windo
 a directory outside the window has no Reveal. A directory that
 is gone shows **Missing**. Each machine has its own list, and every listed directory is scanned on start for
 clones. Upgrading from 0.2.0 carries its list over once, with each workspace file replaced by its repo folder,
-plus `~/github` if it exists. The design, with the reasons behind each rule:
+plus `~/github` if it exists. A machine with no directories yet starts, once, with the ones that hold repos: `/git` on
+Linux, then the folders one level under your home folder (`~/code`, `~/Developer`, …; not hidden ones or `~/Library`),
+and your home folder itself when none do or it holds a repo directly. The design, with the reasons behind each rule:
 [docs/notes/101-gannet.md](docs/notes/101-gannet.md).
 
 ## New folders

@@ -94,6 +94,28 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gannet-ws-'));
       assert.strictEqual(W.isGitRepo(repo), true);
       assert.strictEqual(W.isGitRepo(home), false);
     }
+    // the directories a machine starts with: those holding repos, in /git on Linux and one level under home; else home
+    {
+      const h = path.join(tmp, 'dh');
+      const repo = (...p) => fs.mkdirSync(path.join(...p, '.git'), { recursive: true });
+      fs.mkdirSync(path.join(h, 'Documents', 'notes'), { recursive: true });   // no repos: not a directory
+      assert.deepStrictEqual(W.defaultDirectories({ home: h }), [h], 'nothing found: home');
+      repo(h, 'code', 'a'); repo(h, 'Developer', 'b');
+      repo(h, '.cache', 'c');                                                   // hidden: skipped
+      repo(h, 'Library', 'd');                                                  // macOS's Library: skipped
+      repo(h, 'solo');                                                          // a repo itself, not a folder of repos
+      assert.deepStrictEqual(W.defaultDirectories({ home: h }), [path.join(h, 'Developer'), path.join(h, 'code'), h],
+        'folders of repos, then home, which holds one directly');
+      fs.rmSync(path.join(h, 'solo'), { recursive: true });
+      const git = path.join(tmp, 'git');
+      repo(git, 'perch');
+      assert.deepStrictEqual(W.defaultDirectories({ home: h, extra: [git, '/nowhere', '~/code'] }), [git, path.join(h, 'code'), path.join(h, 'Developer')],
+        'the extra ones first (missing ones skipped, ~ expanded, each once), then home\'s');
+      const empty = path.join(tmp, 'emptygit'); fs.mkdirSync(empty);
+      assert.deepStrictEqual(W.defaultDirectories({ home: path.join(tmp, 'nohome'), extra: [empty] }), [path.join(tmp, 'nohome')], 'an extra folder without repos is not added');
+      assert.deepStrictEqual(W.platformDirectories('linux'), ['/git']);
+      assert.deepStrictEqual(W.platformDirectories('darwin'), []);
+    }
     console.log('WORKSPACES OK');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 })().catch((e) => { console.error(e); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(1); });

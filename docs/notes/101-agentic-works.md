@@ -1113,6 +1113,16 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   tab, Agentic Works runs `workbench.action.terminal.focus`, which opens the panel on Terminal and starts a shell if
   there is none; the Get started page and the Perch view open after it, so they end up in front. Only once: later
   starts leave the panel as VS Code remembers it *(my call: Terminal is the tab shown, PRs one click away)*.
+- **Default directories for Repos — Built (1.1.1)** *(Sean, 2026-11-27: "add /Users/<you>/ as default, unless you see
+  some repos under different directory, for instance /Users/<you>/code"; "the same with linux … unless /git folder is
+  used for git repos")*. Once per machine, when its list is empty (a new machine, not one carried over from Gannet),
+  Repos adds the directories that hold git repos (a folder with at least one child that has `.git`): `/git` on Linux,
+  then the folders one level under home, by name, skipping hidden ones and `~/Library`; then home itself if a repo
+  sits directly in it. When none hold repos, home alone. `repos.directoriesDefaulted` in `machine.json` records it,
+  so a directory removed from the list (its ×, **Remove from List**) stays removed. *(my calls: one level deep; /git
+  built in on Linux rather than in the company file, since Sean's rule is for Linux generally; the first-checkout
+  question, asked only when the list is empty, still offers `~/github`.)* `defaultDirectories` in
+  `parts/repos/src/workspaces.js`.
 
 ## Left to the builder
 

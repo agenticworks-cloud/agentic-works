@@ -38,6 +38,9 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
     };
     const fetch = async () => ({ status: 200, ok: true, headers: { get: () => null }, json: async () => [] });
     const ext = require('../src/extension.js');
+    // never this machine's own /git: a test that wants extra directories passes them
+    const activateWith = ext.activateWith;
+    ext.activateWith = (c, o = {}) => activateWith(c, { extraDirectories: [], ...o });
     const context = { globalState: makeMemento(), subscriptions: [], globalStorageUri: Uri.file(path.join(tmp, 'store')), extensionPath: path.join(__dirname, '..') };
     await ext.activateWith(context, { run, fetch, home });
     const rec = vscode._rec;
@@ -221,12 +224,35 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       Object.assign(vscode._config, before);
     }
 
+    // a machine without directories starts with the folders of repos: /git on Linux (here gitD), then under home
+    {
+      const hD = path.join(t, 'hD');
+      fs.mkdirSync(path.join(hD, 'code', 'a', '.git'), { recursive: true });
+      const gitD = path.join(t, 'gitD');
+      fs.mkdirSync(path.join(gitD, 'perch', '.git'), { recursive: true });
+      const c = { globalState: makeMemento(), subscriptions: [], globalStorageUri: Uri.file(path.join(t, 'store-d')), extensionPath: path.join(__dirname, '..') };
+      await ext.activateWith(c, { run, fetch, home: hD, extraDirectories: [gitD, path.join(t, 'none')] });
+      assert.deepStrictEqual(machine(c)['gannet.workspaces'], [gitD, path.join(hD, 'code')], '/git\'s, then home\'s');
+      await ext.deactivate();
+      // once: a machine whose directories were all removed keeps none
+      fs.writeFileSync(path.join(t, 'store-d', 'machine.json'), JSON.stringify({ ...machine(c), 'gannet.workspaces': [] }));
+      await ext.activateWith(c, { run, fetch, home: hD, extraDirectories: [gitD, path.join(t, 'none')] });
+      assert.deepStrictEqual(machine(c)['gannet.workspaces'], [], 'not added again');
+      await ext.deactivate();
+      // no folders of repos anywhere: home
+      const hE = path.join(t, 'hE'); fs.mkdirSync(hE);
+      const e = { globalState: makeMemento(), subscriptions: [], globalStorageUri: Uri.file(path.join(t, 'store-e')), extensionPath: path.join(__dirname, '..') };
+      await ext.activateWith(e, { run, fetch, home: hE, extraDirectories: [path.join(t, 'none')] });
+      assert.deepStrictEqual(machine(e)['gannet.workspaces'], [hE], 'home');
+      await ext.deactivate();
+    }
+
     // Final review: the first question's Choose a folder… refuses a git repo, as + does
     {
       const hC = path.join(t, 'hC');
       const inRepo = path.join(hC, 'proj');
       fs.mkdirSync(path.join(inRepo, '.git'), { recursive: true });
-      const c = ctx('storeC');
+      const c = seed(ctx('storeC'), 'repos.directoriesDefaulted', true);   // no directories: the first question
       await ext.activateWith(c, { run, fetch, home: hC });
       opts.quickPick = (items) => items.find((i) => i.choose);
       opts.openDialog = [inRepo];
@@ -243,7 +269,7 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
     fs.mkdirSync(hB);
     const ghB = path.join(hB, 'github');
     {
-      const c = ctx('storeB');
+      const c = seed(ctx('storeB'), 'repos.directoriesDefaulted', true);
       opts.folders = [path.join(tmp, 'ws')];
       // seanahn was hidden above; here GitHub lists seanahn/perch, so the page's rows reach its checkouts
       await vscode.workspace.getConfiguration('repos').update('hiddenAccounts', [], vscode.ConfigurationTarget.Global);
