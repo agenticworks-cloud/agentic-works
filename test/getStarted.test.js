@@ -736,10 +736,20 @@ test('a first run (asked for by the request file): the gateway ready opens a cha
   await s.run('setContext', 'perch.gatewayReady', true);
   await until(() => f.calls.includes('openGatewayTab'));
   assert.deepStrictEqual(f.calls, ['openGatewayTab'], 'other Perch tabs open: the gateway tab is shown or opened all the same');
-  assert.deepStrictEqual(f.args, [[{ fill: 'Hello' }]]);
+  assert.deepStrictEqual(f.args, [[]], 'Talk done: nothing typed in it (Sean: "do not enter hello message for the case")');
   await s.run('setContext', 'perch.gatewayReady', true);
   await settle();
   assert.deepStrictEqual(f.calls, ['openGatewayTab'], 'once');
+  await s.extension.deactivate();
+});
+
+test('a first run with Talk not done yet: the tab has "Hello" typed in, as for anyone new', async () => {
+  const s = await pageSetup(AUTO);
+  const f = fakePerch(s);
+  s.agenticWorks.getStarted.firstRun();
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await until(() => f.calls.includes('openGatewayTab'));
+  assert.deepStrictEqual(f.args, [[{ fill: 'Hello' }]]);
   await s.extension.deactivate();
 });
 

@@ -1154,6 +1154,9 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
   *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
   (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
+- **That tab is empty when Talk is done — Built (1.1.8)** *(Sean, 2026-11-27: "do not enter hello message for the
+  case")*. The first run's gateway tab has "Hello" typed in only while Talk to the gateway isn't done; someone who has
+  talked to it gets an empty tab.
 - **A company installer's first run: a terminal, and a chat tab when the gateway works — Built (1.1.7)** *(Sean,
   2026-11-27: "if it's first time, and if the ai gateway's connection is already there, it should open a chat tab, and
   if it's first time, the terminal should always open")*. When the request file is claimed, the start opens a terminal

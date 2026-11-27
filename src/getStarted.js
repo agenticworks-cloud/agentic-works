@@ -553,7 +553,9 @@ class GetStarted {
       const count = a.firstRun ? 0 : await run('perch.sessionCount');
       if (this.disposed || this.panel !== panel) return;
       if (typeof count === 'number' && count > 0) { a.settled = true; return; }
-      result = await run(OPEN_GATEWAY_TAB, GREETING);
+      // a first run with Talk already done opens the tab empty: "Hello" is for someone who hasn't talked to it yet
+      const talked = this.done().agents || this.signals().agents;
+      result = await (a.firstRun && talked ? run(OPEN_GATEWAY_TAB) : run(OPEN_GATEWAY_TAB, GREETING));
     } catch (err) {
       this.log(`Get started: the Claude tab could not be opened: ${errorMessage(err)}`);
       result = 'failed';
