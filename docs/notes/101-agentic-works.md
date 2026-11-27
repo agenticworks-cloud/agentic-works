@@ -58,7 +58,7 @@ and their settings, commands and views; they are retired once Agentic Works is c
 | installer | `installer/agentic-works-install.sh` with `installer/agentic-works-install-helper` inlined; release asset `agentic-works-install.sh`; `.vsix` `agentic-works-<version>.vsix` *(my call)* |
 | repo | `agenticworks-cloud/agentic-works`, transferred from Sean's own account so history, releases and redirects stay; local `/git/agentic-works` *(Sean)* |
 | install | `curl -fsSL https://agenticworks.cloud/install | bash` *(Sean)*, served by the org Pages repo `agenticworks-cloud/agenticworks-cloud.github.io` with the custom domain `agenticworks.cloud` (registered at GoDaddy); each release copies its installer there as `install` |
-| first version | 0.6.0 *(my call)* |
+| first version | 1.0.1 *(Sean, 2026-11-27)* |
 
 **Nothing moves from an earlier install.** No settings, state, config folder or extension carry over: Sean is
 the only user so far, and uninstalls and installs fresh. *(Sean)* The repo names no earlier name anywhere

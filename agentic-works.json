@@ -2,7 +2,7 @@
   "name": "agentic-works",
   "displayName": "Agentic Works",
   "publisher": "agenticworks",
-  "version": "0.6.0",
+  "version": "1.0.1",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": { "vscode": "^1.90.0" },
   "license": "MIT",
