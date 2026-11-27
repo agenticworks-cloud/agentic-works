@@ -1,4 +1,4 @@
-# Roost
+# Agentic Works
 
 One VS Code extension with four parts:
 
@@ -8,37 +8,41 @@ One VS Code extension with four parts:
 - **PRs**: your open pull requests in a panel tab, with their checks and reviews, and the chat that made each one.
 
 Agents (the Perch icon), Teams and Jira & Confluence each have their own icon in the activity bar; PRs is a tab in
-the bottom panel. Each part was a separate extension before (Perch, chirp, jay and kestrel); Roost carries their
+the bottom panel. Each part was a separate extension before (Perch, chirp, jay and kestrel); Agentic Works carries their
 histories under `parts/agents`, `parts/teams`, `parts/jira` and `parts/pull-requests`.
 
 ## Install
 
-Download `roost-install.sh` from the latest release and run it in a terminal:
+In a terminal:
 
 ```sh
-curl -fsSLO https://github.com/seanahn/roost/releases/latest/download/roost-install.sh
-bash roost-install.sh
+curl -fsSL https://agenticworks.cloud/install | bash
 ```
+
+That is the latest release's `agentic-works-install.sh`; it is also on the
+[releases page](https://github.com/agenticworks-cloud/agentic-works/releases). The design is
+[docs/notes/101-agentic-works.md](docs/notes/101-agentic-works.md), the installer's
+[docs/notes/102-agentic-works-installer.md](docs/notes/102-agentic-works-installer.md).
 
 Run it without `sudo`: it asks for your password when it needs it, after listing what it adds system-wide. It:
 
 - installs VS Code if it is missing (Homebrew on macOS, Microsoft's package repository on Linux) and puts `code` on
   the PATH;
-- offers to uninstall the standalone Perch, chirp, jay and kestrel extensions, which would clash with Roost;
-- installs Roost (checked against its SHA-256) and its companions, Claude Code, ChatGPT and perch-audio;
+- offers to uninstall the standalone Perch, chirp, jay and kestrel extensions, which would clash with Agentic Works;
+- installs Agentic Works (checked against its SHA-256) and its companions, Claude Code, ChatGPT and perch-audio;
 - installs the GitHub CLI, for the PRs panel (you sign in to GitHub from the Get started page, not the terminal);
 - sets the look (Copilot off, no Welcome page, the activity bar on top) without overwriting a setting you made,
   and trims the activity-bar icons and the Claude Code and Codex buttons on editor title bars, on a VS Code that
   has never been started;
-- opens VS Code, where Roost's first start opens its Get started page (again any time: Roost: Get Started).
+- opens VS Code, where Agentic Works' first start opens its Get started page (again any time: Agentic Works: Get Started).
 
 It prints a ✓ / – / ✗ checklist and is safe to run again; a second run changes nothing that is in place. Running
-the newest installer is also how Roost is updated.
+the newest installer is also how Agentic Works is updated.
 
 | Flag | |
 |---|---|
 | `--dry-run` | print each command instead of running it |
-| `--skip <step>` | leave a step out (repeatable): `vscode path standalone roost companions claude git github homebrew settings icons open` |
+| `--skip <step>` | leave a step out (repeatable): `vscode path standalone extension companions claude git github homebrew settings icons open` |
 | `--yes` | answer yes to uninstalling the standalone four (needed with no terminal) |
 | `--no-open` | don't open VS Code at the end |
 | `--codebase-search` | turn codebase search on in Claude and Codex tabs (off otherwise; the Get started page offers it) |
@@ -47,22 +51,22 @@ the newest installer is also how Roost is updated.
 
 Supported: macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora, on a desktop
 where VS Code runs. Not Windows, and not a server reached over Remote-SSH. The design:
-[docs/notes/102-roost-installer.md](docs/notes/102-roost-installer.md).
+[docs/notes/102-agentic-works-installer.md](docs/notes/102-agentic-works-installer.md).
 
 ## Switching parts on and off
 
-Open **Settings → Roost** (the gear on the Perch view, the **Settings** row at the end of the Perch explorer, or
-**Roost: Settings** in the Command Palette). The first section holds one switch per part, all on by default:
+Open **Settings → Agentic Works** (the gear on the Perch view, the **Settings** row at the end of the Perch explorer, or
+**Agentic Works: Settings** in the Command Palette). The first section holds one switch per part, all on by default:
 
 | Part | Switch |
 |---|---|
-| Agents (Claude Code and Codex) | `roost.agents.enabled` |
-| Jira & Confluence | `roost.jira.enabled` |
-| PRs | `roost.pullRequests.enabled` |
-| Teams | `roost.teams.enabled` |
+| Agents (Claude Code and Codex) | `agenticWorks.agents.enabled` |
+| Jira & Confluence | `agenticWorks.jira.enabled` |
+| PRs | `agenticWorks.pullRequests.enabled` |
+| Teams | `agenticWorks.teams.enabled` |
 
 A switch takes effect at once, with no reload. A part that is off shows no icon, panel tab or commands; its open
-tabs close, and come back when you switch it on again. If an agent's turn is running, Roost asks before stopping it.
+tabs close, and come back when you switch it on again. If an agent's turn is running, Agentic Works asks before stopping it.
 A part that fails to start is reported once and left off; the others keep working. Each part's own settings
 follow in a section of their own, under the part's name: `agents.*`, `teams.*`, `jira.*` and `pullRequests.*`, and
 its commands are listed as **Agents: …**, **Teams: …**, **Jira: …** and **Pull Requests: …**.
@@ -73,8 +77,8 @@ the new one is already set there; the old entries stay in your `settings.json`, 
 
 ## First start
 
-On its very first start Roost opens the PRs tab once, so the bottom panel shows it, and its **Get started** page in
-an editor tab. Open the page again any time with **Roost: Get Started** in the Command Palette. It is Roost's own
+On its very first start Agentic Works opens the PRs tab once, so the bottom panel shows it, and its **Get started** page in
+an editor tab. Open the page again any time with **Agentic Works: Get Started** in the Command Palette. It is Agentic Works' own
 page, with each step's controls in place. A step shows while its part is on. Without a company file the steps run:
 Connect Claude, Talk to Claude or Codex, Sign in to Teams, Connect Jira and Confluence, Sign in to GitHub, Search your
 code by meaning, Choose your parts. With one: Sign in to GitHub, Connect Claude, Talk to Claude or Codex, Connect your
@@ -85,25 +89,25 @@ fallback, on the Welcome page.
 
 ## For a company's installer
 
-A company can set Roost up for its people by writing one file, `~/.config/roost/company.json` (the
-`ROOST_COMPANY_FILE` environment variable overrides the path). Roost reads it at start; an invalid file is noted in
-the Roost output channel and ignored. Fields:
+A company can set Agentic Works up for its people by writing one file, `~/.config/agentic-works/company.json` (the
+`AGENTIC_WORKS_COMPANY_FILE` environment variable overrides the path). Agentic Works reads it at start; an invalid file is noted in
+the Agentic Works output channel and ignored. Fields:
 
-The file is rejected as a whole if anything in it is invalid (the Roost output channel names the offending value,
+The file is rejected as a whole if anything in it is invalid (the Agentic Works output channel names the offending value,
 such as `mcpServers[1].connect.kind`); unknown keys are ignored, and `~` expands in key files, commands and `doneWhen`
 files. Required keys are marked **required**.
 
 - `name` (**required**): the company's name.
-- `title` (optional): a non-empty string; the Get started page reads "Get started with <title>" (default Roost).
+- `title` (optional): a non-empty string; the Get started page reads "Get started with <title>" (default Agentic Works).
 - `steps` (optional): `email`, `gateway`, `tools` and `talk`, each an optional non-empty string naming that step of
   the Get started page (defaults Your email, Connect Claude, Connect your tools, Talk to Claude or Codex).
 - `notes` (optional): the company's own text at the top of a step's details, such as how its people get GitHub
   access: keys `github`, `email`, `gateway`, `talk`, `tools`, `teams`, `jira`, `codebase`, `parts`; each markdown of
-  up to 2000 characters, rendered like Roost's own (escaped, https links only). A bad one is ignored with a note.
+  up to 2000 characters, rendered like Agentic Works' own (escaped, https links only). A bad one is ignored with a note.
 - `email` (optional): `domain` (**required**, such as `example.com`), `env` (an upper-case environment variable
   name, not one the system uses) and `example` (the name part shown in grey before `@<domain>`, such as `first.last`;
   `your.name` without one). The Get started page then has an email step after GitHub's: a box showing
-  `<example>@<domain>` in grey, **Save** (only an address on that domain; a bare name gets `@<domain>`) and **Not Now**. The address stays in Roost's own storage,
+  `<example>@<domain>` in grey, **Save** (only an address on that domain; a bare name gets `@<domain>`) and **Not Now**. The address stays in Agentic Works' own storage,
   is never logged, starts the Jira step's email, and goes in `env` to the gateway's `keyCommand` and to the
   `command` sign-ins of `mcpServers` (their terminal's environment, never their command line), so they can fill it in.
   A bad section is dropped with a note, as `jira`'s is.
@@ -122,7 +126,7 @@ files. Required keys are marked **required**.
 - `jira` (optional): `site` (an https URL, the company's Atlassian site) and `email` (the person's email), each
   optional, filled in on the Connect Jira and Confluence step so only an API token is left to type. A user-level
   `jira.site` setting wins over the file's site. Never a token: any other key is ignored. Unlike the rest of the
-  file, a bad value here is dropped with a note in the Roost output channel, and the rest of the file still loads.
+  file, a bad value here is dropped with a note in the Agentic Works output channel, and the rest of the file still loads.
 - `mcpServers` (optional): a list of servers with distinct ids, each `{ id, name, about, register, connect }`.
   - `id` (**required**): letters, digits, `_` or `-`. `name` and `about` (**required**): strings.
   - `register` (**required**) is what Claude Code is given: `{ "type": "http", "url", "headers" }` or
@@ -152,10 +156,10 @@ files. Required keys are marked **required**.
     a **Sign In to GitHub** button. A platform with no asset: the row says so.
 - `skills` (optional): agent skills that come with the company's tools, each `{ "id", "source" }`. `id` is the
   skill's name (lowercase letters, digits and single hyphens, at most 64); `source` is a folder holding `SKILL.md`
-  (`~` expands; a relative path is from the company file's folder). At each start Roost copies each to
+  (`~` expands; a relative path is from the company file's folder). At each start Agentic Works copies each to
   `~/.claude/skills/<id>/` (Claude Code) and `~/.agents/skills/<id>/` (Codex), and records what it copied in
-  `~/.config/roost/skills.json`. It replaces or removes only a copy still as it left it: one the user edited, or a
-  folder of that name it never wrote, is left alone, with a line in the Roost output channel. A skill dropped from
+  `~/.config/agentic-works/skills.json`. It replaces or removes only a copy still as it left it: one the user edited, or a
+  folder of that name it never wrote, is left alone, with a line in the Agentic Works output channel. A skill dropped from
   the file is removed at the next start. A source holding a link isn't used.
 
 ```json
@@ -186,7 +190,7 @@ files. Required keys are marked **required**.
 }
 ```
 
-What Roost does with it (the design and what was built: [note 101](docs/notes/101-roost.md), the 0.4 and 0.5 bullets under Follow-ups):
+What Agentic Works does with it (the design and what was built: [note 101](docs/notes/101-agentic-works.md), the 0.4 and 0.5 bullets under Follow-ups):
 
 - **Sign in to GitHub** is the Get started page's first step (without a company file it comes later), since a server's
   `install` downloads through that sign-in.
@@ -201,16 +205,16 @@ What Roost does with it (the design and what was built: [note 101](docs/notes/10
 One sign-in can serve two uses: point `teams.signIn.tokenFile` or `jira.signIn.tokenFile` at the file the matching
 server's sign-in writes, and the Teams or Jira step ticks by itself after Connect your tools.
 
-A company installer runs Roost's installer (`roost-install.sh`) with `--no-open` and **never** `--yes`, which would
+A company installer runs Agentic Works' installer (`agentic-works-install.sh`) with `--no-open` and **never** `--yes`, which would
 answer the standalone-four uninstall for the user. It refuses a machine it wasn't meant for rather than migrating it.
 
 ## Build and install
 
 ```sh
-make deps       # npm ci for Roost and every part
-make test       # Roost's tests, then each part's, then a check that package.json matches the parts
+make deps       # npm ci for Agentic Works and every part
+make test       # Agentic Works' tests, then each part's, then a check that package.json matches the parts
 make install    # symlink this checkout into your VS Code extension folders; then reload the window
-make package    # build roost-<version>.vsix
+make package    # build agentic-works-<version>.vsix
 ```
 
 `make test-live` adds the Agents part's live tests, one tiny turn through each agent with your real logins.
@@ -228,7 +232,7 @@ part gets its switch and its views with no other file edited. Then `make test`.
 
 ## Companion extensions
 
-Installing Roost also installs, through its extension pack:
+Installing Agentic Works also installs, through its extension pack:
 
 - **Claude Code** and **ChatGPT**: the Agents part runs the `claude` and `codex` programs they ship.
 - **perch-audio**: dictation's recording companion, which runs on your own machine even when VS Code is attached
@@ -240,4 +244,4 @@ MIT. See [LICENSE](LICENSE).
 
 ## Design
 
-[docs/notes/101-roost.md](docs/notes/101-roost.md): what Roost is, how it was built, and what was verified.
+[docs/notes/101-agentic-works.md](docs/notes/101-agentic-works.md): what Agentic Works is, how it was built, and what was verified.
