@@ -8,12 +8,12 @@ const path = require('path');
 const C = require('../src/claudeConnections');
 
 (async () => {
-  assert.strictEqual(C.ANTHROPIC_KEY_FILE, '~/.config/roost/anthropic-key');
-  assert.strictEqual(C.GATEWAY_KEY_FILE, '~/.config/roost/gateway-key');
+  assert.strictEqual(C.ANTHROPIC_KEY_FILE, '~/.config/agentic-works/anthropic-key');
+  assert.strictEqual(C.GATEWAY_KEY_FILE, '~/.config/agentic-works/gateway-key');
 
   // ---- readSecretFile: the secret trimmed, '' when there is none
   {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-conn-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-conn-'));
     try {
       const f = path.join(dir, 'k');
       assert.strictEqual(C.readSecretFile(f), '', 'absent');
@@ -21,14 +21,14 @@ const C = require('../src/claudeConnections');
       assert.strictEqual(C.readSecretFile(f), 'sk-ant-1', 'the newline taken off');
       fs.writeFileSync(f, '  \n');
       assert.strictEqual(C.readSecretFile(f), '', 'blank');
-      assert.strictEqual(C.anthropicKeyFile(dir), path.join(dir, '.config', 'roost', 'anthropic-key'));
-      assert.strictEqual(C.gatewayKeyFile(dir), path.join(dir, '.config', 'roost', 'gateway-key'));
+      assert.strictEqual(C.anthropicKeyFile(dir), path.join(dir, '.config', 'agentic-works', 'anthropic-key'));
+      assert.strictEqual(C.gatewayKeyFile(dir), path.join(dir, '.config', 'agentic-works', 'gateway-key'));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
   // ---- awsProfiles: ~/.aws/config's [default] and [profile x], ~/.aws/credentials' [x], by name, once each
   {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-aws-'));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-aws-'));
     try {
       assert.deepStrictEqual(C.awsProfiles({ home }), [], 'no ~/.aws: none');
       fs.mkdirSync(path.join(home, '.aws'));

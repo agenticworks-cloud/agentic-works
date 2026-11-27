@@ -561,7 +561,7 @@ ${glyphCss}
     };
     find.addEventListener('input', show);
     if (etabOn === 'sessions') sessionRows(rows); else itemRows(rows, etabOn);
-    // last, whatever tab shows: Roost's settings (the host runs roost.openSettings where Roost is there to answer)
+    // last, whatever tab shows: Agentic Works' settings (the host runs agenticWorks.openSettings where Agentic Works is there to answer)
     const settings = el('div', 'settings', 'Settings'); settings.title = 'Open the settings of this extension';
     settings.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     box.append(hd, find, rows, settings); show();

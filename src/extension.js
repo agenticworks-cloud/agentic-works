@@ -1,10 +1,10 @@
 'use strict';
-// Roost's entry point: starts each part under parts/ whose roost.<id>.enabled setting is on, with a context of its
+// Agentic Works' entry point: starts each part under parts/ whose agenticWorks.<id>.enabled setting is on, with a context of its
 // own; starts or stops a part when its setting changes; a part that throws at start is reported once and left off.
 // Before a part is switched off it may say no (its confirmStop), which puts the switch back on. While a part is off,
 // tabs VS Code brings back for it are closed, so they do not hang without a page; the part's own saved tab list,
 // which it restores from when it starts, is left as it is. A part's views and commands show while its setting is on
-// and its context key roost.<id>.failed is not set; Roost sets that key from a failed start until the next good one.
+// and its context key agenticWorks.<id>.failed is not set; Agentic Works sets that key from a failed start until the next good one.
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const vscode = require('vscode');
@@ -17,20 +17,20 @@ const { watchContexts } = require('./contextWatch');
 const { GetStarted } = require('./getStarted');
 const { GithubSignIn, DEVICE_URL } = require('./githubSignIn');
 
-const settingKey = (id) => `roost.${id}.enabled`;
-const failedKey = (id) => `roost.${id}.failed`;
-const FIRST_START_KEY = 'roost.firstStart.done';
-// The parts' context keys the Get started page ticks on: VS Code cannot read one back, so Roost notes their setContext
+const settingKey = (id) => `agenticWorks.${id}.enabled`;
+const failedKey = (id) => `agenticWorks.${id}.failed`;
+const FIRST_START_KEY = 'agenticWorks.firstStart.done';
+// The parts' context keys the Get started page ticks on: VS Code cannot read one back, so Agentic Works notes their setContext
 // (and perch.sessionOpen, whether a Perch tab is open, and chirp.signInCodeWaiting, a Teams code waiting, which it shows)
 const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn',
   'perch.sessionOpen', 'chirp.signInCodeWaiting'];
 const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
 const AGENTS_VIEW_COMMAND = 'workbench.view.extension.perch';  // Perch's activity-bar container id: opens the side bar on it
-// The Agents part was called perch in 0.1.0: while roost.agents.enabled is set nowhere, a roost.perch.enabled the
+// The Agents part was called perch in 0.1.0: while agenticWorks.agents.enabled is set nowhere, a agenticWorks.perch.enabled the
 // user set then still decides (read only, never written or removed).
 const OLD_SWITCH = { agents: 'perch' };
 const isEnabled = (id) => {
-  const config = vscode.workspace.getConfiguration('roost');
+  const config = vscode.workspace.getConfiguration('agenticWorks');
   const old = OLD_SWITCH[id];
   if (old) {
     const now = config.inspect(`${id}.enabled`) || {};
@@ -41,25 +41,25 @@ const isEnabled = (id) => {
   return config.get(`${id}.enabled`, true);
 };
 const errorText = (e) => (e && e.stack) || String(e);
-const TOOLS_PANEL_TYPE = 'roost.tools';
+const TOOLS_PANEL_TYPE = 'agenticWorks.tools';
 const NO_TOOLS = 'Your company file lists no tools.';
 // One argument for a POSIX shell: as it is when it is plainly safe, else in single quotes
 const shellQuote = (a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${String(a).replace(/'/g, "'\\''")}'`);
 const isWeb = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
 
-class Roost {
+class AgenticWorks {
   // `makeTools`: for tests, a stand-in for Connect Your Tools' Tools (src/tools.js); `ghLogins`: the accounts gh is
-  // signed in to (tests never run this machine's gh: under ROOST_TEST_HARNESS_STRICT_GH, set by the test stubs and
-  // `make test`, a Roost made without one throws; the name is one nobody sets by accident)
+  // signed in to (tests never run this machine's gh: under AGENTIC_WORKS_TEST_HARNESS_STRICT_GH, set by the test stubs and
+  // `make test`, an Agentic Works made without one throws; the name is one nobody sets by accident)
   // `spawnGh`: child_process.spawn for GitHub's sign-in (a fake in tests; under the same flag, the real one throws)
   constructor(base, parts, output, { makeTools = (opts) => new Tools(opts), ghLogins, spawnGh } = {}) {
-    if (!ghLogins && process.env.ROOST_TEST_HARNESS_STRICT_GH) throw new Error("Roost: tests must stub ghLogins (activate(base, { ghLogins }))");
+    if (!ghLogins && process.env.AGENTIC_WORKS_TEST_HARNESS_STRICT_GH) throw new Error("Agentic Works: tests must stub ghLogins (activate(base, { ghLogins }))");
     this.base = base;
     this.output = output;
     this.makeTools = makeTools;
     this.ghLogins = ghLogins || defaultGhLogins;
-    this.spawnGh = spawnGh || (process.env.ROOST_TEST_HARNESS_STRICT_GH
-      ? () => { throw new Error('Roost: tests must stub spawnGh (activate(base, { spawnGh }))'); }
+    this.spawnGh = spawnGh || (process.env.AGENTIC_WORKS_TEST_HARNESS_STRICT_GH
+      ? () => { throw new Error('Agentic Works: tests must stub spawnGh (activate(base, { spawnGh }))'); }
       : require('node:child_process').spawn);
     this.github = null;                // GitHub's sign-in while it runs: { flow, done, codeShown } (startGithubSignIn)
     this.getStarted = null;            // the Get started page's host (src/getStarted.js), made once startAll has begun
@@ -67,7 +67,7 @@ class Roost {
     this.toolsPanel = null;
     this.toolsChecked = Promise.resolve();
     // id → { part, state: 'on'|'off'|'failed', failed, context, module, queue, closers, serializers }
-    // `failed`: what roost.<id>.failed was last set to; `serializers`: the part's own, however it registered them
+    // `failed`: what agenticWorks.<id>.failed was last set to; `serializers`: the part's own, however it registered them
     this.parts = new Map(parts.map((part) => [part.id, {
       part, state: 'off', failed: false, context: null, module: null, queue: Promise.resolve(), closers: null, serializers: new Set(),
     }]));
@@ -81,7 +81,7 @@ class Roost {
 
   entry(id) {
     const e = this.parts.get(id);
-    if (!e) throw new Error(`Roost: no part ${id}`);
+    if (!e) throw new Error(`Agentic Works: no part ${id}`);
     return e;
   }
 
@@ -100,7 +100,7 @@ class Roost {
     try {
       if (this.getStarted) this.getStarted.refresh();
     } catch (err) {
-      this.log(`Roost could not refresh its Get started page: ${errorText(err)}`);
+      this.log(`Agentic Works could not refresh its Get started page: ${errorText(err)}`);
     }
   }
 
@@ -122,7 +122,7 @@ class Roost {
         await this.release(e);
         this.closeRestoredTabs(e);
         await this.setFailed(e, true);
-        vscode.window.showErrorMessage(`Roost: ${part.title} could not start.`, 'Show Log').then((choice) => {
+        vscode.window.showErrorMessage(`Agentic Works: ${part.title} could not start.`, 'Show Log').then((choice) => {
           if (choice === 'Show Log') this.output.show();
         });
         return;
@@ -158,10 +158,10 @@ class Roost {
     }
   }
 
-  // Puts roost.<id>.enabled back on at the scope where it was set to false (the workspace's, else the user's): the
+  // Puts agenticWorks.<id>.enabled back on at the scope where it was set to false (the workspace's, else the user's): the
   // value there is removed when the wider one (the user's, else the default) is already true, else set to true.
   async keepOn(id) {
-    const config = vscode.workspace.getConfiguration('roost');
+    const config = vscode.workspace.getConfiguration('agenticWorks');
     const key = `${id}.enabled`;
     const set = config.inspect(key) || {};
     const T = vscode.ConfigurationTarget;
@@ -189,7 +189,7 @@ class Roost {
   }
 
   // Every serializer a part registers is noted against the part that owns its webview type, so one it keeps
-  // outside its subscriptions (or leaves behind when it throws) is still removed when it stops or fails. Roost's own
+  // outside its subscriptions (or leaves behind when it throws) is still removed when it stops or fails. Agentic Works' own
   // tab closers go through VS Code's function directly. Where the function cannot be replaced, nothing is noted.
   trackSerializers() {
     const w = vscode.window;
@@ -205,7 +205,7 @@ class Roost {
       w.registerWebviewPanelSerializer = tracked;
       this.untrackSerializers = () => { if (w.registerWebviewPanelSerializer === tracked) w.registerWebviewPanelSerializer = register; };
     } catch (err) {
-      this.log(`Roost cannot note the parts' webview serializers: ${errorText(err)}`);
+      this.log(`Agentic Works cannot note the parts' webview serializers: ${errorText(err)}`);
     }
   }
 
@@ -237,11 +237,11 @@ class Roost {
       .catch((err) => this.log(`${key} could not be set: ${errorText(err)}`));
   }
 
-  // roost.company: a valid company file; roost.companyTools: valid, with at least one MCP server. A key that cannot
+  // agenticWorks.company: a valid company file; agenticWorks.companyTools: valid, with at least one MCP server. A key that cannot
   // be set is logged, as setFailed does.
   setCompanyContexts() {
     const c = this.company;
-    const keys = { 'roost.company': c.ok, 'roost.companyTools': c.ok && c.company.mcpServers.length > 0 };
+    const keys = { 'agenticWorks.company': c.ok, 'agenticWorks.companyTools': c.ok && c.company.mcpServers.length > 0 };
     return Promise.all(Object.entries(keys).map(([key, value]) => Promise.resolve(vscode.commands.executeCommand('setContext', key, value))
       .catch((err) => this.log(`${key} could not be set: ${errorText(err)}`))));
   }
@@ -255,7 +255,7 @@ class Roost {
     return this.tools;
   }
 
-  // Every change: the rows to the pages, and roost.toolsConnected (the walkthrough step) to whether all are connected
+  // Every change: the rows to the pages, and agenticWorks.toolsConnected (the walkthrough step) to whether all are connected
   toolsChanged(rows) {
     this.postRows(rows);
     if (this.getStarted) {
@@ -263,8 +263,8 @@ class Roost {
       this.getStarted.refresh();
     }
     const value = !!(this.tools && this.tools.allConnected());
-    Promise.resolve(vscode.commands.executeCommand('setContext', 'roost.toolsConnected', value))
-      .catch((err) => this.log(`roost.toolsConnected could not be set: ${errorText(err)}`));
+    Promise.resolve(vscode.commands.executeCommand('setContext', 'agenticWorks.toolsConnected', value))
+      .catch((err) => this.log(`agenticWorks.toolsConnected could not be set: ${errorText(err)}`));
   }
 
   postRows(rows) {
@@ -309,7 +309,7 @@ class Roost {
       else if (m.type === 'replace') await tools.replaceRegistration(row.id);
       // not awaited: the sign-in waits on GitHub, up to the code's 15 minutes; it says how it went itself
       else if (m.type === 'githubSignIn') {
-        if (row.action === 'githubSignIn') Promise.resolve(vscode.commands.executeCommand('roost.githubSignIn')).catch((err) => this.log(`GitHub sign-in: ${errorText(err)}`));
+        if (row.action === 'githubSignIn') Promise.resolve(vscode.commands.executeCommand('agenticWorks.githubSignIn')).catch((err) => this.log(`GitHub sign-in: ${errorText(err)}`));
       }
     } catch (err) {
       this.log(`Connect Your Tools: ${row.name || row.id}: ${err && err.message}`);
@@ -433,9 +433,9 @@ class Roost {
     await Promise.allSettled([...keys, ...starts]);
   }
 
-  // Roost's very first activation: once the parts have started, the bottom panel opens on the PRs tab (closed on a
+  // Agentic Works' very first activation: once the parts have started, the bottom panel opens on the PRs tab (closed on a
   // fresh profile), the Get started page in the editor, and last the side bar on Perch's view (a fresh window
-  // may have it closed, and with the activity bar on top its icons go with it). Then roost.firstStart.done is recorded,
+  // may have it closed, and with the activity bar on top its icons go with it). Then agenticWorks.firstStart.done is recorded,
   // whatever happened: a part that is off or failed, or a command that fails, is not retried later.
   // Later starts, while the walkthrough has a step neither done nor Not Now'd, open the page and the Perch view again:
   // the page isn't restored when VS Code restarts, and an empty window starts with the side bar hidden (Sean, 0.5.8).
@@ -443,14 +443,14 @@ class Roost {
     const first = !this.base.globalState.get(FIRST_START_KEY);
     if (!first) {
       let left = false;
-      try { left = this.getStarted.unfinished(); } catch (err) { this.log(`Roost could not read the Get started steps: ${errorText(err)}`); }
+      try { left = this.getStarted.unfinished(); } catch (err) { this.log(`Agentic Works could not read the Get started steps: ${errorText(err)}`); }
       if (!left) return;
     }
     const open = async (what, run) => {
       try {
         await run();
       } catch (err) {
-        this.log(`Roost could not open ${what} ${first ? 'on its first start' : 'to finish Get started'}: ${errorText(err)}`);
+        this.log(`Agentic Works could not open ${what} ${first ? 'on its first start' : 'to finish Get started'}: ${errorText(err)}`);
       }
     };
     const on = (id) => this.parts.has(id) && this.state(id) === 'on';
@@ -462,12 +462,12 @@ class Roost {
     try {
       await this.base.globalState.update(FIRST_START_KEY, true);
     } catch (err) {
-      this.log(`Roost could not record its first start: ${errorText(err)}`);
+      this.log(`Agentic Works could not record its first start: ${errorText(err)}`);
     }
   }
 
   onConfigChange(event) {
-    if (this.closed) return;           // Roost is stopping: a change now starts nothing
+    if (this.closed) return;           // Agentic Works is stopping: a change now starts nothing
     for (const id of this.parts.keys()) {
       if (!event.affectsConfiguration(settingKey(id))) continue;
       // a failure is already in the output channel (queue)
@@ -490,9 +490,9 @@ class Roost {
   }
 }
 
-let roost = null;
+let agenticWorks = null;
 
-// `options`: for tests, Roost's constructor options (VS Code passes the context alone)
+// `options`: for tests, Agentic Works' constructor options (VS Code passes the context alone)
 // The accounts gh is signed in to on github.com, from `gh auth status` (argv, no shell); [] when none or no gh.
 function defaultGhLogins() {
   return new Promise((resolve) => {
@@ -505,17 +505,17 @@ function defaultGhLogins() {
 }
 
 function activate(context, options = {}) {
-  const output = vscode.window.createOutputChannel('Roost');
+  const output = vscode.window.createOutputChannel('Agentic Works');
   context.subscriptions.push(output);
-  const r = new Roost(context, readParts(context.extensionPath), output, options);
-  roost = r;
+  const r = new AgenticWorks(context, readParts(context.extensionPath), output, options);
+  agenticWorks = r;
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => r.onConfigChange(e)));
-  // Roost's own, whatever parts are on: the Settings page filtered to this extension's switches and the parts' settings
-  context.subscriptions.push(vscode.commands.registerCommand('roost.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:seanahn.roost')));
+  // Agentic Works' own, whatever parts are on: the Settings page filtered to this extension's switches and the parts' settings
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', '@ext:agenticworks.agentic-works')));
   // the Get started page (the walkthrough stays on VS Code's Welcome page)
-  context.subscriptions.push(vscode.commands.registerCommand('roost.getStarted', () => { r.getStarted.open(); }));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.getStarted', () => { r.getStarted.open(); }));
   // the walkthrough's codebase-search step: on (never off, unlike Agents: Toggle Codebase Search), or left off
-  context.subscriptions.push(vscode.commands.registerCommand('roost.codebaseSearchOn', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.codebaseSearchOn', async () => {
     if (vscode.workspace.getConfiguration('agents').get('codebaseIndex.enabled') === true) {
       vscode.window.showInformationMessage('Codebase search is already on.');
       return;
@@ -523,20 +523,20 @@ function activate(context, options = {}) {
     // Perch's toggle also checks for a Python that can run it, and says so
     await vscode.commands.executeCommand('perch.codebaseIndex.toggle');
   }));
-  context.subscriptions.push(vscode.commands.registerCommand('roost.codebaseSearchNotNow', () => {}));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.codebaseSearchNotNow', () => {}));
   // the walkthrough's Connect Claude step, left for now: its completion event; the step is also done once Claude is connected (perch.claudeConnected)
-  context.subscriptions.push(vscode.commands.registerCommand('roost.connectClaudeNotNow', () => {}));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.connectClaudeNotNow', () => {}));
   // Connect your tools (the walkthrough's step, shown with a company file that lists servers): the panel, or a note
-  context.subscriptions.push(vscode.commands.registerCommand('roost.connectTools', () => {
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.connectTools', () => {
     if (!r.hasTools()) return vscode.window.showInformationMessage(NO_TOOLS);
     r.openTools();
     return undefined;
   }));
-  context.subscriptions.push(vscode.commands.registerCommand('roost.toolsNotNow', () => {}));
-  context.subscriptions.push(vscode.commands.registerCommand('roost.teamsSignIn', () => r.toolSignIn('teams', 'chirp.signIn')));
-  context.subscriptions.push(vscode.commands.registerCommand('roost.jiraSignIn', () => r.toolSignIn('jira', 'jay.signIn')));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.toolsNotNow', () => {}));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.teamsSignIn', () => r.toolSignIn('teams', 'chirp.signIn')));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.jiraSignIn', () => r.toolSignIn('jira', 'jay.signIn')));
   // the walkthrough's first step: the Claude tab first start opened (Agents' own Open: the last tab, or a picker)
-  context.subscriptions.push(vscode.commands.registerCommand('roost.goToClaude', () => vscode.commands.executeCommand('perch.open')));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.goToClaude', () => vscode.commands.executeCommand('perch.open')));
   // the walkthrough's first step opens the tab, Claude or Codex, beside the walkthrough, which keeps most of the width
   // (no tab is opened on first start: Sean, 2026-11-24). Resolves to the command's answer; one that says no new tab
   // opened (perch.openGatewayTab's 'revealed', 'notReady', 'failed') waits for no new group.
@@ -552,15 +552,15 @@ function activate(context, options = {}) {
     }
     return result;
   };
-  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeTab', (spec) => besideWalkthrough('perch.newClaude', spec)));
-  context.subscriptions.push(vscode.commands.registerCommand('roost.newCodexTab', (spec) => besideWalkthrough('perch.newCodex', spec)));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.newClaudeTab', (spec) => besideWalkthrough('perch.newClaude', spec)));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.newCodexTab', (spec) => besideWalkthrough('perch.newCodex', spec)));
   // the Get started talk step with gateway.openTabOnTalk: a Claude tab on the gateway, an open one shown rather than
   // another opened (perch.openGatewayTab), not perch.newClaude, whose saved backend may lag a gateway just saved
-  context.subscriptions.push(vscode.commands.registerCommand('roost.newClaudeGatewayTab', (spec) => besideWalkthrough('perch.openGatewayTab', spec)));
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.newClaudeGatewayTab', (spec) => besideWalkthrough('perch.openGatewayTab', spec)));
   // the PRs part reads the logins the GitHub CLI holds; signing in is gh's own, without a terminal (startGithubSignIn).
   // Already signed in, it says so first and offers another account. From here (the Command Palette, Connect Your
   // Tools) the code comes in a notification with Copy Code & Open GitHub; the Get started page shows its own.
-  context.subscriptions.push(vscode.commands.registerCommand('roost.githubSignIn', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand('agenticWorks.githubSignIn', async () => {
     if (!r.github) {
       const logins = await Promise.resolve().then(() => r.ghLogins()).catch(() => []);
       if (logins.length) {
@@ -600,21 +600,21 @@ function activate(context, options = {}) {
     }
   }
   const companyKeys = r.setCompanyContexts();
-  // not awaited: Roost is active at once, whatever its parts do; `ready` is for tests
+  // not awaited: Agentic Works is active at once, whatever its parts do; `ready` is for tests
   const started = r.startAll();
   // made once startAll has begun: the watch on the parts' context keys (r.contexts) is in place from its first line
-  r.getStarted = new GetStarted({ roost: r, vscode, store: context.globalState, ghLogins: () => r.ghLogins(), log: (l) => r.log(l) });
-  r.ready = Promise.all([companyKeys, started]).then(() => undefined).catch((err) => r.log(`Roost could not start its parts: ${errorText(err)}`));
+  r.getStarted = new GetStarted({ agenticWorks: r, vscode, store: context.globalState, ghLogins: () => r.ghLogins(), log: (l) => r.log(l) });
+  r.ready = Promise.all([companyKeys, started]).then(() => undefined).catch((err) => r.log(`Agentic Works could not start its parts: ${errorText(err)}`));
   // after the parts have started, and not awaited here: activation does not wait for it
-  r.firstStarted = r.ready.then(() => r.firstStart()).catch((err) => r.log(`Roost first start failed: ${errorText(err)}`));
+  r.firstStarted = r.ready.then(() => r.firstStart()).catch((err) => r.log(`Agentic Works first start failed: ${errorText(err)}`));
   return r;
 }
 
 async function deactivate() {
-  if (!roost) return;
-  const r = roost;
-  roost = null;
+  if (!agenticWorks) return;
+  const r = agenticWorks;
+  agenticWorks = null;
   await r.stopAll();
 }
 
-module.exports = { activate, deactivate, Roost };
+module.exports = { activate, deactivate, AgenticWorks };

@@ -16,12 +16,12 @@ const test = (name, fn) => tests.push({ name, fn });
 const temps = [];
 process.on('exit', () => temps.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 
-// A temp tree with roost.json and two small parts, a (id a) and b (id b).
+// A temp tree with agentic-works.json and two small parts, a (id a) and b (id b).
 function fixture(edit = () => {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-manifest-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-manifest-'));
   temps.push(dir);
   const tree = {
-    'roost.json': { name: 'fixture', publisher: 'me', version: '0.0.1', engines: { vscode: '^1.90.0' } },
+    'agentic-works.json': { name: 'fixture', publisher: 'me', version: '0.0.1', engines: { vscode: '^1.90.0' } },
     'parts/a/part.json': { id: 'a', title: 'Part A', entry: 'src/extension.js', needs: [] },
     'parts/a/package.json': {
       name: 'a',
@@ -93,14 +93,14 @@ test('union keeps every id', () => {
 test('when added', () => {
   const m = buildManifest(fixture());
   const views = m.contributes.views.b;
-  assert.strictEqual(views[0].when, 'config.roost.b.enabled && !roost.b.failed && (foo)');
-  assert.strictEqual(views[1].when, 'config.roost.b.enabled && !roost.b.failed');
-  assert.strictEqual(m.contributes.views.a[0].when, 'config.roost.a.enabled && !roost.a.failed');
+  assert.strictEqual(views[0].when, 'config.agenticWorks.b.enabled && !agenticWorks.b.failed && (foo)');
+  assert.strictEqual(views[1].when, 'config.agenticWorks.b.enabled && !agenticWorks.b.failed');
+  assert.strictEqual(m.contributes.views.a[0].when, 'config.agenticWorks.a.enabled && !agenticWorks.a.failed');
   assert.deepStrictEqual(
     m.contributes.menus['view/title'].map((e) => e.when),
-    ['config.roost.a.enabled && !roost.a.failed && (view == a.view)', 'config.roost.a.enabled && !roost.a.failed && (view == a.view)'],
+    ['config.agenticWorks.a.enabled && !agenticWorks.a.failed && (view == a.view)', 'config.agenticWorks.a.enabled && !agenticWorks.a.failed && (view == a.view)'],
   );
-  assert.deepStrictEqual(m.contributes.keybindings.map((k) => k.when), ['config.roost.a.enabled && !roost.a.failed', 'config.roost.a.enabled && !roost.a.failed && (editorFocus)']);
+  assert.deepStrictEqual(m.contributes.keybindings.map((k) => k.when), ['config.agenticWorks.a.enabled && !agenticWorks.a.failed', 'config.agenticWorks.a.enabled && !agenticWorks.a.failed && (editorFocus)']);
   // VS Code ignores `when` on view containers; they hide when all their views are hidden.
   assert.strictEqual(m.contributes.viewsContainers.panel[0].when, undefined);
 });
@@ -108,20 +108,20 @@ test('when added', () => {
 test('every part command is gated in the Command Palette', () => {
   const m = buildManifest(fixture());
   assert.deepStrictEqual(m.contributes.menus.commandPalette, [
-    { command: 'a.x', when: 'config.roost.a.enabled && !roost.a.failed' },
-    { command: 'b.y', when: 'config.roost.b.enabled && !roost.b.failed' },
+    { command: 'a.x', when: 'config.agenticWorks.a.enabled && !agenticWorks.a.failed' },
+    { command: 'b.y', when: 'config.agenticWorks.b.enabled && !agenticWorks.b.failed' },
   ]);
 });
 
-test('a Roost section with the switches first, then one section per part', () => {
+test('an Agentic Works section with the switches first, then one section per part', () => {
   const m = buildManifest(fixture());
   const cfg = m.contributes.configuration;
   assert.strictEqual(Array.isArray(cfg), true);
-  assert.deepStrictEqual(cfg.map((c) => c.title), ['Roost', 'Part A', 'Part B']);
+  assert.deepStrictEqual(cfg.map((c) => c.title), ['Agentic Works', 'Part A', 'Part B']);
   assert.deepStrictEqual(cfg.map((c) => c.order), [0, 1, 2]);
-  assert.deepStrictEqual(Object.keys(cfg[0].properties), ['roost.a.enabled', 'roost.b.enabled']);
+  assert.deepStrictEqual(Object.keys(cfg[0].properties), ['agenticWorks.a.enabled', 'agenticWorks.b.enabled']);
   assert.deepStrictEqual(Object.values(cfg[0].properties).map((p) => p.order), [0, 1]);
-  const { order, ...sw } = cfg[0].properties['roost.a.enabled'];
+  const { order, ...sw } = cfg[0].properties['agenticWorks.a.enabled'];
   assert.deepStrictEqual(sw, { type: 'boolean', default: true, description: 'Part A: switch this part on or off.' });
   assert.deepStrictEqual(Object.keys(cfg[1].properties), ['a.size']);
   assert.deepStrictEqual(Object.keys(cfg[2].properties), ['b.one', 'b.two']);
@@ -153,7 +153,7 @@ test('duplicate view, container, setting and webview ids throw', () => {
     [(t) => pkg(t, 'b').contributes.views.b.push({ id: 'a.view', name: 'dup' }), /a\.view/],
     [(t) => pkg(t, 'b').contributes.viewsContainers.panel.push({ id: 'a', title: 'dup' }), /container/],
     [(t) => (pkg(t, 'b').contributes.configuration[0].properties['a.size'] = { type: 'number' }), /a\.size/],
-    [(t) => (pkg(t, 'b').contributes.configuration[0].properties['roost.a.enabled'] = { type: 'boolean' }), /roost\.a\.enabled/],
+    [(t) => (pkg(t, 'b').contributes.configuration[0].properties['agenticWorks.a.enabled'] = { type: 'boolean' }), /agenticWorks\.a\.enabled/],
     [(t) => pkg(t, 'b').activationEvents.push('onWebviewPanel:a.panel'), /a\.panel/],
   ];
   for (const [edit, re] of cases) assert.throws(() => buildManifest(fixture(edit)), re);
@@ -179,10 +179,10 @@ test('unknown contribution point throws', () => {
   assert.throws(() => buildManifest(dir), /parts\/b.*grammars/);
 });
 
-test('roost.json may not set generated fields', () => {
+test('agentic-works.json may not set generated fields', () => {
   for (const field of ['main', 'activationEvents', 'contributes', 'dependencies', 'extensionPack']) {
-    const dir = fixture((t) => (t['roost.json'][field] = field === 'main' ? './x.js' : []));
-    assert.throws(() => buildManifest(dir), new RegExp(`roost\\.json.*${field}`), field);
+    const dir = fixture((t) => (t['agentic-works.json'][field] = field === 'main' ? './x.js' : []));
+    assert.throws(() => buildManifest(dir), new RegExp(`agentic-works\\.json.*${field}`), field);
   }
 });
 
@@ -193,8 +193,8 @@ test('dependency version conflict throws', () => {
 
 test('real tree builds', () => {
   const m = buildManifest(root);
-  assert.strictEqual(m.name, 'roost');
-  assert.strictEqual(m.version, JSON.parse(fs.readFileSync(path.join(root, 'roost.json'), 'utf8')).version, "roost.json's version");
+  assert.strictEqual(m.name, 'agentic-works');
+  assert.strictEqual(m.version, JSON.parse(fs.readFileSync(path.join(root, 'agentic-works.json'), 'utf8')).version, "agentic-works.json's version");
   const containers = Object.values(m.contributes.viewsContainers).flat().map((c) => c.id);
   for (const id of ['perch', 'chirp', 'jay', 'kestrel']) assert.ok(containers.includes(id), `container ${id}`);
   assert.deepStrictEqual(m.contributes.viewsContainers.panel.map((c) => c.id), ['kestrel']);
@@ -205,8 +205,8 @@ test('real tree builds', () => {
   const parts = readParts(root);
   const cfg = m.contributes.configuration;
   const props = cfg[0].properties;
-  assert.strictEqual(cfg[0].title, 'Roost');
-  assert.deepStrictEqual(Object.keys(props), parts.map((p) => `roost.${p.id}.enabled`));
+  assert.strictEqual(cfg[0].title, 'Agentic Works');
+  assert.deepStrictEqual(Object.keys(props), parts.map((p) => `agenticWorks.${p.id}.enabled`));
   assert.deepStrictEqual(Object.values(props).map((p) => p.order), parts.map((_, i) => i));
   assert.deepStrictEqual(cfg.slice(1).map((c) => c.title), parts.map((p) => p.title));
   const partProps = parts.reduce((n, p) => {
@@ -215,7 +215,7 @@ test('real tree builds', () => {
   }, 0);
   assert.strictEqual(cfg.reduce((n, c) => n + Object.keys(c.properties).length, 0), parts.length + partProps);
   for (const p of parts) {
-    const sw = props[`roost.${p.id}.enabled`];
+    const sw = props[`agenticWorks.${p.id}.enabled`];
     assert.strictEqual(sw.type, 'boolean', p.id);
     assert.strictEqual(sw.default, true, p.id);
     assert.strictEqual(sw.description, `${p.title}: switch this part on or off.`, p.id);
@@ -224,9 +224,9 @@ test('real tree builds', () => {
     assert.ok(m.activationEvents.includes(`onWebviewPanel:${type}`), type);
   }
   // Every view and menu entry carries its part's switch; every icon path exists.
-  const switches = parts.map((p) => `config.roost.${p.id}.enabled && !roost.${p.id}.failed`);
-  // (roost.* commands are Roost's own, in no part's switch: roost.openSettings is asserted in its own test)
-  const own = (command) => /^roost\./.test(command || '');
+  const switches = parts.map((p) => `config.agenticWorks.${p.id}.enabled && !agenticWorks.${p.id}.failed`);
+  // (agenticWorks.* commands are Agentic Works' own, in no part's switch: agenticWorks.openSettings is asserted in its own test)
+  const own = (command) => /^agenticWorks\./.test(command || '');
   const entries = [...Object.values(m.contributes.views).flat(), ...Object.values(m.contributes.menus).flat()].filter((e) => !own(e.command));
   for (const e of entries) assert.ok(switches.some((s) => e.when.startsWith(s)), JSON.stringify(e));
   // Every command of a part is gated in the Command Palette by that part's switch.
@@ -234,19 +234,19 @@ test('real tree builds', () => {
   const owner = Object.fromEntries(parts.flatMap((p) => (JSON.parse(fs.readFileSync(path.join(p.dir, 'package.json'), 'utf8')).contributes.commands || []).map((c) => [c.command, p.id])));
   for (const { command } of m.contributes.commands.filter((c) => !own(c.command))) {
     const id = owner[command];
-    const want = `config.roost.${id}.enabled && !roost.${id}.failed`;
+    const want = `config.agenticWorks.${id}.enabled && !agenticWorks.${id}.failed`;
     const entries = m.contributes.menus.commandPalette.filter((e) => e.command === command);
     assert.ok(entries.length && entries.every((e) => e.when.startsWith(want)), `${command} gated by ${want}`);
   }
   for (const k of m.contributes.keybindings) assert.ok(switches.some((s) => k.when.startsWith(s)), JSON.stringify(k));
-  // Every path in contributes points into a part, or Roost's own media/ for its walkthrough, and exists on disk.
+  // Every path in contributes points into a part, or Agentic Works' own media/ for its walkthrough, and exists on disk.
   const pathKeys = new Set(['icon', 'path', 'image', 'markdown', 'svg', 'light', 'dark']);
   const walk = (v) => {
     if (Array.isArray(v)) return v.forEach(walk);
     if (v === null || typeof v !== 'object') return;
     for (const [k, x] of Object.entries(v)) {
       if (pathKeys.has(k) && typeof x === 'string' && !x.startsWith('$(')) {
-        assert.ok(x.startsWith('parts/') || x.startsWith('media/walkthrough/'), `${k}: ${x} is inside a part or Roost's walkthrough`);
+        assert.ok(x.startsWith('parts/') || x.startsWith('media/walkthrough/'), `${k}: ${x} is inside a part or Agentic Works' walkthrough`);
         assert.ok(fs.existsSync(path.join(root, x)), `${x} exists`);
       } else walk(x);
     }
@@ -257,47 +257,47 @@ test('real tree builds', () => {
   assert.deepStrictEqual(m.categories, ['AI', 'Chat']);
 });
 
-test('roost.openSettings is Roost\'s own: in no part\'s switch, on the Perch view\'s title bar', () => {
+test('agenticWorks.openSettings is Agentic Works\' own: in no part\'s switch, on the Perch view\'s title bar', () => {
   const m = buildManifest(root);
-  const cmd = m.contributes.commands.find((c) => c.command === 'roost.openSettings');
-  assert.deepStrictEqual([cmd.title, cmd.icon], ['Roost: Settings', '$(gear)']);
-  assert.deepStrictEqual(m.contributes.menus['view/title'].filter((e) => e.command === 'roost.openSettings'), [
-    { command: 'roost.openSettings', when: 'view == perch.main', group: 'navigation@99' },
+  const cmd = m.contributes.commands.find((c) => c.command === 'agenticWorks.openSettings');
+  assert.deepStrictEqual([cmd.title, cmd.icon], ['Agentic Works: Settings', '$(gear)']);
+  assert.deepStrictEqual(m.contributes.menus['view/title'].filter((e) => e.command === 'agenticWorks.openSettings'), [
+    { command: 'agenticWorks.openSettings', when: 'view == perch.main', group: 'navigation@99' },
   ]);
-  assert.deepStrictEqual(m.contributes.menus.commandPalette.filter((e) => e.command === 'roost.openSettings'), [], 'always in the Command Palette');
+  assert.deepStrictEqual(m.contributes.menus.commandPalette.filter((e) => e.command === 'agenticWorks.openSettings'), [], 'always in the Command Palette');
 });
 
-test('roost.contributes.json merges without a part switch and may not clash with a part', () => {
-  const dir = fixture((t) => (t['roost.contributes.json'] = {
-    commands: [{ command: 'roost.x', title: 'Roost: X' }],
-    menus: { 'view/title': [{ command: 'roost.x', when: 'view == a.view' }] },
+test('agentic-works.contributes.json merges without a part switch and may not clash with a part', () => {
+  const dir = fixture((t) => (t['agentic-works.contributes.json'] = {
+    commands: [{ command: 'agenticWorks.x', title: 'Agentic Works: X' }],
+    menus: { 'view/title': [{ command: 'agenticWorks.x', when: 'view == a.view' }] },
   }));
   const m = buildManifest(dir);
-  assert.ok(m.contributes.commands.some((c) => c.command === 'roost.x'));
-  assert.ok(m.contributes.menus['view/title'].some((e) => e.command === 'roost.x' && e.when === 'view == a.view'));
-  const clash = fixture((t) => (t['roost.contributes.json'] = { commands: [{ command: 'a.x', title: 'again' }] }));
+  assert.ok(m.contributes.commands.some((c) => c.command === 'agenticWorks.x'));
+  assert.ok(m.contributes.menus['view/title'].some((e) => e.command === 'agenticWorks.x' && e.when === 'view == a.view'));
+  const clash = fixture((t) => (t['agentic-works.contributes.json'] = { commands: [{ command: 'a.x', title: 'again' }] }));
   assert.throws(() => buildManifest(clash), /duplicate command id a\.x/);
-  const odd = fixture((t) => (t['roost.contributes.json'] = { grammars: [] }));
-  assert.throws(() => buildManifest(odd), /roost\.contributes\.json.*grammars/);
+  const odd = fixture((t) => (t['agentic-works.contributes.json'] = { grammars: [] }));
+  assert.throws(() => buildManifest(odd), /agentic-works\.contributes\.json.*grammars/);
 });
 
-test('the Get started walkthrough: Roost\'s own, each part\'s step shown only while it is on, every page and button real', () => {
+test('the Get started walkthrough: Agentic Works\' own, each part\'s step shown only while it is on, every page and button real', () => {
   const m = buildManifest(root);
   const [w] = m.contributes.walkthroughs;
   assert.strictEqual(m.contributes.walkthroughs.length, 1);
-  assert.strictEqual(w.id, 'roost.getStarted');
+  assert.strictEqual(w.id, 'agenticWorks.getStarted');
   const when = Object.fromEntries(w.steps.map((s) => [s.id, s.when]));
   assert.deepStrictEqual(when, {
-    githubFirst: 'roost.company && config.roost.pullRequests.enabled && !roost.pullRequests.failed',
-    connectClaude: 'config.roost.agents.enabled && !roost.agents.failed', agents: 'config.roost.agents.enabled && !roost.agents.failed', tools: 'roost.companyTools', codebaseSearch: 'config.roost.agents.enabled && !roost.agents.failed', teams: 'config.roost.teams.enabled && !roost.teams.failed',
-    jira: 'config.roost.jira.enabled && !roost.jira.failed', github: 'config.roost.pullRequests.enabled && !roost.pullRequests.failed && !roost.company',
+    githubFirst: 'agenticWorks.company && config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed',
+    connectClaude: 'config.agenticWorks.agents.enabled && !agenticWorks.agents.failed', agents: 'config.agenticWorks.agents.enabled && !agenticWorks.agents.failed', tools: 'agenticWorks.companyTools', codebaseSearch: 'config.agenticWorks.agents.enabled && !agenticWorks.agents.failed', teams: 'config.agenticWorks.teams.enabled && !agenticWorks.teams.failed',
+    jira: 'config.agenticWorks.jira.enabled && !agenticWorks.jira.failed', github: 'config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed && !agenticWorks.company',
     parts: undefined,
   });
   // a sign-in step is done once its part says it is signed in (a context key it sets), not when its button runs
   const contexts = Object.fromEntries(w.steps.map((s) => [s.id, s.completionEvents.filter((e) => e.startsWith('onContext:'))]));
   assert.deepStrictEqual(contexts, {
     githubFirst: ['onContext:kestrel.signedIn'],
-    connectClaude: ['onContext:perch.claudeConnected'], agents: ['onContext:perch.messageSent'], tools: ['onContext:roost.toolsConnected'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
+    connectClaude: ['onContext:perch.claudeConnected'], agents: ['onContext:perch.messageSent'], tools: ['onContext:agenticWorks.toolsConnected'], codebaseSearch: [], teams: ['onContext:chirp.signedIn'], jira: ['onContext:jay.signedIn'], github: ['onContext:kestrel.signedIn'], parts: [],
   });
   const buttonsOf = (id) => [...w.steps.find((st) => st.id === id).description.matchAll(/\(command:([\w.]+)\)/g)].map((x) => x[1]);
   // with a company file, GitHub comes first (its tools download through gh); without one, it keeps its place
@@ -305,30 +305,30 @@ test('the Get started walkthrough: Roost\'s own, each part\'s step shown only wh
   assert.deepStrictEqual(w.steps.map((st) => st.id), ['githubFirst', 'connectClaude', 'agents', 'tools', 'codebaseSearch', 'teams', 'jira', 'github', 'parts']);
   const [ghFirst, ghLater] = ['githubFirst', 'github'].map((id) => w.steps.find((st) => st.id === id));
   assert.deepStrictEqual([ghFirst.title, ghFirst.media.markdown, ghFirst.completionEvents], [ghLater.title, ghLater.media.markdown, ghLater.completionEvents], 'two copies of one step');
-  assert.deepStrictEqual(buttonsOf('githubFirst'), ['roost.githubSignIn']);
-  assert.deepStrictEqual(buttonsOf('github'), ['roost.githubSignIn']);
+  assert.deepStrictEqual(buttonsOf('githubFirst'), ['agenticWorks.githubSignIn']);
+  assert.deepStrictEqual(buttonsOf('github'), ['agenticWorks.githubSignIn']);
   assert(!w.steps.some((st) => st.id === 'gateway'), 'no gateway step: Connect Claude replaces it');
-  assert.deepStrictEqual(buttonsOf('agents'), ['roost.newClaudeTab', 'roost.newCodexTab'], 'either agent, opened from here');
-  assert.deepStrictEqual(buttonsOf('connectClaude'), ['perch.connectClaude', 'roost.connectClaudeNotNow']);
+  assert.deepStrictEqual(buttonsOf('agents'), ['agenticWorks.newClaudeTab', 'agenticWorks.newCodexTab'], 'either agent, opened from here');
+  assert.deepStrictEqual(buttonsOf('connectClaude'), ['perch.connectClaude', 'agenticWorks.connectClaudeNotNow']);
   // Connect your tools: shown with a company file that lists servers; done when all are connected, or left for now
   const tools = w.steps.find((st) => st.id === 'tools');
   assert.deepStrictEqual([tools.title, tools.media.markdown], ['Connect your tools', 'media/walkthrough/tools.md']);
-  assert.strictEqual(tools.description, 'Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:roost.connectTools)\n[Not Now](command:roost.toolsNotNow)');
-  assert.deepStrictEqual(tools.completionEvents, ['onContext:roost.toolsConnected', 'onCommand:roost.toolsNotNow']);
-  assert.deepStrictEqual(buttonsOf('tools'), ['roost.connectTools', 'roost.toolsNotNow']);
-  // Teams and Jira: Roost's sign-in, which runs the matching tools row with a company file, else the part's own
-  assert.deepStrictEqual(buttonsOf('teams'), ['roost.teamsSignIn']);
-  assert.deepStrictEqual(buttonsOf('jira'), ['roost.jiraSignIn']);
+  assert.strictEqual(tools.description, 'Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:agenticWorks.connectTools)\n[Not Now](command:agenticWorks.toolsNotNow)');
+  assert.deepStrictEqual(tools.completionEvents, ['onContext:agenticWorks.toolsConnected', 'onCommand:agenticWorks.toolsNotNow']);
+  assert.deepStrictEqual(buttonsOf('tools'), ['agenticWorks.connectTools', 'agenticWorks.toolsNotNow']);
+  // Teams and Jira: Agentic Works' sign-in, which runs the matching tools row with a company file, else the part's own
+  assert.deepStrictEqual(buttonsOf('teams'), ['agenticWorks.teamsSignIn']);
+  assert.deepStrictEqual(buttonsOf('jira'), ['agenticWorks.jiraSignIn']);
   const title = (id) => (m.contributes.commands.find((c) => c.command === id) || {}).title;
-  assert.strictEqual(title('roost.connectTools'), 'Roost: Connect Your Tools');
+  assert.strictEqual(title('agenticWorks.connectTools'), 'Agentic Works: Connect Your Tools');
   const hidden = new Set(m.contributes.menus.commandPalette.filter((e) => e.when === 'false').map((e) => e.command));
-  for (const id of ['roost.toolsNotNow', 'roost.teamsSignIn', 'roost.jiraSignIn', 'roost.connectClaudeNotNow']) assert.ok(hidden.has(id), `${id} hidden from the palette`);
-  assert.ok(!hidden.has('roost.connectTools'), 'Roost: Connect Your Tools is in the palette');
+  for (const id of ['agenticWorks.toolsNotNow', 'agenticWorks.teamsSignIn', 'agenticWorks.jiraSignIn', 'agenticWorks.connectClaudeNotNow']) assert.ok(hidden.has(id), `${id} hidden from the palette`);
+  assert.ok(!hidden.has('agenticWorks.connectTools'), 'Agentic Works: Connect Your Tools is in the palette');
   const cc = w.steps.find((st) => st.id === 'connectClaude');
-  assert.deepStrictEqual(cc.completionEvents, ['onContext:perch.claudeConnected', 'onCommand:roost.connectClaudeNotNow'], 'done when Claude is connected, or left for now');
+  assert.deepStrictEqual(cc.completionEvents, ['onContext:perch.claudeConnected', 'onCommand:agenticWorks.connectClaudeNotNow'], 'done when Claude is connected, or left for now');
   assert.deepStrictEqual([cc.title, cc.media.markdown], ['Connect Claude', 'media/walkthrough/connect-claude.md']);
-  assert.strictEqual(cc.description, 'Choose how Claude runs: your company\'s gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key or AWS Bedrock. Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)');
-  assert(!m.contributes.commands.some((c) => c.command === 'roost.gatewayNotNow'), 'roost.gatewayNotNow is gone');
+  assert.strictEqual(cc.description, 'Choose how Claude runs: your company\'s gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key or AWS Bedrock. Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:agenticWorks.connectClaudeNotNow)');
+  assert(!m.contributes.commands.some((c) => c.command === 'agenticWorks.gatewayNotNow'), 'agenticWorks.gatewayNotNow is gone');
   const commands = new Set(m.contributes.commands.map((c) => c.command));
   for (const step of w.steps) {
     assert.ok(fs.existsSync(path.join(root, step.media.markdown)), `${step.id}: ${step.media.markdown} exists`);
@@ -363,6 +363,27 @@ test('no setting has an old prefix, and no palette title an old name', () => {
 test('checked-in manifest equals a fresh build', () => {
   const r = spawnSync(process.execPath, [script, '--check'], { cwd: root, encoding: 'utf8' });
   assert.strictEqual(r.status, 0, r.stderr || r.stdout);
+});
+
+// The host's own settings (each part's switch) are read under the section the manifest declares them in.
+test('the host reads its switches under the section the manifest declares', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const declared = new Set(pkg.contributes.configuration.flatMap((c) => Object.keys(c.properties)));
+  for (const p of readParts(root)) assert.ok(declared.has(`agenticWorks.${p.id}.enabled`), `agenticWorks.${p.id}.enabled is declared`);
+  for (const f of ['extension.js', 'getStarted.js']) {
+    const text = fs.readFileSync(path.join(root, 'src', f), 'utf8');
+    assert.ok(text.includes("getConfiguration('agenticWorks')"), `src/${f} reads the agenticWorks section`);
+  }
+  assert.match(fs.readFileSync(path.join(root, 'src', 'getStarted.js'), 'utf8'), /WATCHED_SETTINGS = \['agenticWorks',/);
+});
+
+// Open Settings filters on the extension's real id, or the settings page opens empty.
+test('Open Settings filters on the real extension id', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const text = fs.readFileSync(path.join(root, 'src', 'extension.js'), 'utf8');
+  const m = text.match(/registerCommand\('agenticWorks\.openSettings',[^\n]*'@ext:([^']+)'/);
+  assert.ok(m, 'agenticWorks.openSettings opens the settings with an @ext: filter');
+  assert.strictEqual(m[1], `${pkg.publisher}.${pkg.name}`);
 });
 
 let failed = 0;

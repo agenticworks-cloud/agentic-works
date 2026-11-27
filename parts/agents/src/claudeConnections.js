@@ -7,8 +7,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const ANTHROPIC_KEY_FILE = '~/.config/roost/anthropic-key';
-const GATEWAY_KEY_FILE = '~/.config/roost/gateway-key';
+const ANTHROPIC_KEY_FILE = '~/.config/agentic-works/anthropic-key';
+const GATEWAY_KEY_FILE = '~/.config/agentic-works/gateway-key';
 /** globalState: the way chosen in Connect Claude, until a tab's footer picks a backend. */
 const CONNECTION_KEY = 'perch.claude.connection';
 /** globalState: Bedrock's { profile, region }, as saved in Connect Claude. */

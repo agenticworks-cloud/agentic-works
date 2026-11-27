@@ -1,7 +1,7 @@
 Type the email address you use at work, so the sign-ins {{title}} set up can fill it in for you. The part before the @
 is enough: **Save** adds the company's domain.
 
-Saving ticks this step. The address stays on this computer, in Roost's own storage: Roost never logs it and sends it to
+Saving ticks this step. The address stays on this computer, in Agentic Works' own storage: Agentic Works never logs it and sends it to
 no one. It goes only to the tools {{title}} set up, when they open a sign-in window:
 
 - **Get a key**, in the gateway step, gets it for its sign-in.

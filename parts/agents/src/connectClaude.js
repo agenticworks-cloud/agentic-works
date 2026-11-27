@@ -62,7 +62,7 @@ function getConnectClaudeHtml({ nonce, cspSource }) {
 
   <section class="way" data-way="apiKey">
     <h2><span class="name">Anthropic API key</span><span class="inuse" hidden>in use</span></h2>
-    <p class="muted">Billed per token. The key is checked with Anthropic, then kept in <code>~/.config/roost/anthropic-key</code>, readable by you alone.</p>
+    <p class="muted">Billed per token. The key is checked with Anthropic, then kept in <code>~/.config/agentic-works/anthropic-key</code>, readable by you alone.</p>
     <p id="apiKeySet" hidden>A key is saved. Paste another to replace it.</p>
     <label for="apiKey">Key</label>
     <input id="apiKey" type="password" placeholder="sk-ant-…" spellcheck="false" autocomplete="off">

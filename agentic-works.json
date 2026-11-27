@@ -1,12 +1,12 @@
 {
-  "name": "roost",
-  "displayName": "Roost",
-  "publisher": "seanahn",
-  "version": "0.5.18",
+  "name": "agentic-works",
+  "displayName": "Agentic Works",
+  "publisher": "agenticworks",
+  "version": "0.6.0",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": { "vscode": "^1.90.0" },
   "license": "MIT",
-  "repository": "https://github.com/seanahn/roost",
+  "repository": "https://github.com/agenticworks-cloud/agentic-works",
   "icon": "parts/agents/media/icon.png",
   "extensionKind": ["workspace"],
   "categories": ["AI", "Chat"]

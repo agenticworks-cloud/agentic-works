@@ -5,7 +5,7 @@ Pick one way for Claude to run; new Claude tabs then use it.
 - **Claude subscription**: **Log In** runs Claude Code's own sign-in in a terminal; this step says it is waiting
   until you finish.
 - **Anthropic API key**: billed per token. The key is checked with Anthropic, then kept in
-  `~/.config/roost/anthropic-key`, readable by you alone.
+  `~/.config/agentic-works/anthropic-key`, readable by you alone.
 - **AWS Bedrock**: **Use Bedrock…**, then an AWS profile or SSO sign-in already on this machine, and a region. It is
   checked with the AWS CLI; without the CLI, **Save anyway**.
 

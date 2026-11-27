@@ -9,7 +9,7 @@ const { spawnSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
 const OLD = Buffer.from('cm9vc3Q=', 'base64').toString('utf8');
-const PATTERN = new RegExp(OLD, 'gi');
+const PATTERN = new RegExp(`${OLD}(?!er)`, 'gi');   // not the rooster (an emoji's name)
 
 /** Line numbers (1-based) in `text` where the old name appears. */
 function lines(text) {
@@ -21,7 +21,7 @@ function lines(text) {
 // the pattern finds what it is meant to (or the scan below proves nothing)
 assert.deepStrictEqual(lines(`a\n${OLD.toUpperCase()}`), [2], 'any case');
 assert.deepStrictEqual(lines(`x ${OLD[0].toUpperCase()}${OLD.slice(1)}.json`), [1], 'capitalised, in a file name');
-assert.deepStrictEqual(lines('Agentic Works, agenticWorks.getStarted, AGENTIC_WORKS_VERSION'), [], 'no false alarms');
+assert.deepStrictEqual(lines(`Agentic Works, agenticWorks.getStarted, AGENTIC_WORKS_VERSION, ${OLD}er`), [], 'no false alarms');
 
 const ls = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
 assert.strictEqual(ls.status, 0, `git ls-files failed: ${ls.stderr}`);

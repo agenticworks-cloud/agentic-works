@@ -1,5 +1,5 @@
 'use strict';
-// A fake child_process.spawn for gh (Roost's spawnGh option): each call makes a child the test drives (out, err,
+// A fake child_process.spawn for gh (Agentic Works' spawnGh option): each call makes a child the test drives (out, err,
 // exit, fail); every call is recorded. Nothing runs the machine's own gh.
 const { EventEmitter } = require('node:events');
 

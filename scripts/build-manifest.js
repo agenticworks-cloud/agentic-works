@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// Builds Roost's root package.json from roost.json and every parts/<name>/ (its part.json and package.json).
+// Builds Agentic Works' root package.json from agentic-works.json and every parts/<name>/ (its part.json and package.json).
 // `node scripts/build-manifest.js` writes package.json; `--check` exits 1 if package.json differs from a fresh build.
 const fs = require('node:fs');
 const path = require('node:path');
@@ -57,9 +57,9 @@ const NO_PATHS = new Set(['configuration', 'configurationDefaults']);
 // Contribution points this script knows how to merge, gate and rewrite. A part contributing another one
 // fails the build, so adding it here is a decision (does it need a `when`? does it carry paths?).
 const KNOWN_POINTS = new Set([...NO_PATHS, 'commands', 'keybindings', 'menus', 'views', 'viewsContainers']);
-// Contribution points only roost.contributes.json may use: a walkthrough is Roost's, across the parts.
-const ROOST_ONLY = new Set(['walkthroughs']);
-// Fields the script generates; roost.json setting them would be overwritten silently.
+// Contribution points only agentic-works.contributes.json may use: a walkthrough is Agentic Works', across the parts.
+const AGENTIC_WORKS_ONLY = new Set(['walkthroughs']);
+// Fields the script generates; agentic-works.json setting them would be overwritten silently.
 const GENERATED = ['main', 'activationEvents', 'contributes', 'dependencies', 'extensionPack'];
 
 function rewritePaths(value, prefix) {
@@ -82,8 +82,8 @@ function partContributes(contributes, prefix) {
 }
 
 // A part's views, menus, Command Palette entries and keybindings show while its setting is on (a settings context
-// key, there from the first frame) and Roost has not marked it failed (the context key roost.<id>.failed).
-const gate = (id) => `config.roost.${id}.enabled && !roost.${id}.failed`;
+// key, there from the first frame) and Agentic Works has not marked it failed (the context key agenticWorks.<id>.failed).
+const gate = (id) => `config.agenticWorks.${id}.enabled && !agenticWorks.${id}.failed`;
 const withSwitch = (entry, when) => ({ ...entry, when: entry.when ? `${when} && (${entry.when})` : when });
 
 // Arrays concatenate, objects merge key by key, equal scalars agree; anything else is a conflict.
@@ -98,20 +98,20 @@ function merge(into, from, where) {
 }
 
 function buildManifest(root) {
-  const roost = readJson(path.join(root, 'roost.json'));
+  const agenticWorks = readJson(path.join(root, 'agentic-works.json'));
   for (const field of GENERATED) {
-    if (field in roost) throw new Error(`roost.json sets ${field}, which is generated from the parts`);
+    if (field in agenticWorks) throw new Error(`agentic-works.json sets ${field}, which is generated from the parts`);
   }
   const parts = readParts(root);
   const claim = idRegistry();
 
   const switches = {};
   parts.forEach(({ part }, i) => {
-    const key = `roost.${part.id}.enabled`;
-    claim('configuration property', key, 'roost');
+    const key = `agenticWorks.${part.id}.enabled`;
+    claim('configuration property', key, 'agenticWorks');
     switches[key] = { type: 'boolean', default: true, order: i, description: `${part.title}: switch this part on or off.` };
   });
-  const sections = [{ title: 'Roost', order: 0, properties: switches }];
+  const sections = [{ title: 'Agentic Works', order: 0, properties: switches }];
   const contributes = {};
   const activationEvents = ['onStartupFinished'];
   const dependencies = {};
@@ -171,19 +171,19 @@ function buildManifest(root) {
     }
     for (const ext of pkg.extensionPack || []) if (!extensionPack.includes(ext)) extensionPack.push(ext);
   }
-  // Roost's own contributions: not subject to any part's switch, since they stay while every part is off.
-  const ownFile = path.join(root, 'roost.contributes.json');
+  // Agentic Works' own contributions: not subject to any part's switch, since they stay while every part is off.
+  const ownFile = path.join(root, 'agentic-works.contributes.json');
   if (fs.existsSync(ownFile)) {
     const own = readJson(ownFile);
     for (const k of Object.keys(own)) {
-      if (!(KNOWN_POINTS.has(k) || ROOST_ONLY.has(k)) || NO_PATHS.has(k)) throw new Error(`roost.contributes.json contributes ${k}, which build-manifest.js does not merge`);
+      if (!(KNOWN_POINTS.has(k) || AGENTIC_WORKS_ONLY.has(k)) || NO_PATHS.has(k)) throw new Error(`agentic-works.contributes.json contributes ${k}, which build-manifest.js does not merge`);
     }
-    for (const c of own.commands || []) claim('command', c.command, 'roost');
-    merge(contributes, own, 'roost.contributes.json contributes');
+    for (const c of own.commands || []) claim('command', c.command, 'agenticWorks');
+    merge(contributes, own, 'agentic-works.contributes.json contributes');
   }
   contributes.configuration = sections;
 
-  const manifest = { ...roost, main: './src/extension.js', activationEvents, contributes };
+  const manifest = { ...agenticWorks, main: './src/extension.js', activationEvents, contributes };
   const depNames = Object.keys(dependencies).sort();
   if (depNames.length) manifest.dependencies = Object.fromEntries(depNames.map((d) => [d, dependencies[d]]));
   if (extensionPack.length) manifest.extensionPack = extensionPack;

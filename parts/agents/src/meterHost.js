@@ -212,7 +212,7 @@ class MeterHost {
 
   /**
    * Whether a Claude session started now would have something to authenticate with, on the backend it would get: the
-   * window's, or the one given. 'apiKey': the Anthropic API key Connect Claude keeps (~/.config/roost/anthropic-key).
+   * window's, or the one given. 'apiKey': the Anthropic API key Connect Claude keeps (~/.config/agentic-works/anthropic-key).
    */
   canRun(backend) {
     if (backend === 'apiKey') return !!readSecretFile(anthropicKeyFile());

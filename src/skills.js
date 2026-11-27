@@ -1,10 +1,10 @@
 'use strict';
 // Skills: the company file's agent skills (company.skills), each a folder holding SKILL.md, copied to Claude Code's
-// skills folder (~/.claude/skills/<id>/) and the one Codex reads (~/.agents/skills/<id>/). What Roost copied is
-// recorded in ~/.config/roost/skills.json (each file's SHA-256 and whether it is executable), so a later pass can tell
+// skills folder (~/.claude/skills/<id>/) and the one Codex reads (~/.agents/skills/<id>/). What Agentic Works copied is
+// recorded in ~/.config/agentic-works/skills.json (each file's SHA-256 and whether it is executable), so a later pass can tell
 // its own copy from one the user edited: it replaces or removes only a copy still as it left it. A copy that already
-// matches the source is Roost's whatever the record says (a pass cut short, or another window's). A skill dropped from
-// the company file is removed. A folder of the same name that Roost never wrote is the user's and is never touched.
+// matches the source is Agentic Works' whatever the record says (a pass cut short, or another window's). A skill dropped from
+// the company file is removed. A folder of the same name that Agentic Works never wrote is the user's and is never touched.
 // One pass at a time across windows: a lock file beside the record.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -12,7 +12,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const TARGETS = ['.claude/skills', '.agents/skills'];
-const RECORD = '.config/roost/skills.json';
+const RECORD = '.config/agentic-works/skills.json';
 const ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;   // as company.js checks it
 const MAX_ENTRIES = 200;
 const MAX_BYTES = 1024 * 1024;
@@ -59,7 +59,7 @@ function look(dir) {
 }
 
 function writeTree(dir, files) {
-  const tmp = path.join(path.dirname(dir), `.${path.basename(dir)}.roost-${process.pid}-${Date.now()}`);
+  const tmp = path.join(path.dirname(dir), `.${path.basename(dir)}.agentic-works-${process.pid}-${Date.now()}`);
   try {
     for (const [r, f] of files) {
       const to = path.join(tmp, ...r.split('/'));
@@ -152,12 +152,12 @@ function syncSkills(skills, { home = os.homedir(), log = () => {} } = {}) {
         const recorded = entry.targets[t];
         const now = look(dir);
         if (now !== null && now !== 'other' && same(now, want)) {
-          if (!same(recorded, want)) { entry.targets[t] = want; save(); }   // already as it should be: Roost's
+          if (!same(recorded, want)) { entry.targets[t] = want; save(); }   // already as it should be: Agentic Works'
           continue;
         }
         if (now !== null && !(recorded && same(now, recorded))) {
           out.kept.push(at);
-          log(recorded ? `Skills: ${at} was edited; left as it is` : `Skills: ${at} wasn't put there by Roost; left as it is`);
+          log(recorded ? `Skills: ${at} was edited; left as it is` : `Skills: ${at} wasn't put there by Agentic Works; left as it is`);
           continue;
         }
         try {

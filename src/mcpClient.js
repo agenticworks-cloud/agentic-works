@@ -1,5 +1,5 @@
 'use strict';
-// A minimal MCP client over stdio: newline-delimited JSON-RPC 2.0 to a server process Roost starts, for a server's
+// A minimal MCP client over stdio: newline-delimited JSON-RPC 2.0 to a server process Agentic Works starts, for a server's
 // own sign-in tool and for checks. Lines on stdout that aren't JSON are skipped. The process exiting rejects every
 // pending call; a call with no answer in time rejects and the process is closed (SIGTERM, then SIGKILL after 2 s),
 // so a server that misbehaves is never left running.
@@ -41,7 +41,7 @@ class McpStdioClient {
     return this._request('initialize', {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: 'roost' },
+      clientInfo: { name: 'agentic-works' },
     }, this.startTimeoutMs).then(() => { this._send({ jsonrpc: '2.0', method: 'notifications/initialized' }); }, (e) => {
       this.close();
       throw e;

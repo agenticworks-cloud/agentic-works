@@ -1,7 +1,7 @@
 'use strict';
-// Roost's loader: starts each enabled part with a context of its own, starts and stops parts as their
-// roost.<id>.enabled setting changes, and isolates a part that throws, marking it with the context key
-// roost.<id>.failed (its views and commands are gated on the setting and that key). Fake parts live in temp dirs.
+// Agentic Works' loader: starts each enabled part with a context of its own, starts and stops parts as their
+// agenticWorks.<id>.enabled setting changes, and isolates a part that throws, marking it with the context key
+// agenticWorks.<id>.failed (its views and commands are gated on the setting and that key). Fake parts live in temp dirs.
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -20,10 +20,10 @@ process.on('exit', () => temps.forEach((d) => fs.rmSync(d, { recursive: true, fo
 // The four folders and ids of the real parts; a fake part's activate/deactivate call into `fake.parts[id]`.
 const FOLDERS = { agents: ['agents', 'Agents (Claude Code and Codex)'], jira: ['jira', 'Jira & Confluence'], 'pull-requests': ['pullRequests', 'PRs'], teams: ['teams', 'Teams'] };
 const fake = { parts: {}, calls: [] };
-global.__roostFake = fake;
+global.__agenticWorksFake = fake;
 
 function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-loader-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-loader-'));
   temps.push(root);
   for (const [folder, [id, title]] of Object.entries(FOLDERS)) {
     const dir = path.join(root, 'parts', folder);
@@ -31,7 +31,7 @@ function fixture() {
     fs.writeFileSync(path.join(dir, 'part.json'), JSON.stringify({ id, title, entry: 'src/extension.js', needs: [] }));
     fs.writeFileSync(
       path.join(dir, 'src', 'extension.js'),
-      `const f = global.__roostFake;
+      `const f = global.__agenticWorksFake;
 module.exports = {
   activate: (context, deps) => { f.calls.push(['activate', ${JSON.stringify(id)}, deps]); const p = f.parts[${JSON.stringify(id)}]; return p && p.activate ? p.activate(context) : undefined; },
   deactivate: () => { f.calls.push(['deactivate', ${JSON.stringify(id)}]); const p = f.parts[${JSON.stringify(id)}]; return p && p.deactivate ? p.deactivate() : undefined; },
@@ -46,7 +46,7 @@ module.exports = {
   return root;
 }
 
-// A fresh vscode stub, a fresh copy of Roost, and a base context rooted at a fresh fixture.
+// A fresh vscode stub, a fresh copy of Agentic Works, and a base context rooted at a fresh fixture.
 function setup(config = {}) {
   const ui = stub.install();
   ui.config = config;
@@ -66,73 +66,73 @@ function setup(config = {}) {
     storageUri: ui.vscode.Uri.file(path.join(root, 'ws')),
     logUri: ui.vscode.Uri.file(path.join(root, 'log')),
     extensionMode: 1,
-    extension: { id: 'seanahn.roost' },
+    extension: { id: 'agenticworks.agentic-works' },
   };
   fake.parts = {};
   fake.calls = [];
-  process.env.ROOST_COMPANY_FILE = path.join(root, 'no-company.json');   // none, unless a test writes one
+  process.env.AGENTIC_WORKS_COMPANY_FILE = path.join(root, 'no-company.json');   // none, unless a test writes one
   return { ui, extension, root, base };
 }
 
-// Roost's activate returns before its parts have started; `ready` settles once every enabled part's start has.
+// Agentic Works' activate returns before its parts have started; `ready` settles once every enabled part's start has.
 async function activate(extension, base, options = { ghLogins: async () => [] }) {   // never the machine's own gh
-  const roost = await extension.activate(base, options);
-  await roost.ready;
-  return roost;
+  const agenticWorks = await extension.activate(base, options);
+  await agenticWorks.ready;
+  return agenticWorks;
 }
 const activated = () => fake.calls.filter((c) => c[0] === 'activate').map((c) => c[1]);
 const tick = () => new Promise((r) => setImmediate(r));
 /** `p`, or 'timed out' if it has not settled within `ms`. */
 const within = (p, ms = 1000) => Promise.race([p, new Promise((r) => setTimeout(() => r('timed out'), ms))]);
-// Fires a change of roost.<id>.enabled and lets the start or stop it causes finish.
+// Fires a change of agenticWorks.<id>.enabled and lets the start or stop it causes finish.
 async function setEnabled(ui, id, on) {
-  ui.config[`roost.${id}.enabled`] = on;
-  ui.changeConfig([`roost.${id}.enabled`]);
+  ui.config[`agenticWorks.${id}.enabled`] = on;
+  ui.changeConfig([`agenticWorks.${id}.enabled`]);
   for (let i = 0; i < 5; i++) await tick();
 }
 
 test('enabled parts start, disabled do not', async () => {
-  const { ui, extension, base } = setup({ 'roost.teams.enabled': false });
-  const roost = await activate(extension, base);
+  const { ui, extension, base } = setup({ 'agenticWorks.teams.enabled': false });
+  const agenticWorks = await activate(extension, base);
   assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests']);
   assert.ok(fake.calls.every((c) => c[0] !== 'activate' || c[2] === undefined), 'no deps passed');
   assert.deepStrictEqual(ui.contexts, {
-    'roost.teams.failed': false,
-    'roost.jira.failed': false,
-    'roost.pullRequests.failed': false,
-    'roost.agents.failed': false,
-    'roost.company': false,
-    'roost.companyTools': false,
+    'agenticWorks.teams.failed': false,
+    'agenticWorks.jira.failed': false,
+    'agenticWorks.pullRequests.failed': false,
+    'agenticWorks.agents.failed': false,
+    'agenticWorks.company': false,
+    'agenticWorks.companyTools': false,
   });
-  assert.strictEqual(roost.state('teams'), 'off');
-  assert.strictEqual(roost.state('agents'), 'on');
+  assert.strictEqual(agenticWorks.state('teams'), 'off');
+  assert.strictEqual(agenticWorks.state('agents'), 'on');
   await extension.deactivate();
 });
 
-test('0.1.0\'s roost.perch.enabled still decides Agents until roost.agents.enabled is set', async () => {
-  let { extension, base } = setup({ 'roost.perch.enabled': false });
+test('0.1.0\'s agenticWorks.perch.enabled still decides Agents until agenticWorks.agents.enabled is set', async () => {
+  let { extension, base } = setup({ 'agenticWorks.perch.enabled': false });
   await activate(extension, base);
   assert.deepStrictEqual([...activated()].sort(), ['jira', 'pullRequests', 'teams'], 'Agents off, as Perch was');
   await extension.deactivate();
-  ({ extension, base } = setup({ 'roost.perch.enabled': false, 'roost.agents.enabled': true }));
+  ({ extension, base } = setup({ 'agenticWorks.perch.enabled': false, 'agenticWorks.agents.enabled': true }));
   await activate(extension, base);
   assert.ok(activated().includes('agents'), 'the new switch wins once set');
   await extension.deactivate();
 });
 
-test('roost.openSettings is registered with every part off and opens Roost\'s settings', async () => {
-  const { ui, extension, base } = setup({ 'roost.teams.enabled': false, 'roost.jira.enabled': false, 'roost.pullRequests.enabled': false, 'roost.agents.enabled': false });
+test('agenticWorks.openSettings is registered with every part off and opens Agentic Works\' settings', async () => {
+  const { ui, extension, base } = setup({ 'agenticWorks.teams.enabled': false, 'agenticWorks.jira.enabled': false, 'agenticWorks.pullRequests.enabled': false, 'agenticWorks.agents.enabled': false });
   await activate(extension, base);
   assert.deepStrictEqual(activated(), []);
   const opened = [];
   ui.commands['workbench.action.openSettings'] = (...a) => opened.push(a);
-  await ui.vscode.commands.executeCommand('roost.openSettings');
-  assert.deepStrictEqual(opened, [['@ext:seanahn.roost']]);
+  await ui.vscode.commands.executeCommand('agenticWorks.openSettings');
+  assert.deepStrictEqual(opened, [['@ext:agenticworks.agentic-works']]);
   await extension.deactivate();
 });
 
 test('every failed key is cleared before any part starts', async () => {
-  const { ui, extension, base } = setup({ 'roost.teams.enabled': false });
+  const { ui, extension, base } = setup({ 'agenticWorks.teams.enabled': false });
   ui.asyncSetContext = true;                          // applied later, in the order sent, as VS Code applies them
   let sentBefore = null;
   fake.parts.jira = { activate: () => { sentBefore = ui.sent.slice(); } };
@@ -140,18 +140,18 @@ test('every failed key is cleared before any part starts', async () => {
   await activate(extension, base);
   await ui.applied;
   assert.deepStrictEqual(sentBefore.filter(([k]) => k.endsWith('.failed')), [
-    ['roost.agents.failed', false],
-    ['roost.jira.failed', false],
-    ['roost.pullRequests.failed', false],
-    ['roost.teams.failed', false],
+    ['agenticWorks.agents.failed', false],
+    ['agenticWorks.jira.failed', false],
+    ['agenticWorks.pullRequests.failed', false],
+    ['agenticWorks.teams.failed', false],
   ], 'every key false is sent before the first part starts (a key left from before an extension host restart)');
   assert.deepStrictEqual(ui.contexts, {
-    'roost.teams.failed': false,
-    'roost.jira.failed': false,
-    'roost.pullRequests.failed': true,
-    'roost.agents.failed': false,
-    'roost.company': false,
-    'roost.companyTools': false,
+    'agenticWorks.teams.failed': false,
+    'agenticWorks.jira.failed': false,
+    'agenticWorks.pullRequests.failed': true,
+    'agenticWorks.agents.failed': false,
+    'agenticWorks.company': false,
+    'agenticWorks.companyTools': false,
   }, 'and none of those lands after its part was marked failed');
   await extension.deactivate();
 });
@@ -159,21 +159,21 @@ test('every failed key is cleared before any part starts', async () => {
 test('a context key that cannot be set is logged', async () => {
   const { ui, extension, base } = setup();
   ui.failSetContext = 1;
-  const roost = await activate(extension, base);
+  const agenticWorks = await activate(extension, base);
   assert.ok(ui.out.some((l) => l.includes('setContext failed')));
-  for (const id of ['agents', 'jira', 'pullRequests', 'teams']) assert.strictEqual(roost.state(id), 'on', id);
+  for (const id of ['agents', 'jira', 'pullRequests', 'teams']) assert.strictEqual(agenticWorks.state(id), 'on', id);
   await extension.deactivate();
 });
 
 test('switching a part off or on sets no context key: the setting gates its views', async () => {
   const { ui, extension, base } = setup();
-  const roost = await activate(extension, base);
+  const agenticWorks = await activate(extension, base);
   ui.sent.length = 0;
   await setEnabled(ui, 'agents', false);
-  assert.strictEqual(roost.state('agents'), 'off');
+  assert.strictEqual(agenticWorks.state('agents'), 'off');
   assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'agents'));
   await setEnabled(ui, 'agents', true);
-  assert.strictEqual(roost.state('agents'), 'on');
+  assert.strictEqual(agenticWorks.state('agents'), 'on');
   assert.deepStrictEqual(ui.sent, []);
   await extension.deactivate();
 });
@@ -199,10 +199,10 @@ test('a part that throws after registering its own serializer still fails cleanl
       throw new Error('boom');
     },
   };
-  const roost = await activate(extension, base);
-  assert.strictEqual(roost.state('jira'), 'failed');
-  assert.strictEqual(ui.contexts['roost.jira.failed'], true);
-  assert.deepStrictEqual(ui.errors, [{ message: 'Roost: Jira & Confluence could not start.', items: ['Show Log'] }]);
+  const agenticWorks = await activate(extension, base);
+  assert.strictEqual(agenticWorks.state('jira'), 'failed');
+  assert.strictEqual(ui.contexts['agenticWorks.jira.failed'], true);
+  assert.deepStrictEqual(ui.errors, [{ message: 'Agentic Works: Jira & Confluence could not start.', items: ['Show Log'] }]);
   assert.strictEqual(ui.restorePanel('jay.ticket').disposed, true, 'its leftover serializer is removed, so its tabs close too');
   assert.strictEqual(ui.restorePanel('jay.page').disposed, true, 'its other type is still closed while it is off');
   assert.ok(!ui.out.some((l) => l.includes('cannot be closed')), JSON.stringify(ui.out));
@@ -219,21 +219,21 @@ test('a part that left a serializer outside its subscriptions can be retried', a
       if (fail) throw new Error('boom');
     },
   };
-  const roost = await activate(extension, base);
-  assert.strictEqual(roost.state('jira'), 'failed');
+  const agenticWorks = await activate(extension, base);
+  assert.strictEqual(agenticWorks.state('jira'), 'failed');
   fail = false;
   await setEnabled(ui, 'jira', false);
   await setEnabled(ui, 'jira', true);
-  assert.strictEqual(roost.state('jira'), 'on', ui.out.join('\n'));
-  assert.strictEqual(ui.contexts['roost.jira.failed'], false);
+  assert.strictEqual(agenticWorks.state('jira'), 'on', ui.out.join('\n'));
+  assert.strictEqual(ui.contexts['agenticWorks.jira.failed'], false);
   assert.strictEqual(ui.restorePanel('jay.ticket').restoredBy, 'jay');
   // a normal stop removes it too, and the part starts again
   await setEnabled(ui, 'jira', false);
   assert.strictEqual(ui.restorePanel('jay.ticket').disposed, true, 'closed while off');
   await setEnabled(ui, 'jira', true);
-  assert.strictEqual(roost.state('jira'), 'on', ui.out.join('\n'));
+  assert.strictEqual(agenticWorks.state('jira'), 'on', ui.out.join('\n'));
   await extension.deactivate();
-  assert.deepStrictEqual(Object.keys(ui.serializers), [], 'none left once Roost stops');
+  assert.deepStrictEqual(Object.keys(ui.serializers), [], 'none left once Agentic Works stops');
   assert.strictEqual(ui.vscode.window.registerWebviewPanelSerializer, original, "VS Code's own function is put back");
 });
 
@@ -290,27 +290,27 @@ test('a throwing part leaves the others running', async () => {
   const { ui, extension, base } = setup();
   let fail = true;
   fake.parts.jira = { activate: async () => { if (fail) throw new Error('boom'); } };
-  const roost = await activate(extension, base);
+  const agenticWorks = await activate(extension, base);
   assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams']);
-  assert.strictEqual(roost.state('jira'), 'failed');
-  for (const id of ['agents', 'pullRequests', 'teams']) assert.strictEqual(roost.state(id), 'on', id);
-  assert.strictEqual(ui.contexts['roost.jira.failed'], true);
-  assert.deepStrictEqual(ui.errors, [{ message: 'Roost: Jira & Confluence could not start.', items: ['Show Log'] }]);
-  assert.ok(ui.out.some((l) => l.includes('boom')), 'error in the Roost output channel');
+  assert.strictEqual(agenticWorks.state('jira'), 'failed');
+  for (const id of ['agents', 'pullRequests', 'teams']) assert.strictEqual(agenticWorks.state(id), 'on', id);
+  assert.strictEqual(ui.contexts['agenticWorks.jira.failed'], true);
+  assert.deepStrictEqual(ui.errors, [{ message: 'Agentic Works: Jira & Confluence could not start.', items: ['Show Log'] }]);
+  assert.ok(ui.out.some((l) => l.includes('boom')), 'error in the Agentic Works output channel');
 
   fail = false;
   await setEnabled(ui, 'jira', false);
-  assert.strictEqual(roost.state('jira'), 'off');
-  assert.strictEqual(ui.contexts['roost.jira.failed'], true, 'off but failed: still marked until it starts');
+  assert.strictEqual(agenticWorks.state('jira'), 'off');
+  assert.strictEqual(ui.contexts['agenticWorks.jira.failed'], true, 'off but failed: still marked until it starts');
   await setEnabled(ui, 'jira', true);
   assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams', 'jira']);
-  assert.strictEqual(roost.state('jira'), 'on');
-  assert.strictEqual(ui.contexts['roost.jira.failed'], false);
+  assert.strictEqual(agenticWorks.state('jira'), 'on');
+  assert.strictEqual(ui.contexts['agenticWorks.jira.failed'], false);
   assert.strictEqual(ui.errors.length, 1);
   await extension.deactivate();
 });
 
-test('"Show Log" shows the Roost output channel', async () => {
+test('"Show Log" shows the Agentic Works output channel', async () => {
   const { ui, extension, base } = setup();
   ui.errorChoice = 'Show Log';
   fake.parts.pullRequests = { activate: () => { throw new Error('nope'); } };
@@ -334,19 +334,19 @@ test('off then on registers cleanly and leaves no timer', async () => {
         c.subscriptions.push({ dispose: () => clearInterval(t) });
       },
     };
-    const roost = await activate(extension, base);
+    const agenticWorks = await activate(extension, base);
     assert.ok(ui.commands['chirp.refresh']);
     assert.strictEqual(live.size, 1);
 
     await setEnabled(ui, 'teams', false);
-    assert.strictEqual(roost.state('teams'), 'off');
+    assert.strictEqual(agenticWorks.state('teams'), 'off');
     assert.strictEqual(live.size, 0, 'timer cleared');
     assert.strictEqual(ui.commands['chirp.refresh'], undefined, 'command unregistered');
-    assert.strictEqual(ui.contexts['roost.teams.failed'], false);
+    assert.strictEqual(ui.contexts['agenticWorks.teams.failed'], false);
     assert.ok(fake.calls.some((c) => c[0] === 'deactivate' && c[1] === 'teams'));
 
     await setEnabled(ui, 'teams', true);
-    assert.strictEqual(roost.state('teams'), 'on');
+    assert.strictEqual(agenticWorks.state('teams'), 'on');
     assert.deepStrictEqual(ui.errors, [], 'no duplicate-command error');
     assert.ok(ui.commands['chirp.refresh']);
     await extension.deactivate();
@@ -368,14 +368,14 @@ test('stop survives a throwing dispose', async () => {
     },
     deactivate: () => { throw new Error('bad deactivate'); },
   };
-  const roost = await activate(extension, base);
-  await roost.stop('pullRequests');
-  assert.strictEqual(roost.state('pullRequests'), 'off');
+  const agenticWorks = await activate(extension, base);
+  await agenticWorks.stop('pullRequests');
+  assert.strictEqual(agenticWorks.state('pullRequests'), 'off');
   assert.deepStrictEqual(disposed.sort(), ['a', 'c']);
-  assert.strictEqual(ui.contexts['roost.pullRequests.failed'], false);
+  assert.strictEqual(ui.contexts['agenticWorks.pullRequests.failed'], false);
   assert.ok(ui.out.some((l) => l.includes('bad dispose')));
-  await roost.start('pullRequests');
-  assert.strictEqual(roost.state('pullRequests'), 'on');
+  await agenticWorks.start('pullRequests');
+  assert.strictEqual(agenticWorks.state('pullRequests'), 'on');
   await extension.deactivate();
 });
 
@@ -383,28 +383,28 @@ test('switching Agents off mid-turn asks first', async () => {
   const { ui, extension, base } = setup();
   let answer = false;
   fake.parts.agents = { confirmStop: async () => answer };
-  const roost = await activate(extension, base);
+  const agenticWorks = await activate(extension, base);
   const asked = () => fake.calls.filter((c) => c[0] === 'confirmStop').map((c) => c[1]);
 
-  ui.inspect['roost.agents.enabled'] = { defaultValue: true, globalValue: true, workspaceValue: false };   // switched off for this workspace
+  ui.inspect['agenticWorks.agents.enabled'] = { defaultValue: true, globalValue: true, workspaceValue: false };   // switched off for this workspace
   await setEnabled(ui, 'agents', false);
   assert.deepStrictEqual(asked(), ['agents']);
-  assert.strictEqual(roost.state('agents'), 'on', 'cancelled: still on');
-  assert.deepStrictEqual(ui.updates, [['roost.agents.enabled', undefined, 2]], 'the switch is put back, in the workspace: its value there removed, as the user setting is on');
-  assert.strictEqual(ui.contexts['roost.agents.failed'], false);
+  assert.strictEqual(agenticWorks.state('agents'), 'on', 'cancelled: still on');
+  assert.deepStrictEqual(ui.updates, [['agenticWorks.agents.enabled', undefined, 2]], 'the switch is put back, in the workspace: its value there removed, as the user setting is on');
+  assert.strictEqual(ui.contexts['agenticWorks.agents.failed'], false);
   assert.ok(!fake.calls.some((c) => c[0] === 'deactivate'), 'not stopped');
   assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams'], 'and not started a second time');
 
   answer = true;
   await setEnabled(ui, 'agents', false);
-  assert.strictEqual(roost.state('agents'), 'off');
-  assert.strictEqual(ui.contexts['roost.agents.failed'], false);
+  assert.strictEqual(agenticWorks.state('agents'), 'off');
+  assert.strictEqual(ui.contexts['agenticWorks.agents.failed'], false);
   assert.strictEqual(ui.updates.length, 1, 'nothing written back');
 
   await setEnabled(ui, 'agents', true);
   await extension.deactivate();                       // the window closing: nothing is asked
   assert.deepStrictEqual(asked(), ['agents', 'agents']);
-  assert.strictEqual(roost.state('agents'), 'off');
+  assert.strictEqual(agenticWorks.state('agents'), 'off');
 });
 
 test('the switch is put back as it was at that scope', async () => {
@@ -412,13 +412,13 @@ test('the switch is put back as it was at that scope', async () => {
   fake.parts.agents = { confirmStop: async () => false };
   await activate(extension, base);
   const cases = [
-    [{ defaultValue: true, globalValue: false }, ['roost.agents.enabled', undefined, 1], 'user setting off: removed, the default is on'],
-    [{ defaultValue: true, globalValue: false, workspaceValue: false }, ['roost.agents.enabled', true, 2], 'off for the user too: true in the workspace'],
-    [{ defaultValue: false }, ['roost.agents.enabled', true, 1], 'a default that is off: true for the user'],
+    [{ defaultValue: true, globalValue: false }, ['agenticWorks.agents.enabled', undefined, 1], 'user setting off: removed, the default is on'],
+    [{ defaultValue: true, globalValue: false, workspaceValue: false }, ['agenticWorks.agents.enabled', true, 2], 'off for the user too: true in the workspace'],
+    [{ defaultValue: false }, ['agenticWorks.agents.enabled', true, 1], 'a default that is off: true for the user'],
   ];
   for (const [inspect, want, why] of cases) {
     ui.updates.length = 0;
-    ui.inspect['roost.agents.enabled'] = inspect;
+    ui.inspect['agenticWorks.agents.enabled'] = inspect;
     await setEnabled(ui, 'agents', false);
     assert.deepStrictEqual(ui.updates, [want], why);
   }
@@ -428,15 +428,15 @@ test('the switch is put back as it was at that scope', async () => {
 test("a confirmStop that throws does not keep the part on", async () => {
   const { ui, extension, base } = setup();
   fake.parts.agents = { confirmStop: async () => { throw new Error('no dialog'); } };
-  const roost = await activate(extension, base);
+  const agenticWorks = await activate(extension, base);
   await setEnabled(ui, 'agents', false);
-  assert.strictEqual(roost.state('agents'), 'off');
+  assert.strictEqual(agenticWorks.state('agents'), 'off');
   assert.ok(ui.out.some((l) => l.includes('no dialog')));
   await extension.deactivate();
 });
 
 test("off part's restored panel is closed", async () => {
-  const { ui, extension, base } = setup({ 'roost.jira.enabled': false });
+  const { ui, extension, base } = setup({ 'agenticWorks.jira.enabled': false });
   fake.parts.jira = {
     activate: (c) => {
       for (const t of ['jay.ticket', 'jay.page']) {
@@ -444,12 +444,12 @@ test("off part's restored panel is closed", async () => {
       }
     },
   };
-  const roost = await activate(extension, base);
+  const agenticWorks = await activate(extension, base);
   for (const t of ['jay.ticket', 'jay.page']) assert.strictEqual(ui.restorePanel(t).disposed, true, `${t} closed while jira is off`);
   assert.deepStrictEqual(Object.keys(ui.serializers).sort(), ['jay.page', 'jay.ticket'], 'only the off part has serializers');
 
   await setEnabled(ui, 'jira', true);
-  assert.strictEqual(roost.state('jira'), 'on');
+  assert.strictEqual(agenticWorks.state('jira'), 'on');
   assert.deepStrictEqual(ui.errors, [], 'no duplicate-serializer error');
   const p = ui.restorePanel('jay.ticket');
   assert.deepStrictEqual([p.disposed, p.restoredBy], [false, 'jay'], 'the part restores its own tabs once on');
@@ -457,9 +457,9 @@ test("off part's restored panel is closed", async () => {
   await setEnabled(ui, 'jira', false);
   assert.strictEqual(ui.restorePanel('jay.page').disposed, true, 'closed again once off');
   await setEnabled(ui, 'jira', true);
-  assert.strictEqual(roost.state('jira'), 'on');
+  assert.strictEqual(agenticWorks.state('jira'), 'on');
   await extension.deactivate();
-  assert.deepStrictEqual(Object.keys(ui.serializers), [], 'none left once Roost stops');
+  assert.deepStrictEqual(Object.keys(ui.serializers), [], 'none left once Agentic Works stops');
 });
 
 test("a part that fails to start closes its restored panels", async () => {
@@ -470,31 +470,31 @@ test("a part that fails to start closes its restored panels", async () => {
       throw new Error('boom');
     },
   };
-  const roost = await activate(extension, base);
-  assert.strictEqual(roost.state('jira'), 'failed');
+  const agenticWorks = await activate(extension, base);
+  assert.strictEqual(agenticWorks.state('jira'), 'failed');
   assert.strictEqual(ui.restorePanel('jay.ticket').disposed, true);
   assert.strictEqual(ui.restorePanel('jay.page').disposed, true);
   await extension.deactivate();
 });
 
-test('a setting change after Roost has stopped starts nothing', async () => {
-  const { ui, extension, base } = setup({ 'roost.pullRequests.enabled': false });
-  const roost = await activate(extension, base);
+test('a setting change after Agentic Works has stopped starts nothing', async () => {
+  const { ui, extension, base } = setup({ 'agenticWorks.pullRequests.enabled': false });
+  const agenticWorks = await activate(extension, base);
   await extension.deactivate();
   const n = activated().length;
   await setEnabled(ui, 'pullRequests', true);
   assert.strictEqual(activated().length, n);
-  assert.strictEqual(roost.state('pullRequests'), 'off');
+  assert.strictEqual(agenticWorks.state('pullRequests'), 'off');
 });
 
-test('a part whose activate never ends blocks neither Roost nor the others', async () => {
+test('a part whose activate never ends blocks neither Agentic Works nor the others', async () => {
   const { extension, base } = setup();
   fake.parts.teams = { activate: () => new Promise(() => {}) };
-  const roost = await within(extension.activate(base, { ghLogins: async () => [] }));
-  assert.notStrictEqual(roost, 'timed out', "Roost's activate returned");
+  const agenticWorks = await within(extension.activate(base, { ghLogins: async () => [] }));
+  assert.notStrictEqual(agenticWorks, 'timed out', "Agentic Works' activate returned");
   for (let i = 0; i < 10; i++) await tick();
   assert.deepStrictEqual(activated(), ['agents', 'jira', 'pullRequests', 'teams']);
-  for (const id of ['agents', 'jira', 'pullRequests']) assert.strictEqual(roost.state(id), 'on', id);
+  for (const id of ['agents', 'jira', 'pullRequests']) assert.strictEqual(agenticWorks.state(id), 'on', id);
 });
 
 test('a failed start or stop does not block later ones', async () => {
@@ -505,17 +505,17 @@ test('a failed start or stop does not block later ones', async () => {
   try {
     let answer = false;
     fake.parts.pullRequests = { confirmStop: async () => answer };
-    const roost = await activate(extension, base);
+    const agenticWorks = await activate(extension, base);
     ui.failUpdate = 'settings are read-only';
     await setEnabled(ui, 'pullRequests', false);               // its stop rejects: the switch cannot be put back
-    assert.ok(ui.out.some((l) => l.includes('settings are read-only')), 'the failure is in the Roost output channel');
+    assert.ok(ui.out.some((l) => l.includes('settings are read-only')), 'the failure is in the Agentic Works output channel');
     ui.failUpdate = null; answer = true;
     await setEnabled(ui, 'pullRequests', true);
     await setEnabled(ui, 'pullRequests', false);               // and the next stop still runs
-    assert.strictEqual(roost.state('pullRequests'), 'off');
-    assert.strictEqual(ui.contexts['roost.pullRequests.failed'], false);
+    assert.strictEqual(agenticWorks.state('pullRequests'), 'off');
+    assert.strictEqual(ui.contexts['agenticWorks.pullRequests.failed'], false);
     await setEnabled(ui, 'pullRequests', true);
-    assert.strictEqual(roost.state('pullRequests'), 'on');
+    assert.strictEqual(agenticWorks.state('pullRequests'), 'on');
     await tick();
     assert.deepStrictEqual(unhandled, [], 'no unhandled rejection');
     await extension.deactivate();
@@ -538,23 +538,23 @@ function firstStartSetup(config) {
   env.ui.commands['workbench.view.extension.kestrel'] = () => { env.order.push('prs'); prs(); };
   env.walkthroughs = [];
   env.ui.commands['workbench.action.openWalkthrough'] = (...a) => { env.order.push('walkthrough'); env.walkthroughs.push(a); };
-  // the Get started page: a roost.getStarted panel
-  env.pages = () => env.ui.panels.filter((p) => p.viewType === 'roost.getStarted');
+  // the Get started page: a agenticWorks.getStarted panel
+  env.pages = () => env.ui.panels.filter((p) => p.viewType === 'agenticWorks.getStarted');
   const create = env.ui.vscode.window.createWebviewPanel;
-  env.ui.vscode.window.createWebviewPanel = (type, ...a) => { if (type === 'roost.getStarted') env.order.push('page'); return create(type, ...a); };
+  env.ui.vscode.window.createWebviewPanel = (type, ...a) => { if (type === 'agenticWorks.getStarted') env.order.push('page'); return create(type, ...a); };
   return env;
 }
 async function activateFirst(env) {
-  const roost = await env.extension.activate(env.base, { ghLogins: async () => [] });
-  await roost.firstStarted;
-  return roost;
+  const agenticWorks = await env.extension.activate(env.base, { ghLogins: async () => [] });
+  await agenticWorks.firstStarted;
+  return agenticWorks;
 }
 
 test('first start: PRs on opens the PRs tab once and records it', async () => {
   const env = firstStartSetup({});
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 1);
-  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  assert.strictEqual(env.store.get('agenticWorks.firstStart.done'), true);
   await env.extension.deactivate();
   env.base.subscriptions.splice(0).forEach((d) => d.dispose());
   env.ui.commands = { 'workbench.view.extension.kestrel': env.ui.commands['workbench.view.extension.kestrel'], 'workbench.action.openWalkthrough': env.ui.commands['workbench.action.openWalkthrough'] };
@@ -573,7 +573,7 @@ test('a later start with every step done or Not Now opens nothing', async () => 
   await env.extension.deactivate();
   env.base.subscriptions.splice(0).forEach((d) => d.dispose());
   const all = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
-  env.store.set('roost.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));
+  env.store.set('agenticWorks.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));
   env.order = [];
   env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
   await activateFirst(env);
@@ -587,7 +587,7 @@ test('a later start with one step left opens Get started and the Perch view', as
   await env.extension.deactivate();
   env.base.subscriptions.splice(0).forEach((d) => d.dispose());
   const all = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase'];
-  env.store.set('roost.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));   // parts left
+  env.store.set('agenticWorks.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));   // parts left
   env.order = [];
   env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
   await activateFirst(env);
@@ -596,11 +596,11 @@ test('a later start with one step left opens Get started and the Perch view', as
 });
 
 test('first start: PRs off opens nothing and still records', async () => {
-  const env = firstStartSetup({ 'roost.pullRequests.enabled': false });
+  const env = firstStartSetup({ 'agenticWorks.pullRequests.enabled': false });
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 0);
   assert.strictEqual(env.pages().length, 1, 'the Get started page still opens');
-  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  assert.strictEqual(env.store.get('agenticWorks.firstStart.done'), true);
   await env.extension.deactivate();
 });
 
@@ -609,7 +609,7 @@ test('first start: a failing command is logged and still recorded', async () => 
   env.ui.commands['workbench.view.extension.kestrel'] = () => { throw new Error('no such view'); };
   await activateFirst(env);
   assert.ok(env.ui.out.some((l) => l.includes('PRs tab') && l.includes('no such view')));
-  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  assert.strictEqual(env.store.get('agenticWorks.firstStart.done'), true);
   await env.extension.deactivate();
 });
 
@@ -618,7 +618,7 @@ test('first start: the PRs tab, the Get started page in the editor, then the Per
   await activateFirst(env);
   assert.deepStrictEqual(env.order, ['prs', 'page', 'perch']);
   await env.extension.deactivate();
-  env = firstStartSetup({ 'roost.agents.enabled': false });
+  env = firstStartSetup({ 'agenticWorks.agents.enabled': false });
   await activateFirst(env);
   assert.deepStrictEqual(env.order, ['prs', 'page']);
   await env.extension.deactivate();
@@ -627,7 +627,7 @@ test('first start: the PRs tab, the Get started page in the editor, then the Per
   await activateFirst(env);
   assert.ok(env.ui.out.some((l) => l.includes('Perch view') && l.includes('no perch')));
   assert.deepStrictEqual(env.order, ['prs', 'page'], 'the rest still opens');
-  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  assert.strictEqual(env.store.get('agenticWorks.firstStart.done'), true);
   await env.extension.deactivate();
 });
 
@@ -637,25 +637,25 @@ test('first start: a Get started page that fails to open is logged and still rec
   await activateFirst(env);
   assert.strictEqual(env.opened.length, 1, 'the PRs tab opened first');
   assert.ok(env.ui.out.some((l) => l.includes('its Get started page') && l.includes('no page')), env.ui.out.join('\n'));
-  assert.strictEqual(env.store.get('roost.firstStart.done'), true);
+  assert.strictEqual(env.store.get('agenticWorks.firstStart.done'), true);
   await env.extension.deactivate();
 });
 
-test('Roost: Get Started opens the Get started page; Roost: Sign In to GitHub signs in without a terminal, the code in a notification', async () => {
+test('Agentic Works: Get Started opens the Get started page; Agentic Works: Sign In to GitHub signs in without a terminal, the code in a notification', async () => {
   const { ui, extension, base } = setup({});
   const gh = fakeSpawn();
   await (await activate(extension, base, { ghLogins: async () => [], spawnGh: gh.spawn })).firstStarted;   // its own page opened first
   ui.panels.forEach((p) => p.dispose());
   const opened = [];
   ui.commands['workbench.action.openWalkthrough'] = (...a) => opened.push(a);
-  await ui.vscode.commands.executeCommand('roost.getStarted');
+  await ui.vscode.commands.executeCommand('agenticWorks.getStarted');
   assert.deepStrictEqual(opened, [], 'not the walkthrough');
-  assert.deepStrictEqual(ui.panels.filter((p) => !p.disposed).map((p) => [p.viewType, p.title]), [['roost.getStarted', 'Get started']]);
+  assert.deepStrictEqual(ui.panels.filter((p) => !p.disposed).map((p) => [p.viewType, p.title]), [['agenticWorks.getStarted', 'Get started']]);
   const refreshed = [];
   ui.commands['kestrel.refresh'] = () => { refreshed.push(1); };
   ui.infos = [];
   ui.infoChoice = (m, items) => (items.includes('Copy Code & Open GitHub') ? 'Copy Code & Open GitHub' : undefined);
-  const command = ui.vscode.commands.executeCommand('roost.githubSignIn');
+  const command = ui.vscode.commands.executeCommand('agenticWorks.githubSignIn');
   await tick();
   assert.deepStrictEqual(gh.calls.map((c) => c.args), [LOGIN_ARGS]);
   assert.deepStrictEqual(ui.terminals || [], [], 'no terminal');
@@ -672,7 +672,7 @@ test('Roost: Get Started opens the Get started page; Roost: Sign In to GitHub si
   assert.ok(ui.infos.includes('Signed in to GitHub.'));
   // the PRs part off: kestrel.refresh is not found, and that is ignored; a failure is said as an error
   delete ui.commands['kestrel.refresh'];
-  const again = ui.vscode.commands.executeCommand('roost.githubSignIn');
+  const again = ui.vscode.commands.executeCommand('agenticWorks.githubSignIn');
   await tick();
   gh.calls[2].child.err('error: access_denied\n');
   gh.calls[2].child.exit(1);
@@ -681,7 +681,7 @@ test('Roost: Get Started opens the Get started page; Roost: Sign In to GitHub si
   // Cancel in the notification stops gh, and nothing more is said
   ui.infoChoice = (m, items) => (items.includes('Cancel') ? 'Cancel' : undefined);
   const errors = ui.errors.length, infos = ui.infos.length;
-  const cancelled = ui.vscode.commands.executeCommand('roost.githubSignIn');
+  const cancelled = ui.vscode.commands.executeCommand('agenticWorks.githubSignIn');
   await tick();
   gh.calls[3].child.err(CODE_TEXT);
   await within(cancelled);
@@ -690,41 +690,41 @@ test('Roost: Get Started opens the Get started page; Roost: Sign In to GitHub si
   await extension.deactivate();
 });
 
-test('Roost: Sign In to GitHub, already signed in: says who, opens no terminal unless another account is asked for', async () => {
+test('Agentic Works: Sign In to GitHub, already signed in: says who, opens no terminal unless another account is asked for', async () => {
   const { ui, extension, base } = setup({});
   await (await activate(extension, base, { ghLogins: async () => ['octocat'] })).firstStarted;
   ui.infos = [];
-  await ui.vscode.commands.executeCommand('roost.githubSignIn');
+  await ui.vscode.commands.executeCommand('agenticWorks.githubSignIn');
   assert.ok(ui.infos.some((m) => m.includes('signed in as octocat')), 'says who is signed in');
   assert.strictEqual((ui.terminals || []).length, 0, 'no sign-in terminal');
   assert.ok(!ui.infos.some((m) => m.includes('code')), 'and no sign-in');
   await extension.deactivate();
 });
 
-test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never off; Not Now does nothing; so does Connect Claude\'s Not Now', async () => {
+test('Agentic Works: Turn On Codebase Search turns it on through Perch\'s toggle, never off; Not Now does nothing; so does Connect Claude\'s Not Now', async () => {
   const { ui, extension, base } = setup({});
   await (await activate(extension, base)).firstStarted;
   const toggled = [];
   ui.commands['perch.codebaseIndex.toggle'] = () => toggled.push(1);
-  await ui.vscode.commands.executeCommand('roost.codebaseSearchOn');
+  await ui.vscode.commands.executeCommand('agenticWorks.codebaseSearchOn');
   assert.strictEqual(toggled.length, 1, 'off: turned on');
   ui.config['agents.codebaseIndex.enabled'] = true;
-  await ui.vscode.commands.executeCommand('roost.codebaseSearchOn');
+  await ui.vscode.commands.executeCommand('agenticWorks.codebaseSearchOn');
   assert.strictEqual(toggled.length, 1, 'already on: not toggled off');
-  await ui.vscode.commands.executeCommand('roost.codebaseSearchNotNow');
+  await ui.vscode.commands.executeCommand('agenticWorks.codebaseSearchNotNow');
   assert.strictEqual(toggled.length, 1);
-  await ui.vscode.commands.executeCommand('roost.connectClaudeNotNow');   // Connect Claude's Not Now: registered, and does nothing
-  await assert.rejects(() => ui.vscode.commands.executeCommand('roost.gatewayNotNow'), /not found|gatewayNotNow/, 'the gateway step\'s Not Now is gone');
+  await ui.vscode.commands.executeCommand('agenticWorks.connectClaudeNotNow');   // Connect Claude's Not Now: registered, and does nothing
+  await assert.rejects(() => ui.vscode.commands.executeCommand('agenticWorks.gatewayNotNow'), /not found|gatewayNotNow/, 'the gateway step\'s Not Now is gone');
   assert.strictEqual(toggled.length, 1);
   const opened = [];
   ui.commands['perch.open'] = () => opened.push(1);
-  await ui.vscode.commands.executeCommand('roost.goToClaude');
+  await ui.vscode.commands.executeCommand('agenticWorks.goToClaude');
   assert.strictEqual(opened.length, 1, 'Go to Your Agent Tab is Agents: Open');
   const made = [];
   ui.commands['perch.newClaude'] = () => made.push('claude');
   ui.commands['perch.newCodex'] = () => made.push('codex');
-  await ui.vscode.commands.executeCommand('roost.newClaudeTab');
-  await ui.vscode.commands.executeCommand('roost.newCodexTab');
+  await ui.vscode.commands.executeCommand('agenticWorks.newClaudeTab');
+  await ui.vscode.commands.executeCommand('agenticWorks.newCodexTab');
   assert.deepStrictEqual(made, ['claude', 'codex'], 'the step opens either agent');
   await extension.deactivate();
 });
@@ -732,9 +732,9 @@ test('Roost: Turn On Codebase Search turns it on through Perch\'s toggle, never 
 test('first start: does not hold up activation or the parts', async () => {
   const env = firstStartSetup({});
   env.ui.commands['workbench.view.extension.kestrel'] = () => new Promise(() => {});
-  const roost = await within(env.extension.activate(env.base, { ghLogins: async () => [] }));
-  assert.notStrictEqual(roost, 'timed out');
-  assert.strictEqual(await within(roost.ready), undefined, 'the parts start');
+  const agenticWorks = await within(env.extension.activate(env.base, { ghLogins: async () => [] }));
+  assert.notStrictEqual(agenticWorks, 'timed out');
+  assert.strictEqual(await within(agenticWorks.ready), undefined, 'the parts start');
   await env.extension.deactivate();
 });
 
@@ -743,31 +743,31 @@ function withCompanyFile(content) {
   const env = setup();
   const file = path.join(env.root, 'company.json');
   fs.writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content));
-  process.env.ROOST_COMPANY_FILE = file;
+  process.env.AGENTIC_WORKS_COMPANY_FILE = file;
   return { ...env, file };
 }
 
-test('roost.company and roost.companyTools follow the company file', async () => {
+test('agenticWorks.company and agenticWorks.companyTools follow the company file', async () => {
   let env = withCompanyFile(COMPANY);
-  let roost = await activate(env.extension, env.base);
-  assert.strictEqual(env.ui.contexts['roost.company'], true);
-  assert.strictEqual(env.ui.contexts['roost.companyTools'], true);
-  assert.strictEqual(roost.company.ok, true);
-  assert.strictEqual(roost.company.company.name, 'Example Co');
+  let agenticWorks = await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['agenticWorks.company'], true);
+  assert.strictEqual(env.ui.contexts['agenticWorks.companyTools'], true);
+  assert.strictEqual(agenticWorks.company.ok, true);
+  assert.strictEqual(agenticWorks.company.company.name, 'Example Co');
   await env.extension.deactivate();
 
   env = withCompanyFile({ ...COMPANY, mcpServers: [] });
   await activate(env.extension, env.base);
-  assert.strictEqual(env.ui.contexts['roost.company'], true);
-  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  assert.strictEqual(env.ui.contexts['agenticWorks.company'], true);
+  assert.strictEqual(env.ui.contexts['agenticWorks.companyTools'], false);
   await env.extension.deactivate();
 });
 
 test('an invalid company file is logged once and both keys are false', async () => {
   const env = withCompanyFile({ name: '' });
   await activate(env.extension, env.base);
-  assert.strictEqual(env.ui.contexts['roost.company'], false);
-  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
+  assert.strictEqual(env.ui.contexts['agenticWorks.company'], false);
+  assert.strictEqual(env.ui.contexts['agenticWorks.companyTools'], false);
   const lines = env.ui.out.filter((l) => l.includes('not a valid company file'));
   assert.strictEqual(lines.length, 1, env.ui.out.join('\n'));
   assert.ok(lines[0].includes(env.file));
@@ -776,10 +776,10 @@ test('an invalid company file is logged once and both keys are false', async () 
 
 test('no company file: both keys false and nothing logged', async () => {
   const env = setup();
-  const roost = await activate(env.extension, env.base);
-  assert.strictEqual(env.ui.contexts['roost.company'], false);
-  assert.strictEqual(env.ui.contexts['roost.companyTools'], false);
-  assert.strictEqual(roost.company.missing, true);
+  const agenticWorks = await activate(env.extension, env.base);
+  assert.strictEqual(env.ui.contexts['agenticWorks.company'], false);
+  assert.strictEqual(env.ui.contexts['agenticWorks.companyTools'], false);
+  assert.strictEqual(agenticWorks.company.missing, true);
   assert.ok(!env.ui.out.some((l) => l.includes('not a valid company file')));
   await env.extension.deactivate();
 });
@@ -788,11 +788,11 @@ test('a company context key that cannot be set is logged', async () => {
   const env = withCompanyFile(COMPANY);
   env.ui.failSetContext = 100;
   await activate(env.extension, env.base);
-  assert.ok(env.ui.out.some((l) => l.includes('roost.company could not be set')), env.ui.out.join('\n'));
+  assert.ok(env.ui.out.some((l) => l.includes('agenticWorks.company could not be set')), env.ui.out.join('\n'));
   await env.extension.deactivate();
 });
 
-// Connect Your Tools: a fake Tools (makeTools, Roost's constructor option) whose rows follow the company file's servers
+// Connect Your Tools: a fake Tools (makeTools, Agentic Works' constructor option) whose rows follow the company file's servers
 const EXAMPLE = require('./fixtures/exampleCompany');
 const expandHome = (p) => (p === '~' ? os.homedir() : p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p);
 function fakeTools() {
@@ -831,26 +831,26 @@ async function toolsSetup(company = EXAMPLE, config = {}, saved = {}, gh = fakeS
   Object.assign(env.ui.config, config);
   // first start already recorded and every step done: the Get started page would open a panel of its own
   const allDone = Object.fromEntries(['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'].map((id) => [id, true]));
-  const state = { 'roost.firstStart.done': true, 'roost.getStarted.done': allDone, ...saved };
+  const state = { 'agenticWorks.firstStart.done': true, 'agenticWorks.getStarted.done': allDone, ...saved };
   env.base.globalState = { get: (k) => state[k], update: async () => {} };
   const fakes = fakeTools();
-  const roost = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [], spawnGh: gh.spawn });
-  await roost.ready;
-  await roost.firstStarted;
+  const agenticWorks = await env.extension.activate(env.base, { makeTools: fakes.makeTools, ghLogins: async () => [], spawnGh: gh.spawn });
+  await agenticWorks.ready;
+  await agenticWorks.firstStarted;
   env.gh = gh;
   const signIns = [];
   env.ui.commands['chirp.signIn'] = () => signIns.push('chirp');
   env.ui.commands['jay.signIn'] = () => signIns.push('jay');
-  return { ...env, roost, fakes, signIns, run: (id, ...a) => env.ui.vscode.commands.executeCommand(id, ...a) };
+  return { ...env, agenticWorks, fakes, signIns, run: (id, ...a) => env.ui.vscode.commands.executeCommand(id, ...a) };
 }
 
-test('Roost: Connect Your Tools opens one roost.tools panel, checks every row once, and sends the rows', async () => {
+test('Agentic Works: Connect Your Tools opens one agenticWorks.tools panel, checks every row once, and sends the rows', async () => {
   const s = await toolsSetup();
-  await s.run('roost.connectTools');
-  await s.run('roost.connectTools');
+  await s.run('agenticWorks.connectTools');
+  await s.run('agenticWorks.connectTools');
   assert.strictEqual(s.ui.panels.length, 1, 'one at a time');
   const [panel] = s.ui.panels;
-  assert.deepStrictEqual([panel.viewType, panel.title, panel.options.enableScripts], ['roost.tools', 'Connect Your Tools', true]);
+  assert.deepStrictEqual([panel.viewType, panel.title, panel.options.enableScripts], ['agenticWorks.tools', 'Connect Your Tools', true]);
   assert.strictEqual(panel.revealed, 1, 'the second time, the open one is shown');
   assert.match(panel.webview.html, /script-src 'nonce-[0-9a-f]+'/);
   assert.strictEqual(s.fakes.made.length, 1);
@@ -862,24 +862,24 @@ test('Roost: Connect Your Tools opens one roost.tools panel, checks every row on
   assert.deepStrictEqual(sent.rows.map((r) => r.id), ['docs', 'mail', 'tickets']);
   // the panel closed and opened again: a new panel, the same Tools, checked again
   panel.dispose();
-  await s.run('roost.connectTools');
+  await s.run('agenticWorks.connectTools');
   assert.strictEqual(s.ui.panels.length, 2);
   assert.strictEqual(s.fakes.made.length, 1);
   assert.deepStrictEqual(t.calls, [['checkAll'], ['checkAll']]);
   await s.extension.deactivate();
-  assert.ok(t.calls.some((c) => c[0] === 'dispose'), 'Tools disposed when Roost stops');
+  assert.ok(t.calls.some((c) => c[0] === 'dispose'), 'Tools disposed when Agentic Works stops');
 });
 
-test('roost.toolsConnected follows allConnected after each change', async () => {
+test('agenticWorks.toolsConnected follows allConnected after each change', async () => {
   const s = await toolsSetup();
-  await s.run('roost.connectTools');
+  await s.run('agenticWorks.connectTools');
   const [t] = s.fakes.made;
   t.set('docs', { state: 'connected' });
-  assert.strictEqual(s.ui.contexts['roost.toolsConnected'], false);
+  assert.strictEqual(s.ui.contexts['agenticWorks.toolsConnected'], false);
   t.set('mail', { state: 'connected' });
   t.set('tickets', { state: 'connected' });
   await tick();
-  assert.strictEqual(s.ui.contexts['roost.toolsConnected'], true);
+  assert.strictEqual(s.ui.contexts['agenticWorks.toolsConnected'], true);
   const [panel] = s.ui.panels;
   assert.strictEqual(panel.posted.filter((m) => m.type === 'rows').pop().rows.every((r) => r.state === 'connected'), true, 'each change sent to the page');
   await s.extension.deactivate();
@@ -887,7 +887,7 @@ test('roost.toolsConnected follows allConnected after each change', async () => 
 
 test('the page\'s messages: connect by kind, the token, the page, Copy code and open, Replace; no token sent back', async () => {
   const s = await toolsSetup();
-  await s.run('roost.connectTools');
+  await s.run('agenticWorks.connectTools');
   const [t] = s.fakes.made;
   const [panel] = s.ui.panels;
   t.calls.length = 0;
@@ -910,7 +910,7 @@ test('the page\'s messages: connect by kind, the token, the page, Copy code and 
   await panel.receive({ type: 'replace', id: 'tickets' });
   assert.deepStrictEqual(t.calls.pop(), ['replaceRegistration', 'tickets']);
   await panel.receive({ type: 'connect', id: 'nope' });   // a stale page: nothing happens, nothing thrown
-  // a download that needs GitHub's sign-in: the row's button runs Roost: Sign In to GitHub, and only then
+  // a download that needs GitHub's sign-in: the row's button runs Agentic Works: Sign In to GitHub, and only then
   await panel.receive({ type: 'githubSignIn', id: 'mail' });
   assert.strictEqual(s.gh.calls.length, 0, 'no action on the row: nothing');
   t.set('mail', { state: 'notConnected', reason: 'Sign in to GitHub first.', action: 'githubSignIn' });
@@ -923,7 +923,7 @@ test('the page\'s messages: connect by kind, the token, the page, Copy code and 
 
 test('a command sign-in runs in a terminal named after the server, argv shell-quoted, and its closed promise follows the terminal', async () => {
   const s = await toolsSetup();
-  await s.run('roost.connectTools');
+  await s.run('agenticWorks.connectTools');
   const [t] = s.fakes.made;
   await s.ui.panels[0].receive({ type: 'connect', id: 'tickets' });
   const listeners = s.ui.closeListeners();
@@ -948,12 +948,12 @@ test('a command sign-in runs in a terminal named after the server, argv shell-qu
 test('a command sign-in gets the address the email step saved in email.env, in its terminal\'s environment only', async () => {
   const company = { ...EXAMPLE, email: { domain: 'example.com', env: 'EXAMPLE_EMAIL' } };
   for (const [saved, want] of [
-    [{ 'roost.email': 'me.name@example.com' }, { EXAMPLE_EMAIL: 'me.name@example.com' }],
-    [{ 'roost.email': 'me@other.com' }, undefined],
+    [{ 'agenticWorks.email': 'me.name@example.com' }, { EXAMPLE_EMAIL: 'me.name@example.com' }],
+    [{ 'agenticWorks.email': 'me@other.com' }, undefined],
     [{}, undefined],
   ]) {
     const s = await toolsSetup(company, {}, saved);
-    await s.run('roost.connectTools');
+    await s.run('agenticWorks.connectTools');
     const [t] = s.fakes.made;
     await s.ui.panels[0].receive({ type: 'connect', id: 'tickets' });
     t.runInTerminal(['/opt/t/login']);
@@ -964,18 +964,18 @@ test('a command sign-in gets the address the email step saved in email.env, in i
     await s.extension.deactivate();
   }
   // no email.env: nothing passed
-  const s = await toolsSetup({ ...EXAMPLE, email: { domain: 'example.com' } }, {}, { 'roost.email': 'me.name@example.com' });
-  await s.run('roost.connectTools');
+  const s = await toolsSetup({ ...EXAMPLE, email: { domain: 'example.com' } }, {}, { 'agenticWorks.email': 'me.name@example.com' });
+  await s.run('agenticWorks.connectTools');
   await s.ui.panels[0].receive({ type: 'connect', id: 'tickets' });
   s.fakes.made[0].runInTerminal(['/opt/t/login']);
   assert.strictEqual(s.ui.terminals[0].env, undefined);
   await s.extension.deactivate();
 });
 
-test('no company tools: Roost: Connect Your Tools says so and opens nothing', async () => {
+test('no company tools: Agentic Works: Connect Your Tools says so and opens nothing', async () => {
   for (const company of [null, { ...EXAMPLE, mcpServers: [] }]) {
     const s = await toolsSetup(company);
-    await s.run('roost.connectTools');
+    await s.run('agenticWorks.connectTools');
     assert.deepStrictEqual(s.ui.panels, []);
     assert.deepStrictEqual(s.ui.infos, ['Your company file lists no tools.']);
     assert.deepStrictEqual(s.fakes.made, []);
@@ -983,9 +983,9 @@ test('no company tools: Roost: Connect Your Tools says so and opens nothing', as
   }
 });
 
-test('roost.teamsSignIn runs the tools row whose doneWhen file is teams.signIn.tokenFile, else chirp.signIn', async () => {
+test('agenticWorks.teamsSignIn runs the tools row whose doneWhen file is teams.signIn.tokenFile, else chirp.signIn', async () => {
   let s = await toolsSetup(EXAMPLE, { 'teams.signIn.tokenFile': '~/.example-token.json' });
-  await s.run('roost.teamsSignIn');
+  await s.run('agenticWorks.teamsSignIn');
   assert.strictEqual(s.ui.panels.length, 1, 'the panel opens');
   const [t] = s.fakes.made;
   assert.deepStrictEqual(t.calls, [['checkAll'], ['connectMcpTool', 'mail', 'function']], 'checked, then the mail row signs in');
@@ -993,9 +993,9 @@ test('roost.teamsSignIn runs the tools row whose doneWhen file is teams.signIn.t
   await s.extension.deactivate();
 
   s = await toolsSetup(EXAMPLE, { 'teams.signIn.tokenFile': '~/.example-token.json' });
-  await s.run('roost.connectTools');
+  await s.run('agenticWorks.connectTools');
   s.fakes.made[0].set('mail', { state: 'connected' });
-  await s.run('roost.teamsSignIn');
+  await s.run('agenticWorks.teamsSignIn');
   assert.deepStrictEqual(s.fakes.made[0].calls, [['checkAll']], 'already connected: shown, not signed in again');
   assert.deepStrictEqual(s.signIns, []);
   await s.extension.deactivate();
@@ -1006,39 +1006,39 @@ test('roost.teamsSignIn runs the tools row whose doneWhen file is teams.signIn.t
     [EXAMPLE, { 'teams.signIn.tokenFile': '~/.other-token.json' }, 'a token file no row writes'],
   ]) {
     s = await toolsSetup(company, config);
-    await s.run('roost.teamsSignIn');
+    await s.run('agenticWorks.teamsSignIn');
     assert.deepStrictEqual(s.signIns, ['chirp'], why);
     assert.deepStrictEqual(s.ui.panels, [], why);
     await s.extension.deactivate();
   }
 });
 
-test('roost.jiraSignIn likewise, with jira.signIn.tokenFile, else jay.signIn', async () => {
+test('agenticWorks.jiraSignIn likewise, with jira.signIn.tokenFile, else jay.signIn', async () => {
   let s = await toolsSetup(EXAMPLE, { 'jira.signIn.tokenFile': '~/.t/credentials.json' });
-  await s.run('roost.jiraSignIn');
+  await s.run('agenticWorks.jiraSignIn');
   assert.deepStrictEqual(s.fakes.made[0].calls, [['checkAll'], ['connectCommand', 'tickets']]);
   assert.deepStrictEqual(s.signIns, []);
   await s.extension.deactivate();
   s = await toolsSetup(null, { 'jira.signIn.tokenFile': '~/.t/credentials.json' });
-  await s.run('roost.jiraSignIn');
+  await s.run('agenticWorks.jiraSignIn');
   assert.deepStrictEqual(s.signIns, ['jay']);
   await s.extension.deactivate();
 });
 
-test("Roost notes a part's setContext for a watched key, and puts VS Code's executeCommand back when it stops", async () => {
+test("Agentic Works notes a part's setContext for a watched key, and puts VS Code's executeCommand back when it stops", async () => {
   const { ui, extension, base } = setup();
   const own = ui.vscode.commands.executeCommand;
   fake.parts.teams = { activate: () => require('vscode').commands.executeCommand('setContext', 'chirp.signedIn', true) };
-  const roost = await activate(extension, base);
-  assert.strictEqual(roost.contexts.get('chirp.signedIn'), true);
+  const agenticWorks = await activate(extension, base);
+  assert.strictEqual(agenticWorks.contexts.get('chirp.signedIn'), true);
   assert.strictEqual(ui.contexts['chirp.signedIn'], true, 'and it still reached VS Code');
   await extension.deactivate();
   assert.strictEqual(ui.vscode.commands.executeCommand, own, "the stub's own is back");
 });
 
-test('roost.toolsNotNow is registered and does nothing', async () => {
+test('agenticWorks.toolsNotNow is registered and does nothing', async () => {
   const s = await toolsSetup();
-  await s.run('roost.toolsNotNow');
+  await s.run('agenticWorks.toolsNotNow');
   assert.deepStrictEqual([s.ui.panels.length, s.fakes.made.length], [0, 0]);
   await s.extension.deactivate();
 });

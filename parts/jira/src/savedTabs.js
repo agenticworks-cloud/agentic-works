@@ -1,6 +1,6 @@
 'use strict';
 // The ticket and page tabs open in this workspace, kept in workspaceState, so that tabs jay's host closed can be opened
-// again: Roost closes them when it switches jay off, and closes those VS Code restores while jay is off. After a reload
+// again: Agentic Works closes them when it switches jay off, and closes those VS Code restores while jay is off. After a reload
 // VS Code brings a tab back itself, through the serializer, but only as each is shown; `paneled` says VS Code still has
 // the tab. One closed by a switch-off has none, and is opened again as soon as jay starts; the others are opened after
 // a short wait, unless VS Code shows a tab for them by then.

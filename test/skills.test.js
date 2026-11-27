@@ -1,6 +1,6 @@
 'use strict';
 // Skills (src/skills.js): the company file's skills copied to ~/.claude/skills/<id>/ and ~/.agents/skills/<id>/,
-// recorded in ~/.config/roost/skills.json; a copy the user edited, or one Roost never wrote, is left alone; a skill
+// recorded in ~/.config/agentic-works/skills.json; a copy the user edited, or one Agentic Works never wrote, is left alone; a skill
 // dropped from the company file is removed.
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -11,7 +11,7 @@ const { syncSkills, RECORD } = require('../src/skills');
 const temps = [];
 process.on('exit', () => temps.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 function setup() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-skills-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-skills-'));
   temps.push(home);
   const src = path.join(home, 'pkg', 'skills', 'teams');
   fs.mkdirSync(path.join(src, 'refs'), { recursive: true });
@@ -40,7 +40,7 @@ const exists = (p) => { try { fs.lstatSync(p); return true; } catch (e) { return
   assert.deepStrictEqual([again.installed, again.updated, again.removed, again.kept], [[], [], [], []]);
 }
 
-// a new version replaces Roost's own copy
+// a new version replaces Agentic Works' own copy
 {
   const s = setup();
   s.sync(s.skill);
@@ -68,10 +68,10 @@ const exists = (p) => { try { fs.lstatSync(p); return true; } catch (e) { return
   assert.deepStrictEqual(gone.kept, ['teams in ~/.claude/skills']);
   assert.ok(fs.existsSync(path.join(claude(s), 'SKILL.md')), 'the edited copy stays');
   assert.ok(!fs.existsSync(agents(s)));
-  assert.deepStrictEqual(JSON.parse(read(path.join(s.home, RECORD))).skills, {}, 'no longer Roost\'s');
+  assert.deepStrictEqual(JSON.parse(read(path.join(s.home, RECORD))).skills, {}, 'no longer Agentic Works\'');
 }
 
-// a folder of the same name Roost never wrote is the user's
+// a folder of the same name Agentic Works never wrote is the user's
 {
   const s = setup();
   fs.mkdirSync(claude(s), { recursive: true });
@@ -114,7 +114,7 @@ const exists = (p) => { try { fs.lstatSync(p); return true; } catch (e) { return
   assert.ok(s.logs.some((l) => l.includes('link.md is a link')));
 }
 
-// a copy already as the source has it is Roost's, record or not (a pass cut short): recorded, so later removable
+// a copy already as the source has it is Agentic Works', record or not (a pass cut short): recorded, so later removable
 {
   const s = setup();
   s.sync(s.skill);
@@ -133,7 +133,7 @@ const exists = (p) => { try { fs.lstatSync(p); return true; } catch (e) { return
   assert.deepStrictEqual(Object.keys(JSON.parse(read(path.join(s.home, RECORD))).skills), ['teams']);
 }
 
-// a link the user added inside Roost's copy counts as an edit: never deleted
+// a link the user added inside Agentic Works' copy counts as an edit: never deleted
 {
   const s = setup();
   s.sync(s.skill);

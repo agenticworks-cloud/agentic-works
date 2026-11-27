@@ -71,7 +71,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
   // a message goes to its own tab only, and titles the tab
   v1.fire({ type: 'send', sid: c1, text: 'explain the  flush   bug in detail please' });
   assert.strictEqual(created.length, 1, 'one agent for one used tab');
-  assert.deepStrictEqual(ui.contexts.filter((c) => c[0] === 'perch.messageSent'), [['perch.messageSent', true]], 'Roost\'s walkthrough is told a message was sent');
+  assert.deepStrictEqual(ui.contexts.filter((c) => c[0] === 'perch.messageSent'), [['perch.messageSent', true]], 'Agentic Works\' walkthrough is told a message was sent');
   assert(v1.events(c1).some((e) => e.kind === 'text'), 'answer on the claude tab');
   assert(!v1.events(x1).some((e) => e.kind === 'text' || e.kind === 'user'), 'nothing leaked to the codex tab');
   t = v1.lastTabs();
@@ -1489,13 +1489,13 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     v.fire({ type: 'explorerTab', tab: 'nonsense' }); v.fire({ type: 'pastRefresh' }); await flush(); await flush();
     assert.strictEqual(v.past().tab, 'mcp', 'a tab that is not one is ignored');
     v.fire({ type: 'explorerTab', tab: 'sessions' });
-    // the Settings row: Roost's command opens its settings; standalone, with no such command, nothing shows
-    m.ui.commandAnswers = { 'roost.openSettings': () => undefined };
+    // the Settings row: Agentic Works' command opens its settings; standalone, with no such command, nothing shows
+    m.ui.commandAnswers = { 'agenticWorks.openSettings': () => undefined };
     v.fire({ type: 'openSettings' }); await flush(); await flush();
-    assert.deepStrictEqual(m.ui.executedWith.filter(([id]) => id === 'roost.openSettings'), [['roost.openSettings']], 'the row runs Roost\'s settings command');
-    m.ui.commandAnswers = { 'roost.openSettings': () => { throw new Error("command 'roost.openSettings' not found"); } };
+    assert.deepStrictEqual(m.ui.executedWith.filter(([id]) => id === 'agenticWorks.openSettings'), [['agenticWorks.openSettings']], 'the row runs Agentic Works\' settings command');
+    m.ui.commandAnswers = { 'agenticWorks.openSettings': () => { throw new Error("command 'agenticWorks.openSettings' not found"); } };
     v.fire({ type: 'openSettings' }); await flush(); await flush();
-    assert.deepStrictEqual([m.ui.errors.length, m.ui.warnings.length], [0, 0], 'no Roost: nothing to say, nothing shown');
+    assert.deepStrictEqual([m.ui.errors.length, m.ui.warnings.length], [0, 0], 'no Agentic Works: nothing to say, nothing shown');
     assert.deepStrictEqual(m.store.lists.pop(), { dir: process.cwd(), limit: 200 }, 'the sessions of the workspace folder');
     // a row clicked: the session opens in a tab, as from the Sessions command, and the list says it is open
     const made = created.length;
@@ -1666,7 +1666,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     r.perch.dispose();
   }
 
-  // ---- perch.newClaude and perch.newCodex with { fill } (Roost's Get started types "Hello"); anything else, such as
+  // ---- perch.newClaude and perch.newCodex with { fill } (Agentic Works' Get started types "Hello"); anything else, such as
   // the URI a menu passes, opens an empty tab
   {
     const m = install();
@@ -1683,7 +1683,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.perch.dispose();
   }
 
-  // ---- perch.sessionCount and perch.openGatewayTab (Roost's Get started, with the company file's gateway.openTabOnTalk):
+  // ---- perch.sessionCount and perch.openGatewayTab (Agentic Works' Get started, with the company file's gateway.openTabOnTalk):
   // each answers once the wait for restored tabs is over; perch.sessionOpen says whether any tab is open
   {
     const fs = require('fs'), os = require('os'), path = require('path');
@@ -1975,7 +1975,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
         return init.headers['x-api-key'] === 'sk-good' ? reply(200, { data: [{ id: 'anthropic/router-auto' }] }) : reply(401, {});
       };
       const c = install(undefined, { config: { 'claude.gatewayEnv': file }, company }); await flush();
-      assert.strictEqual(process.env.ROOST_COMPANY_FILE, company);
+      assert.strictEqual(process.env.AGENTIC_WORKS_COMPANY_FILE, company);
       assert.strictEqual(c.perch.companyGateway().name, 'Example Gateway');
       const savedGw = []; c.perch.onGatewaySaved.add((gw) => savedGw.push(gw.vars.ANTHROPIC_BASE_URL));
       c.commands['perch.setUpGateway'](); const q = c.ui.panels.filter((x) => x.viewType === 'perch.gatewaySetup' && !x.disposed)[0]; const qlast = () => q.got[q.got.length - 1];
@@ -2057,7 +2057,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
-  // ---- terminal claude: the gateway's address in ~/.claude/settings.json kept to the one that answers, when Roost wrote it
+  // ---- terminal claude: the gateway's address in ~/.claude/settings.json kept to the one that answers, when Agentic Works wrote it
   {
     const fs = require('fs'), os = require('os'), path = require('path');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-term-'));
@@ -2083,13 +2083,13 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert(!m.ui.traces.some((l) => /sk-term/.test(l)), 'the key is not traced');
       // a tab start's probe resolved another: settings.json follows
       m.perch.onGatewayResolved.forEach((f) => f(PRIVATE));
-      assert.deepStrictEqual([baseNow(), m.globalState._dump()['perch.terminal.written']['env.ANTHROPIC_BASE_URL']], [PRIVATE, PRIVATE], 'a resolved address updates settings.json when Roost wrote it');
+      assert.deepStrictEqual([baseNow(), m.globalState._dump()['perch.terminal.written']['env.ANTHROPIC_BASE_URL']], [PRIVATE, PRIVATE], 'a resolved address updates settings.json when Agentic Works wrote it');
       // the user's own address since: left
       settingsWith('https://mine.example.com');
       m.perch.onGatewayResolved.forEach((f) => f(PUBLIC));
       assert.strictEqual(baseNow(), 'https://mine.example.com');
       m.perch.dispose();
-      // Roost never wrote the address: no probe at activation
+      // Agentic Works never wrote the address: no probe at activation
       asked.length = 0; settingsWith(PRIVATE);
       const n = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': { apiKeyHelper: "cat '/k'" } } }); await flush(); await wait(20);
       assert.deepStrictEqual([asked, baseNow()], [[], PRIVATE], 'nothing asked, nothing written');
@@ -2141,8 +2141,8 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     const realFetch = globalThis.fetch, realHome = process.env.HOME;
     const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
     try {
-      process.env.HOME = dir;   // the key file is ~/.config/roost/anthropic-key, and the AWS profiles ~/.aws's
-      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json'), keyFile = path.join(dir, '.config', 'roost', 'anthropic-key');
+      process.env.HOME = dir;   // the key file is ~/.config/agentic-works/anthropic-key, and the AWS profiles ~/.aws's
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json'), keyFile = path.join(dir, '.config', 'agentic-works', 'anthropic-key');
       const m = install(undefined, { meter: { claudeDir, settingsPath, login: false, apiCreds: false } }); await flush();
       const connected = () => m.ui.contexts.filter((c) => c[0] === 'perch.claudeConnected');
       assert.deepStrictEqual(connected(), [['perch.claudeConnected', false]], 'nothing to run Claude with: not connected');
@@ -2223,14 +2223,14 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       await ask({ type: 'keep' }, 'saved');
       assert.deepStrictEqual(last(), { type: 'saved', way: 'bedrock', terminalNote: '' });
       assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), { env: { AWS_REGION: 'eu-west-1', CLAUDE_CODE_USE_BEDROCK: '1' } }, 'the user\'s region kept, Bedrock on');
-      assert.deepStrictEqual(m.globalState._dump()['perch.terminal.written'], { 'env.CLAUDE_CODE_USE_BEDROCK': '1' }, 'Roost\'s record: its own value only');
+      assert.deepStrictEqual(m.globalState._dump()['perch.terminal.written'], { 'env.CLAUDE_CODE_USE_BEDROCK': '1' }, 'Agentic Works\' record: its own value only');
       // a new Claude tab on Bedrock, with the region and profile chosen
       m.box.apiCreds = true;
       const b = m.commands['perch.newClaude']();
       assert.strictEqual(b.own, 'api');
       n0 = created.length; v.fire({ type: 'send', sid: b.id, text: 'hello' });
       assert.deepStrictEqual(created[n0].o.backend, { bedrock: true, aws: { profile: '', region: 'us-west-2' } });
-      // Replace: the conflicting value is Roost's from then on
+      // Replace: the conflicting value is Agentic Works' from then on
       await ask({ type: 'bedrock', profile: 'dev', region: 'us-west-2', force: false }, 'conflicts');
       await ask({ type: 'replace', keys: ['env.AWS_REGION'] }, 'saved');
       assert.deepStrictEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')).env, { AWS_REGION: 'us-west-2', CLAUDE_CODE_USE_BEDROCK: '1', AWS_PROFILE: 'dev' });
@@ -2271,15 +2271,15 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       assert.strictEqual(logins.length, 1, 'no second sign-in');
       assert.strictEqual(m.commands['perch.newClaude']().own, 'subscription');
 
-      // New Claude Tab: Roost's, beside the walkthrough
+      // New Claude Tab: Agentic Works', beside the walkthrough
       p.fire({ type: 'newTab' }); await flush();
-      assert(m.ui.executed.includes('roost.newClaudeTab'));
+      assert(m.ui.executed.includes('agenticWorks.newClaudeTab'));
       m.perch.dispose();
       assert.strictEqual(panels().length, 0, 'and it goes with Perch');
     } finally { globalThis.fetch = realFetch; process.env.HOME = realHome; fs.rmSync(dir, { recursive: true, force: true }); }
   }
 
-  // ---- perch.connectClaude.request: Connect Claude's and the gateway form's work for a page that isn't theirs (Roost's Get started)
+  // ---- perch.connectClaude.request: Connect Claude's and the gateway form's work for a page that isn't theirs (Agentic Works' Get started)
   {
     const fs = require('fs'), os = require('os'), path = require('path');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-connect-req-'));
@@ -2287,7 +2287,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
     try {
       process.env.HOME = dir;
-      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json'), keyFile = path.join(dir, '.config', 'roost', 'anthropic-key');
+      const claudeDir = path.join(dir, '.claude'), settingsPath = path.join(claudeDir, 'settings.json'), keyFile = path.join(dir, '.config', 'agentic-works', 'anthropic-key');
       const m = install(undefined, { config: { 'claude.gatewayEnv': path.join(dir, 'gateway-env') }, meter: { claudeDir, settingsPath, login: false, apiCreds: false } }); await flush();
       const req = (msg) => m.commands['perch.connectClaude.request'](msg);
       const before = m.ui.panels.length;
@@ -2389,17 +2389,17 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       withEmail({ domain: 'example.com', env: 'EXAMPLE_EMAIL' });
       await ask({ type: 'getKey' });
       assert.strictEqual(sent.pop(), 'unset', 'nothing saved: no address');
-      await m.globalState.update('roost.email', 'me.name@example.com');
+      await m.globalState.update('agenticWorks.email', 'me.name@example.com');
       await ask({ type: 'getKey' });
       assert.strictEqual(sent.pop(), 'me.name@example.com', 'the saved address, in the env named');
-      await m.globalState.update('roost.email', 'me@other.com');
+      await m.globalState.update('agenticWorks.email', 'me@other.com');
       await ask({ type: 'getKey' });
       assert.strictEqual(sent.pop(), 'unset', 'not on the company\'s domain: none');
-      await m.globalState.update('roost.email', 'me.name@example.com');
+      await m.globalState.update('agenticWorks.email', 'me.name@example.com');
       withEmail({ domain: 'example.com' });
       await ask({ type: 'getKey' });
       assert.strictEqual(sent.pop(), 'unset', 'no email.env: none');
-      await m.globalState.update('roost.email', undefined);
+      await m.globalState.update('agenticWorks.email', undefined);
 
       // a key the gateway refuses: the usual verdict
       writeCompany('ok', BAD);
@@ -4718,7 +4718,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.perch.dispose();
   }
 
-  // ---- switched off inside Roost, which disposes the context's subscriptions and calls deactivate, as a window
+  // ---- switched off inside Agentic Works, which disposes the context's subscriptions and calls deactivate, as a window
   // closing does: asked first while a turn runs (confirmStop), and on again, the same tabs come back
   {
     const m = install(undefined, { config: { newTabs: 'sidebar' } }); await flush();
@@ -4754,14 +4754,14 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const file = { selection: { isEmpty: true, start: { line: 0, character: 0 }, end: { line: 0, character: 0 }, active: { line: 0, character: 0 } }, document: { uri: { scheme: 'file', fsPath: path.join(process.cwd(), 'a.js') }, languageId: 'javascript', getText: () => '' } };
       m.ui.editor = file; for (const f of m.ui.listeners.editor) f(file);
       m.ui.editor = undefined; for (const f of m.ui.listeners.editor) f(undefined); m.ui.visible = [file];
-      assert.strictEqual(await m.ext.confirmStop(), true);   // Roost asks before every switch-off, and goes on
+      assert.strictEqual(await m.ext.confirmStop(), true);   // Agentic Works asks before every switch-off, and goes on
       for (const d of m.context.subscriptions.splice(0)) d.dispose();
       await m.ext.deactivate();
       assert.deepStrictEqual([...live.values()], [], 'no timer Perch made is left running');
     } finally { Object.assign(global, real); }
     assert(m.ui.panels.every((p) => p.disposed), 'its editor tabs are closed');
     assert.deepStrictEqual(m.memento._dump()['perch.sessions.v1'].sessions.map((t) => t.id), ids, 'and kept, as a window closing keeps them');
-    // on again: the same module, as Roost requires it once
+    // on again: the same module, as Agentic Works requires it once
     again = m.ext.activate(Object.assign({}, m.context, { subscriptions: [] }));
     assert.deepStrictEqual(again.sessions.map((s) => s.id), ids, 'the same two sessions');
     assert.deepStrictEqual(m.ui.panels.filter((p) => !p.disposed).map((p) => p.title), again.sessions.map((s) => s.title), 'each with its editor tab again, at once: VS Code has none to bring back');
@@ -4775,7 +4775,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     again.dispose(); m.ui.visible = undefined;
   }
 
-  // ---- off at startup inside Roost: VS Code restores the editor tab while Perch is off, and Roost's serializer closes
+  // ---- off at startup inside Agentic Works: VS Code restores the editor tab while Perch is off, and Agentic Works' serializer closes
   // it; once Perch is switched on, it opens the tab again after the wait for restored tabs
   {
     const m = install(undefined, { config: { newTabs: 'editor' } }); await flush();
@@ -4783,7 +4783,7 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     const saved = m.memento._dump(), id = m.perch.sessions[0].id;
     m.perch.dispose();
     const was = m.vscode.window.createWebviewPanel('perch.session', 'Claude 1', { viewColumn: 2, preserveFocus: true }, {});
-    was.dispose();                                     // what Roost's serializer does with it while Perch is off
+    was.dispose();                                     // what Agentic Works' serializer does with it while Perch is off
     const r = install(saved, { config: { newTabs: 'editor' } });
     assert.strictEqual(r.ui.panels.length, 0, 'not at once: VS Code may still bring the tab back');
     await wait(120);

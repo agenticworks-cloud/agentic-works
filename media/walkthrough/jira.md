@@ -1,6 +1,6 @@
 # Connect Jira and Confluence
 
-If your company has set up Roost and one of its tools keeps the Jira sign-in (`jira.signIn.tokenFile`), **Connect
+If your company has set up Agentic Works and one of its tools keeps the Jira sign-in (`jira.signIn.tokenFile`), **Connect
 Jira** opens **Connect Your Tools** and signs in that tool's row instead. The step ticks by itself once that sign-in
 is done: Jira uses the same login.
 

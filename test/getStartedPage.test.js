@@ -22,7 +22,7 @@ const shown = (el) => { for (let e = el; e && e !== d.body; e = e.parentElement)
 const step = (id) => d.querySelector(`.step[data-id="${id}"]`);
 const open = () => [...d.querySelectorAll('.step.open')].map((s) => s.dataset.id);
 const button = (el, text) => [...el.querySelectorAll('button')].find((b) => b.textContent === text && shown(b));
-const st = (o) => Object.assign({ title: 'Get started with Roost', steps: [], claude: { companyGateway: '' }, github: { logins: [] }, teams: { rowId: '' }, jira: { rowId: '', site: '', email: '', form: true }, parts: [] }, o);
+const st = (o) => Object.assign({ title: 'Get started with Agentic Works', steps: [], claude: { companyGateway: '' }, github: { logins: [] }, teams: { rowId: '' }, jira: { rowId: '', site: '', email: '', form: true }, parts: [] }, o);
 const S = (id, name, done = false, waiting = '') => ({ id, name, done, waiting });
 
 assert.deepStrictEqual(out, [{ type: 'ready' }], 'the page asks for its state');

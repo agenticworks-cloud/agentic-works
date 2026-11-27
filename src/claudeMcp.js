@@ -45,7 +45,7 @@ function readObject(file) {
 function writeAtomic(file, json) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   // Always 0600, the temp file too: the file can hold a token (a header), whatever its mode was before
-  const tmp = `${file}.roost-${process.pid}-${Date.now()}.tmp`;
+  const tmp = `${file}.agentic-works-${process.pid}-${Date.now()}.tmp`;
   try {
     fs.writeFileSync(tmp, JSON.stringify(json, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     if (process.platform !== 'win32') fs.chmodSync(tmp, 0o600);   // against a umask, which only narrows
@@ -58,7 +58,7 @@ function writeAtomic(file, json) {
 
 /**
  * Put `entry` at mcpServers[id] of `file`. A different entry already there is a 'conflict' (left as it is) unless
- * `replace`, or unless it equals `previous` (what Roost itself registered before, such as the entry with an older
+ * `replace`, or unless it equals `previous` (what Agentic Works itself registered before, such as the entry with an older
  * token). Throws, leaving the file alone, when it isn't a JSON object.
  * @returns {'added'|'same'|'conflict'|'replaced'}
  */

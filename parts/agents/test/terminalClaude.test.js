@@ -1,13 +1,13 @@
 'use strict';
 // Terminal `claude`'s settings (~/.claude/settings.json): what each way wants there, the plan against what is there and
-// what Roost wrote before, the write, and the gateway address kept current. Throwaway home directories only.
+// what Agentic Works wrote before, the write, and the gateway address kept current. Throwaway home directories only.
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const T = require('../src/terminalClaude');
 
-const home = () => fs.mkdtempSync(path.join(os.tmpdir(), 'roost-terminal-'));
+const home = () => fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-terminal-'));
 const settingsIn = (h) => path.join(h, '.claude', 'settings.json');
 const put = (file, v) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof v === 'string' ? v : JSON.stringify(v, null, 2)); };
 const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -45,13 +45,13 @@ assert.throws(() => T.desiredSettings('nope', {}), /nope/);
   let p = T.planSettings({ apiKeyHelper: 'my-helper' }, { apiKeyHelper: "cat '/h/k'" }, {});
   assert.deepStrictEqual([p.changes, p.conflicts], [[], [{ key: 'apiKeyHelper', from: 'my-helper', to: "cat '/h/k'" }]], 'the user\'s own value is a conflict');
   p = T.planSettings({ apiKeyHelper: "cat '/h/k'" }, {}, { apiKeyHelper: "cat '/h/k'" });
-  assert.deepStrictEqual([p.changes, p.conflicts], [[{ key: 'apiKeyHelper', from: "cat '/h/k'", to: null }], []], 'Roost\'s own value, no longer wanted: removed');
+  assert.deepStrictEqual([p.changes, p.conflicts], [[{ key: 'apiKeyHelper', from: "cat '/h/k'", to: null }], []], 'Agentic Works\' own value, no longer wanted: removed');
   p = T.planSettings({ apiKeyHelper: 'mine' }, {}, { apiKeyHelper: "cat '/h/k'" });
   assert.deepStrictEqual([p.changes, p.conflicts], [[], []], 'changed by the user since: left alone');
   p = T.planSettings({ env: { [BASE.slice(4)]: A, CLAUDE_CODE_USE_BEDROCK: '1' } }, want, { [BASE]: A, 'env.CLAUDE_CODE_USE_BEDROCK': '1' });
   assert.deepStrictEqual([p.changes, p.conflicts], [[{ key: 'apiKeyHelper', from: undefined, to: "cat '/h/k'" }, { key: 'env.CLAUDE_CODE_USE_BEDROCK', from: '1', to: '0' }], []],
-    'absent is a change, Roost\'s earlier value is a change, the same value is none');
-  assert.deepStrictEqual(p.kept, { [BASE]: A }, 'what Roost wrote and still wants, unchanged, stays in its record');
+    'absent is a change, Agentic Works\' earlier value is a change, the same value is none');
+  assert.deepStrictEqual(p.kept, { [BASE]: A }, 'what Agentic Works wrote and still wants, unchanged, stays in its record');
 }
 
 // ---- writeSettings
@@ -67,7 +67,7 @@ assert.throws(() => T.desiredSettings('nope', {}), /nope/);
   assert.deepStrictEqual(r.written, { 'env.ANTHROPIC_MODEL': 'router-auto', [BASE]: A, 'env.CLAUDE_CODE_USE_BEDROCK': '0' }, 'the record: what was written, not the user\'s value left');
   r = T.writeSettings(f, T.planSettings(read(f), want, r.written), { replace: ['apiKeyHelper'] });
   assert.deepStrictEqual([read(f).apiKeyHelper, r.written.apiKeyHelper, r.written[BASE]], ["cat '/h/k'", "cat '/h/k'", A], 'named in replace: replaced; the unchanged keys stay recorded');
-  // a later choice: Roost's own values go, the user's stay
+  // a later choice: Agentic Works' own values go, the user's stay
   r = T.writeSettings(f, T.planSettings(read(f), T.desiredSettings('subscription'), r.written), { replace: [] });
   j = read(f);
   assert.deepStrictEqual([j.apiKeyHelper, j.env, j.permissions, r.written], [undefined, { OTHER: 'x', AWS_REGION: 'eu-west-1' }, { allow: ['Bash(ls)'] }, {}]);
@@ -122,7 +122,7 @@ assert.strictEqual(T.maskValue('env.AWS_REGION', 'us-west-2'), 'us-west-2');
   const h = home(), f = settingsIn(h);
   put(f, { env: { ANTHROPIC_BASE_URL: A, OTHER: 'x' }, permissions: { allow: [] } });
   let r = T.syncTerminalBaseUrl(f, B, { [BASE]: A, apiKeyHelper: "cat '/h/k'" });
-  assert.deepStrictEqual([r.changed, r.written, read(f)], [true, { [BASE]: B, apiKeyHelper: "cat '/h/k'" }, { env: { ANTHROPIC_BASE_URL: B, OTHER: 'x' }, permissions: { allow: [] } }], 'Roost\'s address: changed, the record with it');
+  assert.deepStrictEqual([r.changed, r.written, read(f)], [true, { [BASE]: B, apiKeyHelper: "cat '/h/k'" }, { env: { ANTHROPIC_BASE_URL: B, OTHER: 'x' }, permissions: { allow: [] } }], 'Agentic Works\' address: changed, the record with it');
   assert(!fs.readdirSync(path.dirname(f)).some((n) => n !== 'settings.json'), 'no temp file left');
   r = T.syncTerminalBaseUrl(f, B, r.written);
   assert.deepStrictEqual([r.changed, r.written[BASE]], [false, B], 'already there: nothing to do');
@@ -130,7 +130,7 @@ assert.strictEqual(T.maskValue('env.AWS_REGION', 'us-west-2'), 'us-west-2');
   put(f, { env: { ANTHROPIC_BASE_URL: 'https://mine.example.com' } });
   r = T.syncTerminalBaseUrl(f, A, { [BASE]: B });
   assert.deepStrictEqual([r.changed, read(f).env.ANTHROPIC_BASE_URL], [false, 'https://mine.example.com'], 'a user-changed value is left');
-  // never added when Roost hadn't written it
+  // never added when Agentic Works hadn't written it
   put(f, { env: { OTHER: 'x' } });
   for (const w of [{}, { apiKeyHelper: "cat '/h/k'" }, undefined]) {
     r = T.syncTerminalBaseUrl(f, A, w);

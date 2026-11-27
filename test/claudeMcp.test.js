@@ -10,7 +10,7 @@ const { CLAUDE_JSON, registration, register } = require('../src/claudeMcp');
 const { readCompany } = require('../src/company');
 const EXAMPLE = require('./fixtures/exampleCompany');
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-claudemcp-'));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-claudemcp-'));
 process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
 fs.writeFileSync(path.join(dir, 'company.json'), JSON.stringify(EXAMPLE));
 const company = readCompany(path.join(dir, 'company.json'), { home: '/h' }).company;
@@ -44,7 +44,7 @@ assert.deepStrictEqual(fs.readFileSync(f), before, 'a conflict leaves the file u
 assert.strictEqual(register(f, 'docs', other, { replace: true }), 'replaced');
 assert.deepStrictEqual(read(f).mcpServers.docs, other);
 assert.deepStrictEqual(fs.readdirSync(path.dirname(f)), ['.claude.json'], 'no temp file left behind');
-// the entry Roost registered before (an older token) is replaced without asking
+// the entry Agentic Works registered before (an older token) is replaced without asking
 const newer = registration(docs, { token: 'v' });
 assert.strictEqual(register(f, 'docs', newer, { previous: d }), 'conflict', 'previous must match what is there');
 assert.strictEqual(register(f, 'docs', newer, { previous: other }), 'replaced');

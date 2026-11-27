@@ -118,7 +118,7 @@ function detailsFile(id, { companyGateway = false, autoTab = false } = {}) {
   return id;
 }
 
-const texts = new Map();   // file → its markdown ('' when missing): the files ship with Roost and don't change
+const texts = new Map();   // file → its markdown ('' when missing): the files ship with Agentic Works and don't change
 function readText(file) {
   if (!texts.has(file)) {
     let text = '';

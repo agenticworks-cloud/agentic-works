@@ -1,17 +1,17 @@
 'use strict';
-// The host of Roost's Get started page (src/getStartedPage.js): one editor tab at a time, kept alive while hidden and
+// The host of Agentic Works' Get started page (src/getStartedPage.js): one editor tab at a time, kept alive while hidden and
 // not brought back after a reload. It sends the page its state (the steps shown for the parts that are on, in the
 // company file's words and order, each ticked once its signal is true and kept done in globalState) and answers the
 // page's messages through the parts' own commands (perch.connectClaude.request, jay.signInWith, chirp.signIn, ...)
-// and Roost's (the walkthrough's commands, Connect Your Tools' host). A key or token the page sends goes to the
+// and Agentic Works' (the walkthrough's commands, Connect Your Tools' host). A key or token the page sends goes to the
 // command only: nothing posted holds one, and only a message's type and an error's text are logged. A reply that
 // comes after the page closed is dropped. Each step carries its details, rendered here (src/stepDetails.js); a link
-// clicked in them is opened in the browser when it is https, and ignored otherwise. (Design: docs/notes/101-roost.md,
+// clicked in them is opened in the browser when it is https, and ignored otherwise. (Design: docs/notes/101-agentic-works.md,
 // "Settled while planning 0.5", and the 0.5.2 bullet.)
 //
 // With the company file's gateway.openTabOnTalk (0.5.4), the talk step has no New Claude Tab / New Codex Tab: once
 // the gateway is ready (perch.gatewayReady now, not a Not Now), while this page is open, the step not done and the
-// Agents part running, a Claude tab on the gateway opens by itself beside the page (roost.newClaudeGatewayTab), unless
+// Agents part running, a Claude tab on the gateway opens by itself beside the page (agenticWorks.newClaudeGatewayTab), unless
 // a Perch tab is already open (perch.sessionCount, which counts the tabs a reload brings back). One open at a time,
 // at most once per window, and never again once one has opened (AUTO_TAB_KEY); a failed open is tried again a few
 // times while the page is open. With no Perch tab open, the step offers Open Claude Tab.
@@ -19,7 +19,7 @@
 // while chirp.signInCodeWaiting) shows in the step with Copy code & open (chirp.copyCode) and Cancel
 // (chirp.cancelSignIn), and is never logged.
 // With the company file's email section (0.5.7), the email step after GitHub asks for the user's address on the
-// company's domain (emailSave), kept in globalState EMAIL_KEY, which Roost's parts share: the Agents part gives it to
+// company's domain (emailSave), kept in globalState EMAIL_KEY, which Agentic Works' parts share: the Agents part gives it to
 // the gateway's key helper and Connect Your Tools to its sign-in commands, in the environment variable email.env. It
 // fills the Jira form's email too. It is never logged. Not Now ticks the step with nothing saved.
 const { randomBytes } = require('node:crypto');
@@ -27,25 +27,25 @@ const { getStartedHtml } = require('./getStartedPage');
 const { stepDetails, httpsUrl } = require('./stepDetails');
 const { companyEmail, EMAIL_KEY } = require('./company');
 
-const VIEW_TYPE = 'roost.getStarted';
-const DONE_KEY = 'roost.getStarted.done';
+const VIEW_TYPE = 'agenticWorks.getStarted';
+const DONE_KEY = 'agenticWorks.getStarted.done';
 // a Claude tab was opened by itself for the talk step (gateway.openTabOnTalk): never again, after a reload too
-const AUTO_TAB_KEY = 'roost.getStarted.autoTabOpened';
+const AUTO_TAB_KEY = 'agenticWorks.getStarted.autoTabOpened';
 // a failed open is tried again after these waits, while the page stays open
 const AUTO_TAB_RETRIES_MS = [1000, 3000, 10000];
-const OPEN_GATEWAY_TAB = 'roost.newClaudeGatewayTab';
+const OPEN_GATEWAY_TAB = 'agenticWorks.newClaudeGatewayTab';
 const TAB_OPEN = ['opened', 'revealed'];   // perch.openGatewayTab's answers when a tab is there
 const ORDER_COMPANY = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'codebase', 'parts'];
-const ORDER_ROOST = ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts'];
-const STEP_IDS = [...new Set([...ORDER_COMPANY, ...ORDER_ROOST])];
+const ORDER_AGENTIC_WORKS = ['claude', 'agents', 'teams', 'jira', 'github', 'codebase', 'parts'];
+const STEP_IDS = [...new Set([...ORDER_COMPANY, ...ORDER_AGENTIC_WORKS])];
 const NAMES = {
   github: 'Sign in to GitHub', agents: 'Talk to Claude or Codex', teams: 'Sign in to Teams', jira: 'Connect Jira and Confluence',
   codebase: 'Search your code by meaning', parts: 'Choose your parts',
 };
 // the part a step belongs to: shown while that part is on and not failed
 const PART_OF = { github: 'pullRequests', claude: 'agents', agents: 'agents', codebase: 'agents', teams: 'teams', jira: 'jira' };
-const NOT_NOW = { claude: 'roost.connectClaudeNotNow', tools: 'roost.toolsNotNow', codebase: 'roost.codebaseSearchNotNow' };
-const NEW_TAB = { claude: 'roost.newClaudeTab', codex: 'roost.newCodexTab' };
+const NOT_NOW = { claude: 'agenticWorks.connectClaudeNotNow', tools: 'agenticWorks.toolsNotNow', codebase: 'agenticWorks.codebaseSearchNotNow' };
+const NEW_TAB = { claude: 'agenticWorks.newClaudeTab', codex: 'agenticWorks.newCodexTab' };
 const GREETING = { fill: 'Hello' };   // typed in the talk step's new tab, whose box takes the focus: Enter sends it
 // GitHub's sign-in, by its phase (src/githubSignIn.js)
 const WAIT_GITHUB = { starting: "Starting GitHub's sign-in…", code: 'Copy the code, then enter it on GitHub in your browser.',
@@ -58,15 +58,15 @@ const waitKey = (name) => `Getting your ${name} key…`;
 // chirp.signIn resolved but chirp.signedIn isn't true: cancelled, failed, offline, or the admin-approval wall
 const TEAMS_NOT_SIGNED_IN = "Teams isn't signed in. Try again, or see the Teams view for why.";
 // a configuration change of these refreshes the page
-const WATCHED_SETTINGS = ['roost', 'agents.codebaseIndex.enabled', 'jira', 'teams.signIn.tokenFile'];
+const WATCHED_SETTINGS = ['agenticWorks', 'agents.codebaseIndex.enabled', 'jira', 'teams.signIn.tokenFile'];
 
 const errorMessage = (e) => (e && e.message) || String(e);
 const str = (v) => (typeof v === 'string' ? v : '');
 
 class GetStarted {
-  // `roost`: Roost (src/extension.js); `store`: its globalState; `ghLogins`: the accounts gh is signed in to
-  constructor({ roost, vscode, store, ghLogins, log }) {
-    this.roost = roost;
+  // `agenticWorks`: Agentic Works (src/extension.js); `store`: its globalState; `ghLogins`: the accounts gh is signed in to
+  constructor({ agenticWorks, vscode, store, ghLogins, log }) {
+    this.agenticWorks = agenticWorks;
     this.vscode = vscode;
     this.store = store;
     this.ghLogins = ghLogins;
@@ -84,7 +84,7 @@ class GetStarted {
     this.teamsCode = null;
     this.teamsCodeGen = 0;
     this.subs = [];
-    if (roost.contexts) this.subs.push(roost.contexts.onChange((key) => {
+    if (agenticWorks.contexts) this.subs.push(agenticWorks.contexts.onChange((key) => {
       if (key === 'chirp.signInCodeWaiting') this.readTeamsCode();
       this.refresh();
     }));
@@ -109,8 +109,8 @@ class GetStarted {
     });
     panel.webview.html = getStartedHtml({ nonce: randomBytes(16).toString('hex'), cspSource: panel.webview.cspSource });
     // every row checked once, as Connect Your Tools' panel does when it opens
-    if (this.roost.hasTools()) {
-      const tools = this.roost.toolsNow();
+    if (this.agenticWorks.hasTools()) {
+      const tools = this.agenticWorks.toolsNow();
       Promise.resolve().then(() => tools.checkAll())
         .catch((err) => this.log(`Get started: the tools check failed: ${errorMessage(err)}`));
     }
@@ -129,24 +129,24 @@ class GetStarted {
 
   // ---- state
 
-  company() { const c = this.roost.company; return c && c.ok ? c.company : null; }
+  company() { const c = this.agenticWorks.company; return c && c.ok ? c.company : null; }
 
   // a part is "on" while its switch is on and it has not failed
-  on(id) { return this.roost.parts.has(id) && this.roost.isEnabled(id) && !this.roost.entry(id).failed; }
+  on(id) { return this.agenticWorks.parts.has(id) && this.agenticWorks.isEnabled(id) && !this.agenticWorks.entry(id).failed; }
 
   // a part has started (its commands are registered): a key or token is sent to its command only then, so it never
   // leaves the extension host for a command that isn't there yet
-  running(id) { return this.roost.parts.has(id) && this.roost.state(id) === 'on'; }
+  running(id) { return this.agenticWorks.parts.has(id) && this.agenticWorks.state(id) === 'on'; }
 
-  title(id, dflt) { return this.roost.parts.has(id) ? this.roost.entry(id).part.title : dflt; }
+  title(id, dflt) { return this.agenticWorks.parts.has(id) ? this.agenticWorks.entry(id).part.title : dflt; }
 
   rowFor(section) {
-    if (!this.roost.hasTools()) return '';
+    if (!this.agenticWorks.hasTools()) return '';
     const file = this.vscode.workspace.getConfiguration(section).get('signIn.tokenFile', '');
-    return (typeof file === 'string' && file && this.roost.toolsNow().rowForTokenFile(file)) || '';
+    return (typeof file === 'string' && file && this.agenticWorks.toolsNow().rowForTokenFile(file)) || '';
   }
 
-  ctx(k) { return !!(this.roost.contexts && this.roost.contexts.get(k) === true); }
+  ctx(k) { return !!(this.agenticWorks.contexts && this.agenticWorks.contexts.get(k) === true); }
 
   // the company file's gateway.openTabOnTalk: the talk step's tab opens by itself
   autoTabOn() { const c = this.company(); return !!(c && c.gateway && c.gateway.openTabOnTalk); }
@@ -155,7 +155,7 @@ class GetStarted {
   signals() {
     const ctx = (k) => this.ctx(k);
     const c = this.company();
-    const tools = this.roost.tools;
+    const tools = this.agenticWorks.tools;
     return {
       github: ctx('kestrel.signedIn'),
       claude: c && c.gateway ? ctx('perch.gatewayReady') : ctx('perch.claudeConnected'),
@@ -190,22 +190,22 @@ class GetStarted {
   email() { return companyEmail(this.company(), this.store.get(EMAIL_KEY)); }
 
   shown(id) {
-    if (id === 'tools') return this.roost.hasTools();
+    if (id === 'tools') return this.agenticWorks.hasTools();
     if (id === 'email') { const c = this.company(); return !!(c && c.email); }
     if (id === 'parts') return true;
     return this.on(PART_OF[id]);
   }
 
-  // a step shown and neither done nor Not Now'd: Roost reopens the page at each start until there is none
+  // a step shown and neither done nor Not Now'd: Agentic Works reopens the page at each start until there is none
   unfinished() {
     const done = this.noteDone();
-    return (this.company() ? ORDER_COMPANY : ORDER_ROOST).some((id) => this.shown(id) && !done[id]);
+    return (this.company() ? ORDER_COMPANY : ORDER_AGENTIC_WORKS).some((id) => this.shown(id) && !done[id]);
   }
 
   state() {
     const c = this.company();
     const done = this.noteDone();
-    const teamsSigned = !!(this.roost.contexts && this.roost.contexts.get('chirp.signedIn') === true);
+    const teamsSigned = !!(this.agenticWorks.contexts && this.agenticWorks.contexts.get('chirp.signedIn') === true);
     if (teamsSigned) this.waiting.teams = false;
     const names = {
       ...NAMES,
@@ -218,12 +218,12 @@ class GetStarted {
     const autoTab = this.autoTabOn();
     // the code shows while the page's own sign-in waits on it, and goes once signed in or cancelled
     const teamsCode = !teamsSigned && this.waiting.teams && this.ctx('chirp.signInCodeWaiting') ? this.teamsCode : null;
-    const gh = this.roost.github ? this.roost.github.flow.state : null;
+    const gh = this.agenticWorks.github ? this.agenticWorks.github.flow.state : null;
     const waiting = { github: gh ? WAIT_GITHUB[gh.phase] || '' : '', teams: this.waiting.teams ? WAIT_BROWSER : '',
       claude: this.waiting.claude > 0 ? WAIT_CLAUDE : this.waiting.key > 0 && gwName ? waitKey(gwName) : '' };
     // the details in the company file's words; the gateway step's are the company gateway's while one is named
     const words = { gateway: gwName, title: str(c && c.title) };
-    const steps = (c ? ORDER_COMPANY : ORDER_ROOST).filter((id) => this.shown(id))
+    const steps = (c ? ORDER_COMPANY : ORDER_AGENTIC_WORKS).filter((id) => this.shown(id))
       .map((id) => ({ id, name: names[id], done: !!done[id], waiting: waiting[id] || '',
         details: stepDetails(id, { companyGateway: !!gwName, autoTab, words, note: c && c.notes ? c.notes[id] : '' }) }));
     const jira = this.vscode.workspace.getConfiguration('jira');
@@ -235,7 +235,7 @@ class GetStarted {
     const jiraSite = str(userSite) || str(c && c.jira && c.jira.site);
     const saved = this.email();
     return {
-      title: `Get started with ${(c && c.title) || 'Roost'}`,
+      title: `Get started with ${(c && c.title) || 'Agentic Works'}`,
       steps,
       email: c && c.email ? { domain: c.email.domain, example: c.email.example, value: saved } : null,
       claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand) },
@@ -243,7 +243,7 @@ class GetStarted {
       github: { logins: [...this.logins], running: !!gh, code: gh && gh.code ? { ...gh.code } : null, note: this.notes.github },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams, code: teamsCode ? { ...teamsCode } : null },
       jira: { rowId: this.rowFor('jira'), site: jiraSite, email: saved || str(c && c.jira && c.jira.email), form: !(typeof jiraFile === 'string' && jiraFile) },
-      parts: [...this.roost.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.roost.isEnabled(e.part.id) })),
+      parts: [...this.agenticWorks.parts.values()].map((e) => ({ id: e.part.id, title: e.part.title, on: this.agenticWorks.isEnabled(e.part.id) })),
     };
   }
 
@@ -277,7 +277,7 @@ class GetStarted {
       switch (m.type) {
         case 'ready':
           this.post({ type: 'state', state: this.state() }, panel);
-          if (this.roost.hasTools()) this.post({ type: 'rows', rows: this.roost.toolsNow().rows() }, panel);
+          if (this.agenticWorks.hasTools()) this.post({ type: 'rows', rows: this.agenticWorks.toolsNow().rows() }, panel);
           break;
         case 'agents': {
           const notRunning = { type: 'agents', error: `${this.title('agents', 'Agents')} isn't running.` };
@@ -319,8 +319,8 @@ class GetStarted {
           break;
         }
         case 'github': this.githubSignIn(); break;
-        case 'githubCopyCode': await this.roost.copyGithubCode(); break;
-        case 'githubCancel': this.roost.cancelGithubSignIn(); break;
+        case 'githubCopyCode': await this.agenticWorks.copyGithubCode(); break;
+        case 'githubCancel': this.agenticWorks.cancelGithubSignIn(); break;
         case 'newTab': if (NEW_TAB[m.kind]) await run(NEW_TAB[m.kind], GREETING); break;
         case 'openTab': if (this.autoTabOn() && this.running('agents')) await this.openTabNow(); break;
         case 'teamsCopyCode':
@@ -349,26 +349,26 @@ class GetStarted {
         case 'codebaseOn':
           this.markDone('codebase');
           this.refresh();
-          await run('roost.codebaseSearchOn');
+          await run('agenticWorks.codebaseSearchOn');
           break;
         case 'partsDone': this.markDone('parts'); this.refresh(); break;
         case 'openSettings':
           this.markDone('parts');
           this.refresh();
-          await run('roost.openSettings');
+          await run('agenticWorks.openSettings');
           break;
         case 'teamsSignIn': await this.teamsSignIn(); break;
-        case 'jiraSignIn': await this.roost.toolSignIn('jira', 'jay.signIn', { panel: false }); break;
+        case 'jiraSignIn': await this.agenticWorks.toolSignIn('jira', 'jay.signIn', { panel: false }); break;
         case 'part': {
-          if (!this.roost.parts.has(m.id) || typeof m.on !== 'boolean') break;
+          if (!this.agenticWorks.parts.has(m.id) || typeof m.on !== 'boolean') break;
           this.markDone('parts');
           const T = this.vscode.ConfigurationTarget;
           // the configuration change starts or stops the part (and refreshes the page); a refused stop puts it back
-          await this.vscode.workspace.getConfiguration('roost').update(`${m.id}.enabled`, m.on, T.Global);
+          await this.vscode.workspace.getConfiguration('agenticWorks').update(`${m.id}.enabled`, m.on, T.Global);
           break;
         }
         case 'tool':
-          if (m.message && typeof m.message === 'object') await this.roost.onToolsMessage(m.message, { reveal: () => this.reveal() });
+          if (m.message && typeof m.message === 'object') await this.agenticWorks.onToolsMessage(m.message, { reveal: () => this.reveal() });
           break;
         case 'openLink': {
           // a link in a step's details: https only, opened in the browser; any other is ignored
@@ -383,14 +383,14 @@ class GetStarted {
     }
   }
 
-  // GitHub's sign-in on the page (Roost's startGithubSignIn): the step shows its phase and code while it runs
+  // GitHub's sign-in on the page (Agentic Works' startGithubSignIn): the step shows its phase and code while it runs
   githubSignIn() {
-    if (!this.roost.github) this.notes.github = '';
-    this.roost.startGithubSignIn();
+    if (!this.agenticWorks.github) this.notes.github = '';
+    this.agenticWorks.startGithubSignIn();
     this.refresh();
   }
 
-  // How it went, from Roost, whoever started it: a reason left on the step, unless cancelled; the logins read again
+  // How it went, from Agentic Works, whoever started it: a reason left on the step, unless cancelled; the logins read again
   githubDone(r) {
     this.notes.github = r.ok ? (r.gitSetUp ? '' : GIT_NOT_SET_UP) : r.cancelled ? '' : r.error || '';
     this.refresh();
@@ -408,14 +408,14 @@ class GetStarted {
       this.refresh();
     }
     try {
-      await this.roost.toolSignIn('teams', 'chirp.signIn', { panel: false, args: [{ inPlace: true }] });
+      await this.agenticWorks.toolSignIn('teams', 'chirp.signIn', { panel: false, args: [{ inPlace: true }] });
     } catch (err) {
       this.waiting.teams = false;
       this.refresh();
       throw err;
     }
     if (viaRow) return;
-    if (!(this.roost.contexts && this.roost.contexts.get('chirp.signedIn') === true)) {
+    if (!(this.agenticWorks.contexts && this.agenticWorks.contexts.get('chirp.signedIn') === true)) {
       this.waiting.teams = false;
       this.notes.teams = TEAMS_NOT_SIGNED_IN;
     }

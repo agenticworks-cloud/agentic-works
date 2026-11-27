@@ -414,7 +414,7 @@ Made while planning on 2026-11-18. All count as *(builder's call)*.
 - **The listing icon** is a speech bubble with a small bird.
 - **The version** becomes 0.2.0. The description ends "Not affiliated with
   Microsoft." A test checks that nothing shipped says `ms365` or `zig`
-  (Roost's own guard, `test/noCompanyNames.test.js`, keeps company names out).
+  (Agentic Works' own guard, `test/noCompanyNames.test.js`, keeps company names out).
 
 ## Build
 

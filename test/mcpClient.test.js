@@ -9,7 +9,7 @@ const path = require('node:path');
 const { McpStdioClient } = require('../src/mcpClient');
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'fakeMcpServer.js');
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-mcp-'));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-mcp-'));
 const children = [];
 process.on('exit', () => {
   children.forEach((c) => { if (c.exitCode === null && c.signalCode === null) c.kill('SIGKILL'); });
@@ -102,7 +102,7 @@ test('the initialize request', async () => {
   assert.strictEqual(sent[0].jsonrpc, '2.0');
   assert.strictEqual(sent[0].method, 'initialize');
   assert.strictEqual(sent[0].params.protocolVersion, '2025-06-18');
-  assert.deepStrictEqual(sent[0].params.clientInfo, { name: 'roost' });
+  assert.deepStrictEqual(sent[0].params.clientInfo, { name: 'agentic-works' });
   assert.strictEqual(sent[1].method, 'notifications/initialized');
   assert.strictEqual(sent[1].id, undefined);
   c.close();

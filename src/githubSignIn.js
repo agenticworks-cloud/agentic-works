@@ -15,7 +15,7 @@ const LIMIT_MS = 16 * 60 * 1000;   // GitHub's device codes last 15 minutes
 const OUTPUT_MAX = 64 * 1024;
 const CODE = /one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/;
 const PAGE = /https:\/\/github\.com\/login\/device\b[^\s]*/;
-const NO_GH = "gh isn't installed. Install it from https://cli.github.com, or let the Roost installer install it.";
+const NO_GH = "gh isn't installed. Install it from https://cli.github.com, or let the Agentic Works installer install it.";
 
 // gh's output → { userCode, verificationUri } once the code is in it; only GitHub's own device page is taken
 function parseDevice(text) {

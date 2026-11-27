@@ -302,7 +302,7 @@ function createTickets(o) {
     return attach(panel, key);
   }
 
-  // the open tabs, for a host that switches jay off and on again in one window (Roost)
+  // the open tabs, for a host that switches jay off and on again in one window (Agentic Works)
   const saved = createSavedTabs({ state: o.workspaceState, key: 'jay.openTickets.v1', viewType: VIEW_TYPE, tabGroups: vscode.window.tabGroups, graceMs: o.restoreGraceMs });
   const registration = vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
     async deserializeWebviewPanel(panel, state) {

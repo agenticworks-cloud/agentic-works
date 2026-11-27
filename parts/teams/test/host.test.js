@@ -276,7 +276,7 @@ test('a tab restored after reload loads its chat', async () => {
   panel.dispose(); h.api.dispose();
 });
 
-// Roost switches chirp off (confirmStop, then deactivate) and on again (activate) in the same window
+// Agentic Works switches chirp off (confirmStop, then deactivate) and on again (activate) in the same window
 const OTHER = '19:0b5c3d7e9f1a2b4c6d8e0f1a3b5c7d9e@thread.v2';
 function twoChats() {
   const w = chatWorld();
@@ -323,13 +323,13 @@ test('a tab closed by the user is not reopened; the window closing keeps them', 
   h2.api.dispose();
 });
 
-test('off at startup: a tab Roost closed comes back when chirp starts', async () => {
+test('off at startup: a tab Agentic Works closed comes back when chirp starts', async () => {
   ui.focused = true; ui.panels.length = 0;
   const ws = memento();
   const h = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar(); await settle();
   await openTab(h, PLAT);
   ext.deactivate(); for (const p of ui.panels) p.dispose();   // the window closes
-  // the next window: chirp is off, and Roost's serializer closes the tab VS Code restores
+  // the next window: chirp is off, and Agentic Works' serializer closes the tab VS Code restores
   ui.panels.length = 0;
   require('vscode').window.createWebviewPanel('chirp.conversation', 'Design Team Chat', 1, {}).dispose();
   const h2 = start(twoChats(), { workspaceState: ws, restoreGraceMs: 20 }); ui.resolveSidebar();
@@ -921,7 +921,7 @@ test('a sign-in code opens the Teams view and a notification with a button; Sign
   await ui.commands['chirp.cancelSignIn'](); await settle();
 });
 
-test('in place (Roost\'s Get started): the code opens neither the Teams view nor a notification; chirp.signInCode has it while it waits', async () => {
+test('in place (Agentic Works\' Get started): the code opens neither the Teams view nor a notification; chirp.signInCode has it while it waits', async () => {
   ui.focused = true;
   const world = chatWorld();
   world.loginAnswers = { shift: () => ({ body: { error: 'authorization_pending' } }) };   // the code is never entered

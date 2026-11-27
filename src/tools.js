@@ -22,7 +22,7 @@ const path = require('node:path');
 const { McpStdioClient, PROTOCOL_VERSION } = require('./mcpClient');
 const { CLAUDE_JSON, registration, register } = require('./claudeMcp');
 
-const TOKEN_DIR = '~/.config/roost/tokens';
+const TOKEN_DIR = '~/.config/agentic-works/tokens';
 const CHECK_MS = 30000;
 const SIGN_IN_MS = 60000;
 const COMPLETE_MS = 15 * 60000;
@@ -30,7 +30,7 @@ const POLL_MS = 2000;
 /** A command sign-in's row, while its terminal is open. */
 const COMMAND_WAIT_HINT = 'If the sign-in failed, close its terminal to try again.';
 const DOWNLOAD_MS = 5 * 60000;
-/** An install row's reason when gh has no login; the row's action then runs Roost: Sign In to GitHub. */
+/** An install row's reason when gh has no login; the row's action then runs Agentic Works: Sign In to GitHub. */
 const GITHUB_FIRST = 'Sign in to GitHub first.';
 /** A check's reason for a server whose program isn't downloaded yet (a check never downloads). */
 const NOT_INSTALLED = 'Not installed yet: Connect downloads it.';
@@ -298,7 +298,7 @@ class Tools {
     try {
       auth = await this.run(['gh', 'auth', 'status'], { timeoutMs: CHECK_MS });
     } catch (e) {
-      const why = e && e.code === 'ENOENT' ? "the GitHub CLI (gh) isn't installed; the Roost installer installs it." : scrub(e && e.message);
+      const why = e && e.code === 'ENOENT' ? "the GitHub CLI (gh) isn't installed; the Agentic Works installer installs it." : scrub(e && e.message);
       this._set(id, { state: 'notConnected', reason: `${server.name} couldn't be downloaded: ${why}` });
       return false;
     }
@@ -307,7 +307,7 @@ class Tools {
     this._set(id, { state: 'connecting', reason: `Downloading ${asset}…` });
     let dir = '';
     try {
-      dir = fs.mkdtempSync(path.join(this.tmpDir, 'roost-install-'));
+      dir = fs.mkdtempSync(path.join(this.tmpDir, 'agentic-works-install-'));
       const tmp = path.join(dir, asset);
       // no tag: gh downloads from the latest release (`gh release download --help`)
       const argv = ['gh', 'release', 'download', ...(gh.tag === 'latest' ? [] : [gh.tag]), '--repo', gh.repo, '--pattern', asset, '--output', tmp];
@@ -368,7 +368,7 @@ class Tools {
   }
 
   // A row that passes is registered with Claude Code; a different entry of the same name waits for Replace, unless it
-  // is the one Roost wrote with the token this one replaces.
+  // is the one Agentic Works wrote with the token this one replaces.
   _passed(server, token, previousToken) {
     let outcome;
     try {
@@ -405,7 +405,7 @@ class Tools {
       headers['Content-Type'] = 'application/json';
       headers.Accept = 'application/json, text/event-stream';
       body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize',
-        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'roost' } } });
+        params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'agentic-works' } } });
     } else if (check.body) {
       body = check.body;
     }

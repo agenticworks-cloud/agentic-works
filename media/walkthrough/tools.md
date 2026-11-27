@@ -5,7 +5,7 @@ opens a panel with one row for each, saying what it is for and whether it is con
 way, and the row shows the button it needs:
 
 - **Open the page**, then **Check and save**: the page gives you a token. Paste it in the row; it is checked with the
-  tool first, then kept in `~/.config/roost/tokens/`, readable by you alone.
+  tool first, then kept in `~/.config/agentic-works/tokens/`, readable by you alone.
 - **Connect**, which opens a terminal: the tool's own sign-in runs there. The row notes when it is done.
 - **Connect**, which shows a sign-in code and a link: **Copy code and open** copies the code and opens the page;
   paste the code there and sign in.
@@ -20,4 +20,4 @@ Code already has a different server of the same name, the row says so and offers
 is not connected.
 
 This step is ticked once every tool is connected, or when you press **Not Now**. You can open the panel again at any
-time with **Roost: Connect Your Tools**.
+time with **Agentic Works: Connect Your Tools**.

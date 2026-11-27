@@ -1,17 +1,17 @@
 'use strict';
-// The company file: ~/.config/roost/company.json, written by a company's installer (ROOST_COMPANY_FILE overrides the
+// The company file: ~/.config/agentic-works/company.json, written by a company's installer (AGENTIC_WORKS_COMPANY_FILE overrides the
 // path). It names an LLM gateway and the MCP servers the company offers. readCompany validates it whole: any error
 // makes the file invalid, and the error starts with the path of the offending value (mcpServers[1].connect.kind: ...).
 // The exceptions are the optional jira and email sections and a server's connect.button: a bad value there is dropped with a note
 // (readCompany's notes), and the rest of the file still loads.
-// This file is copied byte for byte to parts/agents/src/company.js (a part never requires Roost's src/); a Roost test
+// This file is copied byte for byte to parts/agents/src/company.js (a part never requires Agentic Works' src/); an Agentic Works test
 // checks the copies match.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 function companyFile({ env = process.env, home = os.homedir() } = {}) {
-  return env.ROOST_COMPANY_FILE || path.join(home, '.config', 'roost', 'company.json');
+  return env.AGENTIC_WORKS_COMPANY_FILE || path.join(home, '.config', 'agentic-works', 'company.json');
 }
 
 class Invalid extends Error {
@@ -247,7 +247,7 @@ function jira(j, notes) {
 // email: the Get started page asks for the user's address on the company's domain, and the company's tools get it in
 // the environment variable named here (never on a command line): { domain, env, example }, env and example optional.
 // example is the name part the box shows in grey before @<domain> (the company's own format, such as first.last;
-// Roost's page shows your.name without one): a bad one is ignored with a note. A bad domain or env drops the
+// Agentic Works' page shows your.name without one): a bad one is ignored with a note. A bad domain or env drops the
 // section with a note: no email step then.
 const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
@@ -368,9 +368,9 @@ function readCompany(file, { home = os.homedir() } = {}) {
   }
 }
 
-// The user's address saved by the Get started page's email step (globalState EMAIL_KEY, which Roost and its parts
+// The user's address saved by the Get started page's email step (globalState EMAIL_KEY, which Agentic Works and its parts
 // share): normalized, or '' when the company asks for none or it isn't an address on the company's domain.
-const EMAIL_KEY = 'roost.email';
+const EMAIL_KEY = 'agenticWorks.email';
 function companyEmail(company, value) {
   if (!company || !company.email || !isString(value)) return '';
   const v = value.trim().toLowerCase();

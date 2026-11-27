@@ -281,7 +281,7 @@ Sean asked for this on 2026-11-20. He likes the ticket page of
 Atlassian's own extension ("Atlassian: Jira, Rovo Dev, Bitbucket",
 `atlassian.atlascode`) for the middle pane. jay keeps its sidebar.
 
-- **`jay.ticketView`** is either `"jay"` (the default since Roost
+- **`jay.ticketView`** is either `"jay"` (the default since Agentic Works
   0.5.10: the Atlassian page proved hard to read and use) or `"atlassian"`. It decides what a click opens, in the tree, in Jira results,
   and on "Open <KEY>".
 - **`"atlassian"`:** jay runs `atlascode.jira.showIssueForKey` with the

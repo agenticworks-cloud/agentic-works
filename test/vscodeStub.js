@@ -1,9 +1,9 @@
 'use strict';
-// A fake vscode module, installed for require('vscode'), so Roost's loader runs without VS Code. It records what
-// Roost does: context keys, error messages, the output channel, registered commands and webview serializers, setting
+// A fake vscode module, installed for require('vscode'), so Agentic Works' loader runs without VS Code. It records what
+// Agentic Works does: context keys, error messages, the output channel, registered commands and webview serializers, setting
 // writes; tests set ui.config (and ui.inspect for the scopes a value is set at) and call ui.changeConfig(keys) to fire
 // onDidChangeConfiguration, and ui.restorePanel(viewType) to have VS Code bring back a tab of that type. Webview panels
-// Roost opens are in ui.panels (each with .posted, the messages sent to its page, and .receive(m), a message from the
+// Agentic Works opens are in ui.panels (each with .posted, the messages sent to its page, and .receive(m), a message from the
 // page, resolving once the host's listeners have); env.openExternal goes to ui.opened, the clipboard to ui.clipboard.
 const Module = require('module');
 const path = require('path');
@@ -15,7 +15,7 @@ class Emitter {
 }
 
 function install() {
-  process.env.ROOST_TEST_HARNESS_STRICT_GH = '1';   // Roost then refuses to start without a stubbed ghLogins (never this machine's gh)
+  process.env.AGENTIC_WORKS_TEST_HARNESS_STRICT_GH = '1';   // Agentic Works then refuses to start without a stubbed ghLogins (never this machine's gh)
   const ui = { config: {}, contexts: {}, errors: [], out: [], shown: 0, commands: {}, errorChoice: undefined, failSetContext: 0, serializers: {}, inspect: {}, updates: [], failUpdate: null, sent: [], asyncSetContext: false, applied: Promise.resolve(), panels: [], opened: [], clipboard: [] };
   const configChange = new Emitter();
   const terminalClose = new Emitter();

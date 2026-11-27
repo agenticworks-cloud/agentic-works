@@ -7,14 +7,14 @@ step is ticked once Claude is connected, or when you press **Not Now**. You can 
 Your company's setup may offer its gateway only; the other ways, Codex's too, are then a tab's footer away (below).
 Otherwise the panel offers:
 
-- **Your company's gateway**, when your company has set one up for Roost (marked Recommended), or **an LLM gateway**
+- **Your company's gateway**, when your company has set one up for Agentic Works (marked Recommended), or **an LLM gateway**
   otherwise: an Anthropic-compatible endpoint, such as a company's LLM proxy. This opens **Agents: Set Up a
   Gateway…**, where you get a key and it is checked with the gateway before it is saved. A company's gateway may have
   more than one address; each Claude tab finds the one that answers as it starts.
 - **Claude subscription**: your Claude plan. If this machine isn't logged in yet, Claude Code's own sign-in opens in
   a terminal, and the panel notes when it is done.
 - **Anthropic API key**: billed per token. Paste the key; it is checked with Anthropic first, then kept in
-  `~/.config/roost/anthropic-key`, readable by you alone (mode 0600). Claude tabs are given it in their environment.
+  `~/.config/agentic-works/anthropic-key`, readable by you alone (mode 0600). Claude tabs are given it in their environment.
 - **AWS Bedrock**: press **Use Bedrock…**, then choose an AWS profile or SSO sign-in already on this machine, and a
   region. Nothing is checked until you pick it. It is checked with the AWS CLI's list of Anthropic models; if the
   CLI isn't installed, the panel says how to install it, and **Save anyway** saves it unchecked. If your sign-in has

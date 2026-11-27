@@ -20,7 +20,7 @@ const EXAMPLE = { name: 'Example Co',
   ] };
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-company-'));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-company-'));
 process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
 let n = 0;
 function read(data) {
@@ -35,8 +35,8 @@ function invalid(data, at) {
   assert.ok(r.error.startsWith(at), `${r.error} should start with ${at}`);
 }
 
-assert.strictEqual(companyFile({ env: { ROOST_COMPANY_FILE: '/x/c.json' }, home: '/h' }), '/x/c.json');
-assert.strictEqual(companyFile({ env: {}, home: '/h' }), '/h/.config/roost/company.json');
+assert.strictEqual(companyFile({ env: { AGENTIC_WORKS_COMPANY_FILE: '/x/c.json' }, home: '/h' }), '/x/c.json');
+assert.strictEqual(companyFile({ env: {}, home: '/h' }), '/h/.config/agentic-works/company.json');
 
 const ok = read(EXAMPLE);
 assert.strictEqual(ok.ok, true, ok.error);

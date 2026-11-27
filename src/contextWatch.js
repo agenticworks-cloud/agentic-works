@@ -1,6 +1,6 @@
 'use strict';
-// VS Code has no way to read a context key back, so Roost watches the parts' setContext calls: it wraps
-// commands.executeCommand (the parts share Roost's vscode object) and, for a setContext of one of `keys`, records the
+// VS Code has no way to read a context key back, so Agentic Works watches the parts' setContext calls: it wraps
+// commands.executeCommand (the parts share Agentic Works' vscode object) and, for a setContext of one of `keys`, records the
 // value and tells the listeners, then passes the call on unchanged, its result or rejection included. Every other
 // call goes straight through. The value is the one sent, whether or not VS Code then applies it. dispose puts the
 // original back only if the wrapper is still in place (something wrapped after it is left as it is). Where the
@@ -18,7 +18,7 @@ function watchContexts(commands, keys, { log = () => {} } = {}) {
       try {
         fn(key, value);
       } catch (err) {
-        log(`Roost: a listener on context key ${key} threw: ${errorText(err)}`);
+        log(`Agentic Works: a listener on context key ${key} threw: ${errorText(err)}`);
       }
     }
   };
@@ -32,7 +32,7 @@ function watchContexts(commands, keys, { log = () => {} } = {}) {
     wrapped = commands.executeCommand === wrapper;
     if (!wrapped) throw new Error('executeCommand could not be replaced');
   } catch (err) {
-    log(`Roost cannot watch the parts' context keys: ${errorText(err)}`);
+    log(`Agentic Works cannot watch the parts' context keys: ${errorText(err)}`);
   }
   return {
     get: (key) => values.get(key),

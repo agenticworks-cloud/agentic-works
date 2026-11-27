@@ -1,8 +1,8 @@
-# Roost: one extension, four parts under parts/<name>/. The root package.json is generated (make manifest).
+# Agentic Works: one extension, four parts under parts/<name>/. The root package.json is generated (make manifest).
 VSCE = npx --yes @vscode/vsce
-VERSION = $(shell node -p "require('./roost.json').version")
-VSIX = roost-$(VERSION).vsix
-EXT_ID = seanahn.roost-$(VERSION)
+VERSION = $(shell node -p "require('./agentic-works.json').version")
+VSIX = agentic-works-$(VERSION).vsix
+EXT_ID = agenticworks.agentic-works-$(VERSION)
 EXT_DIRS ?= $(HOME)/.vscode/extensions $(HOME)/.local/share/code-server/extensions $(HOME)/.vscode-server/extensions
 PARTS = $(patsubst %/package-lock.json,%,$(wildcard parts/*/package-lock.json))
 
@@ -17,8 +17,8 @@ deps: manifest
 	@# Perch's audio companion is excluded from the .vsix; its tests (run by Perch's test-offline) need these
 	cd parts/agents/audio && npm ci --silent
 
-## Offline tests: Roost's own, then each part's, then the manifest is checked against the parts
-test: export ROOST_TEST_HARNESS_STRICT_GH = 1
+## Offline tests: Agentic Works' own, then each part's, then the manifest is checked against the parts
+test: export AGENTIC_WORKS_TEST_HARNESS_STRICT_GH = 1
 test:
 	@for t in $(filter-out test/package.test.js test/noOldName.test.js,$(wildcard test/*.test.js)); do node $$t || exit 1; done
 	$(MAKE) -C parts/agents test-offline
@@ -33,10 +33,10 @@ test-live:
 
 ## Symlink this checkout into every VS Code / code-server extension dir that exists
 install: deps
-	@for d in $(EXT_DIRS); do [ -d $$d ] || continue; rm -f $$d/seanahn.roost-*; ln -sfn "$(CURDIR)" $$d/$(EXT_ID) && echo "linked $$d/$(EXT_ID)"; done; true
-	@echo "roost installed. Reload the window to activate."
+	@for d in $(EXT_DIRS); do [ -d $$d ] || continue; rm -f $$d/agenticworks.agentic-works-*; ln -sfn "$(CURDIR)" $$d/$(EXT_ID) && echo "linked $$d/$(EXT_ID)"; done; true
+	@echo "Agentic Works installed. Reload the window to activate."
 
-## Build roost-<version>.vsix
+## Build agentic-works-<version>.vsix
 package: manifest
 	npm ci --silent
 	$(VSCE) package
@@ -53,7 +53,7 @@ release: package
 
 ## make release, then the release tests (which fail, rather than skip, without dist/)
 release-test: release
-	ROOST_REQUIRE_DIST=1 python3 -m unittest installer/test/test_release.py
+	AGENTIC_WORKS_REQUIRE_DIST=1 python3 -m unittest installer/test/test_release.py
 
 ## Refuse to publish from a tree with uncommitted changes, or a HEAD not on origin: the release's tag is made at HEAD
 release-publish-check:
@@ -62,16 +62,16 @@ release-publish-check:
 
 ## Publish dist/ as a GitHub release, tagged at HEAD. The owner's action: nothing in the build or the tests runs it
 release-publish: release-publish-check
-	@[ -f dist/roost-install.sh ] && [ -f dist/$(VSIX) ] || { echo "dist/ is missing; run make release"; exit 1; }
-	@grep -q '^ROOST_VERSION="$(VERSION)"$$' dist/roost-install.sh || { echo "dist/ is stale (not $(VERSION)); run make release"; exit 1; }
+	@[ -f dist/agentic-works-install.sh ] && [ -f dist/$(VSIX) ] || { echo "dist/ is missing; run make release"; exit 1; }
+	@grep -q '^AGENTIC_WORKS_VERSION="$(VERSION)"$$' dist/agentic-works-install.sh || { echo "dist/ is stale (not $(VERSION)); run make release"; exit 1; }
 	@sha=$$(cd dist && (sha256sum $(VSIX) 2> /dev/null || shasum -a 256 $(VSIX)) | cut -d' ' -f1); \
-	  grep -q "^ROOST_SHA256=\"$$sha\"$$" dist/roost-install.sh || { echo "dist/ is stale (the .vsix doesn't match the installer's checksum); run make release"; exit 1; }; \
+	  grep -q "^AGENTIC_WORKS_SHA256=\"$$sha\"$$" dist/agentic-works-install.sh || { echo "dist/ is stale (the .vsix doesn't match the installer's checksum); run make release"; exit 1; }; \
 	  [ ! -f $(VSIX) ] || cmp -s $(VSIX) dist/$(VSIX) || { echo "dist/ is stale (differs from $(VSIX)); run make release"; exit 1; }
-	@printf 'Roost %s\n\nInstall: curl -fsSL https://github.com/seanahn/roost/releases/latest/download/roost-install.sh | bash\n' \
+	@printf 'Agentic Works %s\n\nInstall: curl -fsSL https://github.com/agenticworks-cloud/agentic-works/releases/latest/download/agentic-works-install.sh | bash\n' \
 	  "$(VERSION)" > dist/release-notes.md
-	gh release create v$(VERSION) dist/roost-install.sh dist/$(VSIX) --repo seanahn/roost --title "Roost $(VERSION)" \
+	gh release create v$(VERSION) dist/agentic-works-install.sh dist/$(VSIX) --repo agenticworks-cloud/agentic-works --title "Agentic Works $(VERSION)" \
 	  --target "$$(git rev-parse HEAD)" --notes-file dist/release-notes.md
 
 clean:
 	rm -rf dist
-	rm -f roost-*.vsix
+	rm -f agentic-works-*.vsix

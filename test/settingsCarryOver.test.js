@@ -1,6 +1,6 @@
 'use strict';
 // Each part carries its renamed settings over once with its own copy of src/settingsCarryOver.js (parts don't require
-// Roost's src/). The copies, and the parts' tests of them, must stay the same; each part calls it with its own prefixes.
+// Agentic Works' src/). The copies, and the parts' tests of them, must stay the same; each part calls it with its own prefixes.
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');

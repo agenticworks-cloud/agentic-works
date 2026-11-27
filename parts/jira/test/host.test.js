@@ -1304,7 +1304,7 @@ test('deactivate leaves the ticket tabs and their files for the editor to restor
   assert.ok(fs.existsSync(path.join(h.jayDir, 'issues', 'DEMO-1.jira')));
 });
 
-// Roost switches jay off (confirmStop, then deactivate) and on again (activate) in the same window
+// Agentic Works switches jay off (confirmStop, then deactivate) and on again (activate) in the same window
 const openTabs = () => ui.panels.filter((p) => !p.disposed).map((p) => [p.viewType, p.viewType === 'jay.ticket' ? p.title : 'page']);
 
 test('tabs come back after off/on', async () => {
@@ -1326,7 +1326,7 @@ test('tabs come back after off/on', async () => {
   assert.ok(h2.fetch.calls.some((c) => c.url.includes('/wiki/api/v2/pages/1001')), 'the page tab loads its page');
 });
 
-test('off at startup: a tab Roost closed comes back when jay starts; one the user closed does not', async () => {
+test('off at startup: a tab Agentic Works closed comes back when jay starts; one the user closed does not', async () => {
   const ws = memento();
   const h = start({ ws, restoreGraceMs: 20 }); await settle();
   h.view.webview._receive({ type: 'open', key: 'DEMO-1' });
@@ -1334,7 +1334,7 @@ test('off at startup: a tab Roost closed comes back when jay starts; one the use
   ui.panels.find((p) => p.title === 'DEMO-2').dispose();      // closed by the user
   ext.deactivate(); running.length = 0;                       // the window closes, and its tabs with it
   for (const p of ui.panels) p.dispose();
-  // the next window: jay is off, and Roost's serializer closes the tab VS Code restores
+  // the next window: jay is off, and Agentic Works' serializer closes the tab VS Code restores
   start({ ws, restoreGraceMs: 20, home: h.home });
   assert.deepStrictEqual(openTabs(), [], 'not at once: VS Code may still bring it back');
   await settle(80);

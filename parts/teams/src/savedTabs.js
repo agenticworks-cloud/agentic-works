@@ -1,6 +1,6 @@
 'use strict';
 // The conversation tabs open in this workspace, kept in workspaceState, so that tabs chirp's host closed can be opened
-// again: Roost closes them when it switches chirp off, and closes those VS Code restores while chirp is off. After a
+// again: Agentic Works closes them when it switches chirp off, and closes those VS Code restores while chirp is off. After a
 // reload VS Code brings a tab back itself, through the serializer, but only as each is shown; `paneled` says VS Code
 // still has the tab. One closed by a switch-off has none, and is opened again as soon as chirp starts; the others are
 // opened after a short wait, unless VS Code shows a tab for them by then.

@@ -75,7 +75,7 @@ function activate(context, deps = {}) {
   const fetchFn = deps.fetch || ((...a) => globalThis.fetch(...a));
   const run = deps.run || runCommand;
   const secrets = context.secrets; const store = context.globalState;
-  // jay.* settings were renamed jira.* (Roost): the user's old values, once, at the scopes they were set at
+  // jay.* settings were renamed jira.* (Agentic Works): the user's old values, once, at the scopes they were set at
   const settingsLog = (l) => out.appendLine(`[${new Date().toISOString()}] ${l}`);
   carryOverSettings(vscode, store, { from: 'jay', to: 'jira', keys: settingKeys(require('../package.json'), 'jira'), log: settingsLog }).catch((e) => settingsLog(`settings: carry-over failed: ${(e && e.message) || e}`));
   const cfg = (k, d) => vscode.workspace.getConfiguration('jira').get(k, d);
@@ -105,7 +105,7 @@ function activate(context, deps = {}) {
     conf: null };   // conf: this sign-in's Confluence (confluenceSide.js), or null
   const note = () => { for (const k of NOTE_POLLS) { const n = s.notes[k]; if (n && (n.offline || n.throttle)) return n.offline || n.throttle; } return null; };
   const setNote = (poll, kind, text) => { const n = s.notes[poll] || (s.notes[poll] = {}); if (n[kind] === text) return; n[kind] = text; render(); };
-  // jay.signedIn: true while jay runs with a sign-in, for Roost's walkthrough step; sent only when it changes
+  // jay.signedIn: true while jay runs with a sign-in, for Agentic Works' walkthrough step; sent only when it changes
   let signedInKey;
   const setSignedIn = (v) => {
     if (signedInKey === v) return;
@@ -610,7 +610,7 @@ function activate(context, deps = {}) {
     watcher = null;
     stopFileCheck();
     // a window closing: the tabs stay, VS Code disposes the panels itself, and the serializer restores them after a reload.
-    // Switched off with the window open (Roost): they close, and are kept to open again when jay is switched on.
+    // Switched off with the window open (Agentic Works): they close, and are kept to open again when jay is switched on.
     if (switchingOff) { tickets.switchOff(); conf.switchOff(); } else { tickets.windowClosing(); conf.windowClosing(); }
     tickets.dispose(); atlassian.dispose(); conf.dispose();
   }
@@ -623,7 +623,7 @@ function activate(context, deps = {}) {
     secrets.onDidChange((e) => { if (e && (e.key === 'jay.email' || e.key === 'jay.apiToken')) signedOutElsewhere(); }),
     vscode.commands.registerCommand('jay.refresh', () => refresh()),
     vscode.commands.registerCommand('jay.signIn', () => signIn()),
-    // for the Get started page in Roost: the form's sign-in as a command; the answer is null or the message, never the token
+    // for the Get started page in Agentic Works: the form's sign-in as a command; the answer is null or the message, never the token
     vscode.commands.registerCommand('jay.signInWith', (m) => signInFromForm(m || {})),
     vscode.commands.registerCommand('jay.signOut', () => signOut()),
     vscode.commands.registerCommand('jay.focusSearch', () => sidebar.focusSearch()),
@@ -655,7 +655,7 @@ function activate(context, deps = {}) {
 
 function deactivate() { if (current) current.dispose(); current = null; }
 
-/** Asked by a host that switches jay off while the window stays open (Roost), just before it does: jay never says no,
+/** Asked by a host that switches jay off while the window stays open (Agentic Works), just before it does: jay never says no,
  *  and the stop then closes its tabs, keeping the list of them to open again when it is switched on. */
 async function confirmStop() {
   if (current) current.switchOff();

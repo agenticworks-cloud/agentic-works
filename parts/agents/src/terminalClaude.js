@@ -1,6 +1,6 @@
 'use strict';
 // Terminal `claude`: what ~/.claude/settings.json should hold for each way Claude can run, the plan against what the
-// file holds and what Roost wrote there before, and the write. A value the user put there is replaced only when they
+// file holds and what Agentic Works wrote there before, and the write. A value the user put there is replaced only when they
 // agree (the plan's conflicts, named in `replace`); a file that is not a plain JSON object (comments, an array) is never
 // rewritten. Keys are `apiKeyHelper` or `env.<NAME>`; a desired null removes the key. Claude Code's own CLI, at
 // ~/.local/bin/claude, reads the file: there is no launcher, so the gateway's address is written there and kept to
@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 
 const BASE_URL_KEY = 'env.ANTHROPIC_BASE_URL';
-/** Where the Agents part keeps the record of what Roost wrote (globalState). */
+/** Where the Agents part keeps the record of what Agentic Works wrote (globalState). */
 const WRITTEN_KEY = 'perch.terminal.written';
 
 const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
@@ -76,7 +76,7 @@ function setKey(json, key, value) {
 
 /**
  * The plan: changes (made without asking), conflicts (the user's own values, replaced only when they agree), and
- * `kept`: what Roost wrote before, still there and still wanted, to stay in its record.
+ * `kept`: what Agentic Works wrote before, still there and still wanted, to stay in its record.
  * @returns {{ changes: {key:string, from:string|undefined, to:string|null}[], conflicts: {key:string, from:string|undefined, to:string|null}[], kept: Record<string,string> }}
  */
 function planSettings(current, desired, written) {
@@ -90,7 +90,7 @@ function planSettings(current, desired, written) {
   for (const [key, was] of Object.entries(w)) {
     if (desired && key in desired) continue;
     const from = getKey(current, key);
-    if (from !== undefined && from === was) changes.push({ key, from, to: null });   // Roost's own, no longer wanted
+    if (from !== undefined && from === was) changes.push({ key, from, to: null });   // Agentic Works' own, no longer wanted
   }
   return { changes, conflicts, kept };
 }
@@ -100,7 +100,7 @@ function writeJson(file, json) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   let mode = 0o600;
   try { mode = fs.statSync(file).mode & 0o777; } catch (_) { /* a new file */ }
-  const tmp = `${file}.roost-${process.pid}-${Date.now()}.tmp`;
+  const tmp = `${file}.agentic-works-${process.pid}-${Date.now()}.tmp`;
   try {
     fs.writeFileSync(tmp, JSON.stringify(json, null, 2) + '\n', { mode });
     fs.renameSync(tmp, file);
@@ -113,13 +113,13 @@ function writeJson(file, json) {
  * conflict, with the value there now, for the user to be asked again; one that holds the wanted value already is
  * left. Throws when the file isn't a plain JSON object, which is then left as it is.
  * @returns {{ written: Record<string,string>, conflicts: {key:string, from:string|undefined, to:string|null}[] }}
- *   the new record of what Roost wrote, and the changes held back
+ *   the new record of what Agentic Works wrote, and the changes held back
  */
 function writeSettings(file, plan, { replace = [] } = {}) {
   const r = readSettings(file);
   if (!r.ok) throw new Error(`settings not written: ${r.error}`);
   const json = r.json, record = {}, conflicts = [];
-  for (const [k, v] of Object.entries(plan.kept || {})) if (getKey(json, k) === v) record[k] = v;   // still Roost's
+  for (const [k, v] of Object.entries(plan.kept || {})) if (getKey(json, k) === v) record[k] = v;   // still Agentic Works'
   const apply = [...plan.changes, ...plan.conflicts.filter((c) => replace.includes(c.key))];
   let wrote = false;
   for (const c of apply) {
@@ -143,7 +143,7 @@ function maskValue(key, value) {
 }
 
 /**
- * Keep the gateway's address in settings.json to `baseUrl`, the one that answered: only when the file holds what Roost
+ * Keep the gateway's address in settings.json to `baseUrl`, the one that answered: only when the file holds what Agentic Works
  * wrote there (the user hasn't changed it since) and that differs. Never adds the key; leaves an unparsable file alone.
  * A value the user changed (or removed) is theirs from then on, and leaves the record.
  * @returns {{ changed: boolean, written: Record<string,string> }}

@@ -27,7 +27,7 @@ for (const [dir, want] of Object.entries(parts)) {
   assert.deepStrictEqual(part.needs, []);
 
   // History kept: every commit of the source repo that touched the file (author date and subject), up to the commit
-  // that was imported, is in Roost's log of it; commits made in Roost since are allowed. The imported commit is the
+  // that was imported, is in Agentic Works' log of it; commits made in Agentic Works since are allowed. The imported commit is the
   // source commit matching the tip of the import merge's second parent (the imported history, its paths rewritten
   // under parts/<repo>/), so the source repo moving on since does not matter. --follow: the folder was renamed since.
   const log = (cwd, ...args) => git(cwd, 'log', '--format=%at %s', ...args).split('\n').filter(Boolean);
@@ -45,7 +45,7 @@ for (const [dir, want] of Object.entries(parts)) {
   const orig = log(`/git/${repo}`, source.slice(0, 40), '--', want.file);
   assert.ok(orig.length > 1, `${dir}: source history exists`);
   const missing = orig.filter((c) => !mine.has(c));
-  assert.deepStrictEqual(missing, [], `${dir}/${want.file}: source commits missing from Roost`);
+  assert.deepStrictEqual(missing, [], `${dir}/${want.file}: source commits missing from Agentic Works`);
 }
 
 // Blame reaches back before the import.
@@ -56,21 +56,21 @@ const blamedFull = git(root, 'rev-parse', blamed);
 assert.notStrictEqual(blamedFull, importCommit);
 assert.strictEqual(git(root, 'merge-base', '--is-ancestor', blamedFull, `${importCommit}^2`) || 'ok', 'ok');
 
-const roost = read('roost.json');
-assert.match(roost.version, /^\d+\.\d+\.\d+$/, 'a release version');
-assert.deepStrictEqual({ ...roost, version: undefined }, {
-  name: 'roost',
-  displayName: 'Roost',
-  publisher: 'seanahn',
+const agenticWorks = read('agentic-works.json');
+assert.match(agenticWorks.version, /^\d+\.\d+\.\d+$/, 'a release version');
+assert.deepStrictEqual({ ...agenticWorks, version: undefined }, {
+  name: 'agentic-works',
+  displayName: 'Agentic Works',
+  publisher: 'agenticworks',
   version: undefined,
   description: 'Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.',
   engines: { vscode: '^1.90.0' },
   license: 'MIT',
-  repository: 'https://github.com/seanahn/roost',
+  repository: 'https://github.com/agenticworks-cloud/agentic-works',
   icon: 'parts/agents/media/icon.png',
   extensionKind: ['workspace'],
   categories: ['AI', 'Chat'],
 });
-assert.ok(fs.existsSync(path.join(root, roost.icon)), 'icon exists');
+assert.ok(fs.existsSync(path.join(root, agenticWorks.icon)), 'icon exists');
 
 console.log('import.test.js passed');

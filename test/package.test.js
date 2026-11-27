@@ -6,8 +6,8 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const root = path.join(__dirname, '..');
-const { version } = JSON.parse(fs.readFileSync(path.join(root, 'roost.json'), 'utf8'));
-const vsix = path.join(root, `roost-${version}.vsix`);
+const { version } = JSON.parse(fs.readFileSync(path.join(root, 'agentic-works.json'), 'utf8'));
+const vsix = path.join(root, `agentic-works-${version}.vsix`);
 assert.ok(fs.existsSync(vsix), `${path.basename(vsix)} missing: run make package first`);
 
 const files = execFileSync('unzip', ['-Z1', vsix], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n').filter(Boolean);
@@ -22,7 +22,7 @@ for (const f of [
   'extension/media/getstarted/email.md',
   'extension/media/getstarted/claude-company-gateway.md',
   'extension/node_modules/@anthropic-ai/claude-agent-sdk/package.json',
-  // licences: Roost's own (vsce renames LICENSE), and the dependencies' that are .md files
+  // licences: Agentic Works' own (vsce renames LICENSE), and the dependencies' that are .md files
   'extension/LICENSE.txt',
   'extension/node_modules/@anthropic-ai/claude-agent-sdk/LICENSE.md',
   'extension/node_modules/ms/license.md',
@@ -45,7 +45,7 @@ const unwanted = [
   /(^|\/)package-lock\.json$/, /(^|\/)\.env$/, /__pycache__\//,
   /^extension\/parts\/[^/]+\/\.gitignore$/, /^extension\/parts\/[^/]+\/\.vscodeignore$/,
   // read by the manifest build only
-  /^extension\/\.gitignore$/, /^extension\/roost\.json$/, /^extension\/roost\.contributes\.json$/,
+  /^extension\/\.gitignore$/, /^extension\/agentic-works\.json$/, /^extension\/agentic-works\.contributes\.json$/,
 ];
 const bad = files.filter((f) => unwanted.some((re) => re.test(f)));
 assert.deepStrictEqual(bad.slice(0, 20), [], 'files that stay out of the package');

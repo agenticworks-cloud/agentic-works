@@ -44,7 +44,7 @@ let current = null;
 function activate(context, deps = {}) {
   const out = vscode.window.createOutputChannel('chirp');
   const log = (e) => out.appendLine(`[${new Date().toISOString()}] ${e && e.stack ? e.stack : e}`);
-  // chirp.* settings were renamed teams.* (Roost): the user's old values, once, at the scopes they were set at
+  // chirp.* settings were renamed teams.* (Agentic Works): the user's old values, once, at the scopes they were set at
   carryOverSettings(vscode, context.globalState, { from: 'chirp', to: 'teams', keys: settingKeys(require('../package.json'), 'teams'), log }).catch(log);
   const watchFile = deps.watchFile || fs.watchFile, unwatchFile = deps.unwatchFile || fs.unwatchFile;
   const setIntervalFn = deps.setInterval || setInterval, clearIntervalFn = deps.clearInterval || clearInterval;
@@ -58,14 +58,14 @@ function activate(context, deps = {}) {
   // channels: 'enabled' | 'off' | 'failed' | 'forbidden'; signIn: null | { stage, userCode?, verificationUri? }
   const s = { me: null, teams: [], chats: [], lastPreview: new Map(), counts: new Map(), status: null, throttle: null,
     signedOut: false, signIn: null, channels: 'off' };
-  // chirp.signedIn: true while a login works, for Roost's walkthrough step; sent only when it changes
+  // chirp.signedIn: true while a login works, for Agentic Works' walkthrough step; sent only when it changes
   let signedInKey;
   const setSignedIn = (v) => {
     if (signedInKey === v) return;
     signedInKey = v;
     Promise.resolve(vscode.commands.executeCommand('setContext', 'chirp.signedIn', v)).catch(() => { /* an older VS Code */ });
   };
-  // chirp.signInCodeWaiting: true while a device code waits to be entered (Roost's Get started shows it in place, and
+  // chirp.signInCodeWaiting: true while a device code waits to be entered (Agentic Works' Get started shows it in place, and
   // reads it with chirp.signInCode); every change of s.signIn goes through setSignIn, so the key follows it
   let codeWaitingKey;
   const setSignIn = (v) => {
@@ -80,7 +80,7 @@ function activate(context, deps = {}) {
 
   // ---- sign-in: the method from the settings, rebuilt when they change
   let tokenFile = '', auth = null, cancelSignIn = null, userCancelled = false;
-  // inPlace: this sign-in was started with { inPlace: true } (Roost's Get started, which shows the code itself): its
+  // inPlace: this sign-in was started with { inPlace: true } (Agentic Works' Get started, which shows the code itself): its
   // code opens neither the Teams view nor a notification
   let inPlace = false;
   // app: { clientId, tenant, company } — chirp's own app, or the company's from teams.signIn.clientId / .tenant
@@ -369,7 +369,7 @@ function activate(context, deps = {}) {
   };
 
   const mirror = createMirror({ dir: deps.chirpDir || path.join(os.homedir(), '.chirp'), enabled: () => cfg('agentFiles') !== false });
-  // the open tabs, for a host that switches chirp off and on again in one window (Roost)
+  // the open tabs, for a host that switches chirp off and on again in one window (Agentic Works)
   const saved = createSavedTabs({ state: context.workspaceState, key: OPEN_TABS_KEY, viewType: VIEW_TYPE, tabGroups: vscode.window.tabGroups, graceMs: deps.restoreGraceMs });
   let switchingOff = false;   // confirmStop said yes: dispose closes the tabs, which a window closing leaves to VS Code
   const conversations = new Conversations({
@@ -421,7 +421,7 @@ function activate(context, deps = {}) {
     vscode.commands.registerCommand('chirp.activeConversationFile', () => conversations.activeConversationFile()),
     vscode.commands.registerCommand('chirp.refresh', () => refresh()),
     vscode.commands.registerCommand('chirp.focusFilter', () => sidebar.focusFilter()),
-    // { inPlace: true }: Roost's Get started, which shows the code itself (chirp.signInCode); anything else is ignored
+    // { inPlace: true }: Agentic Works' Get started, which shows the code itself (chirp.signInCode); anything else is ignored
     vscode.commands.registerCommand('chirp.signIn', (o) => signIn({ inPlace: !!(o && o.inPlace === true) })),
     // the device code while one waits to be entered, else null: for the page that shows it in place (never logged)
     vscode.commands.registerCommand('chirp.signInCode', () => (s.signIn && s.signIn.stage === 'code'
@@ -537,7 +537,7 @@ function activate(context, deps = {}) {
 
 function deactivate() { if (current) current.dispose(); current = null; }
 
-/** Asked by a host that switches chirp off while the window stays open (Roost), just before it does: chirp never says
+/** Asked by a host that switches chirp off while the window stays open (Agentic Works), just before it does: chirp never says
  *  no, and the stop then closes its tabs, keeping the list of them to open again when it is switched on. */
 async function confirmStop() {
   if (current) current.switchOff();

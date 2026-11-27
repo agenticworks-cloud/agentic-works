@@ -1,5 +1,5 @@
 'use strict';
-// Roost is public and generic: no tracked file names the company whose installer layers on top of it (its name, its
+// Agentic Works is public and generic: no tracked file names the company whose installer layers on top of it (its name, its
 // hosts, its repos, its models, its app ids). The terms are kept encoded here so this file does not name them either.
 // .superpowers/ (working notes, not shipped) and node_modules are left out.
 const assert = require('node:assert');

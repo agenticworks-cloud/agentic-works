@@ -1,0 +1,227 @@
+{
+  "commands": [
+    {
+      "command": "agenticWorks.openSettings",
+      "title": "Agentic Works: Settings",
+      "icon": "$(gear)"
+    },
+    {
+      "command": "agenticWorks.getStarted",
+      "title": "Agentic Works: Get Started"
+    },
+    {
+      "command": "agenticWorks.githubSignIn",
+      "title": "Agentic Works: Sign In to GitHub"
+    },
+    {
+      "command": "agenticWorks.codebaseSearchOn",
+      "title": "Agentic Works: Turn On Codebase Search"
+    },
+    {
+      "command": "agenticWorks.codebaseSearchNotNow",
+      "title": "Agentic Works: Leave Codebase Search Off"
+    },
+    {
+      "command": "agenticWorks.connectClaudeNotNow",
+      "title": "Agentic Works: Leave Connect Claude for Now"
+    },
+    {
+      "command": "agenticWorks.connectTools",
+      "title": "Agentic Works: Connect Your Tools"
+    },
+    {
+      "command": "agenticWorks.toolsNotNow",
+      "title": "Agentic Works: Leave Connect Your Tools for Now"
+    },
+    {
+      "command": "agenticWorks.teamsSignIn",
+      "title": "Agentic Works: Sign In to Teams"
+    },
+    {
+      "command": "agenticWorks.jiraSignIn",
+      "title": "Agentic Works: Connect Jira"
+    },
+    {
+      "command": "agenticWorks.goToClaude",
+      "title": "Agentic Works: Go to Your Agent Tab"
+    },
+    {
+      "command": "agenticWorks.newClaudeTab",
+      "title": "Agentic Works: New Claude Tab Beside"
+    },
+    {
+      "command": "agenticWorks.newCodexTab",
+      "title": "Agentic Works: New Codex Tab Beside"
+    },
+    {
+      "command": "agenticWorks.newClaudeGatewayTab",
+      "title": "Agentic Works: Claude Tab on the Gateway Beside"
+    }
+  ],
+  "menus": {
+    "view/title": [
+      {
+        "command": "agenticWorks.openSettings",
+        "when": "view == perch.main",
+        "group": "navigation@99"
+      }
+    ],
+    "commandPalette": [
+      {
+        "command": "agenticWorks.codebaseSearchNotNow",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.goToClaude",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.connectClaudeNotNow",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.toolsNotNow",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.teamsSignIn",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.jiraSignIn",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.newClaudeTab",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.newCodexTab",
+        "when": "false"
+      },
+      {
+        "command": "agenticWorks.newClaudeGatewayTab",
+        "when": "false"
+      }
+    ]
+  },
+  "walkthroughs": [
+    {
+      "id": "agenticWorks.getStarted",
+      "title": "Get started with Agentic Works",
+      "description": "Claude and Codex tabs, Teams, Jira and Confluence, and your pull requests, in one place.",
+      "steps": [
+        {
+          "id": "githubFirst",
+          "title": "Sign in to GitHub",
+          "description": "Sign in to GitHub first: your company's tools may download through it, and the PRs tab shows the PRs waiting on you.\n[Sign In to GitHub](command:agenticWorks.githubSignIn)",
+          "media": {
+            "markdown": "media/walkthrough/github.md"
+          },
+          "when": "agenticWorks.company && config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed",
+          "completionEvents": [
+            "onContext:kestrel.signedIn"
+          ]
+        },
+        {
+          "id": "connectClaude",
+          "title": "Connect Claude",
+          "description": "Choose how Claude runs: your company's gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key or AWS Bedrock. Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:agenticWorks.connectClaudeNotNow)",
+          "media": {
+            "markdown": "media/walkthrough/connect-claude.md"
+          },
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed",
+          "completionEvents": [
+            "onContext:perch.claudeConnected",
+            "onCommand:agenticWorks.connectClaudeNotNow"
+          ]
+        },
+        {
+          "id": "agents",
+          "title": "Talk to Claude or Codex",
+          "description": "Open a tab and type a message. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[New Claude Tab](command:agenticWorks.newClaudeTab)\n[New Codex Tab](command:agenticWorks.newCodexTab)",
+          "media": {
+            "markdown": "media/walkthrough/agents.md"
+          },
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed",
+          "completionEvents": [
+            "onContext:perch.messageSent"
+          ]
+        },
+        {
+          "id": "tools",
+          "title": "Connect your tools",
+          "description": "Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:agenticWorks.connectTools)\n[Not Now](command:agenticWorks.toolsNotNow)",
+          "media": {
+            "markdown": "media/walkthrough/tools.md"
+          },
+          "when": "agenticWorks.companyTools",
+          "completionEvents": [
+            "onContext:agenticWorks.toolsConnected",
+            "onCommand:agenticWorks.toolsNotNow"
+          ]
+        },
+        {
+          "id": "codebaseSearch",
+          "title": "Search your code by meaning",
+          "description": "Give Claude and Codex tabs a tool that searches the workspace, by keywords and, once installed, by meaning. Off unless you turn it on.\n[Turn On Codebase Search](command:agenticWorks.codebaseSearchOn)\n[Not Now](command:agenticWorks.codebaseSearchNotNow)",
+          "media": {
+            "markdown": "media/walkthrough/codebase-search.md"
+          },
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed",
+          "completionEvents": [
+            "onCommand:agenticWorks.codebaseSearchOn",
+            "onCommand:agenticWorks.codebaseSearchNotNow"
+          ]
+        },
+        {
+          "id": "teams",
+          "title": "Sign in to Teams",
+          "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:agenticWorks.teamsSignIn)",
+          "media": {
+            "markdown": "media/walkthrough/teams.md"
+          },
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed",
+          "completionEvents": [
+            "onContext:chirp.signedIn"
+          ]
+        },
+        {
+          "id": "jira",
+          "title": "Connect Jira and Confluence",
+          "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:agenticWorks.jiraSignIn)",
+          "media": {
+            "markdown": "media/walkthrough/jira.md"
+          },
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed",
+          "completionEvents": [
+            "onContext:jay.signedIn"
+          ]
+        },
+        {
+          "id": "github",
+          "title": "Sign in to GitHub",
+          "description": "The PRs tab shows the PRs waiting on you, using the GitHub CLI's sign-in.\n[Sign In to GitHub](command:agenticWorks.githubSignIn)",
+          "media": {
+            "markdown": "media/walkthrough/github.md"
+          },
+          "when": "config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed && !agenticWorks.company",
+          "completionEvents": [
+            "onContext:kestrel.signedIn"
+          ]
+        },
+        {
+          "id": "parts",
+          "title": "Choose your parts",
+          "description": "Switch off any part you don't use; the rest carries on.\n[Open Agentic Works Settings](command:agenticWorks.openSettings)",
+          "media": {
+            "markdown": "media/walkthrough/parts.md"
+          },
+          "completionEvents": [
+            "onCommand:agenticWorks.openSettings"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 'use strict';
-// One-time carry-over of a part's settings renamed from `<from>.*` to `<to>.*` (Roost, 2026-11-23). The same file is
-// in every part (Roost's tests check the copies match), so a part keeps working on its own, without Roost's src/.
+// One-time carry-over of a part's settings renamed from `<from>.*` to `<to>.*` (Agentic Works, 2026-11-23). The same file is
+// in every part (Agentic Works' tests check the copies match), so a part keeps working on its own, without Agentic Works' src/.
 //
 // For each key, at each scope (user, workspace, each workspace folder): if the new key has no value there and the old
 // key has one, the old value is written to the new key at that scope. The old key is left as it is. When done, the

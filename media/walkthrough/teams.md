@@ -1,6 +1,6 @@
 # Sign in to Teams
 
-If your company has set up Roost and one of its tools keeps the Teams sign-in (`teams.signIn.tokenFile`), **Sign In
+If your company has set up Agentic Works and one of its tools keeps the Teams sign-in (`teams.signIn.tokenFile`), **Sign In
 to Teams** opens **Connect Your Tools** and signs in that tool's row instead. The step ticks by itself once that
 sign-in is done: Teams uses the same login.
 
@@ -11,7 +11,7 @@ Code.
 
 The first time, Microsoft asks to allow **chirp**, the app Teams signs in with. If it shows **Need admin approval**
 instead, your company lets only its admins approve apps: ask your IT team to approve chirp (or use **Request
-approval**, if the page offers it). Until then Teams stays signed out, and the rest of Roost works as usual.
+approval**, if the page offers it). Until then Teams stays signed out, and the rest of Agentic Works works as usual.
 
 If your company has its own approved app for Teams: in the **Teams** view, click **Use your company's app** (or run
 **Teams: Use a Company Microsoft App…**), enter the two IDs from your IT team, then click **Save and sign in**. Teams

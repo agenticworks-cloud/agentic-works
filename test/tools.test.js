@@ -20,7 +20,7 @@ process.on('exit', () => {
 });
 
 function setup({ claudeJson, run, fetch } = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-tools-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-tools-'));
   temps.push(home);
   const data = JSON.parse(JSON.stringify(EXAMPLE));
   data.mcpServers[1].register = { type: 'stdio', command: process.execPath, args: [FIXTURE],
@@ -66,7 +66,7 @@ test('promptOf picks the link and the code', () => {
   assert.deepStrictEqual(promptOf(t), { text: t, url: 'https://login.example.com/device', code: 'ABCD-1234' });
   assert.deepStrictEqual(promptOf('Go to (https://a.example.com/x?y=1). Code: 9F2K'), { text: 'Go to (https://a.example.com/x?y=1). Code: 9F2K', url: 'https://a.example.com/x?y=1', code: '9F2K' });
   assert.deepStrictEqual(promptOf('nothing here'), { text: 'nothing here', url: '', code: '' });
-  assert.strictEqual(TOKEN_DIR, '~/.config/roost/tokens');
+  assert.strictEqual(TOKEN_DIR, '~/.config/agentic-works/tokens');
 });
 
 test('rows: all unknown, nothing spawned, no check at construction', async () => {
@@ -114,7 +114,7 @@ test('check: a command row signed in before runs its check; a failed check gives
 test('connect.button: the row carries the company file\'s label, else none', async () => {
   const s = setup();
   assert.strictEqual(row(s.tools, 'tickets').button, '');
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-tools-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-tools-'));
   temps.push(home);
   const data = JSON.parse(JSON.stringify(EXAMPLE));
   data.mcpServers.find((x) => x.id === 'tickets').connect.button = '  Sign in with Example  ';
@@ -149,13 +149,13 @@ test('saveToken: trimmed, checked with that token, saved only on a pass', async 
   let r = await s.tools.saveToken('docs', ' bad\n');
   assert.strictEqual(r.state, 'notConnected');
   assert.strictEqual(r.reason, 'HTTP 401');
-  assert.ok(!fs.existsSync(path.join(s.home, '.config/roost/tokens/docs')), 'no token file');
+  assert.ok(!fs.existsSync(path.join(s.home, '.config/agentic-works/tokens/docs')), 'no token file');
   assert.ok(!fs.existsSync(s.claude));
 
   s.status.code = 200;
   r = await s.tools.saveToken('docs', ' tok\n');
   assert.strictEqual(r.state, 'connected');
-  const f = path.join(s.home, '.config/roost/tokens/docs');
+  const f = path.join(s.home, '.config/agentic-works/tokens/docs');
   assert.strictEqual(fs.readFileSync(f, 'utf8'), 'tok\n');
   if (process.platform !== 'win32') {
     assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600);
@@ -179,7 +179,7 @@ test('saveToken: trimmed, checked with that token, saved only on a pass', async 
   assert.strictEqual(s.fetches[s.fetches.length - 1].init.headers.Authorization, 'Bearer tok');
   assert.strictEqual(row(s.tools, 'docs').state, 'connected');
 
-  // a new token replaces Roost's own entry: no conflict
+  // a new token replaces Agentic Works' own entry: no conflict
   r = await s.tools.saveToken('docs', 'tok2');
   assert.strictEqual(r.conflict, false);
   assert.strictEqual(readJson(s.claude).mcpServers.docs.headers.Authorization, 'Bearer tok2');
@@ -318,7 +318,7 @@ test('a different entry already in ~/.claude.json: conflict until replaceRegistr
   assert.strictEqual(r.conflict, true);
   assert.ok(r.reason.includes('already has a different server named docs'), r.reason);
   assert.deepStrictEqual(readJson(s.claude).mcpServers.docs, mine, 'left as it was');
-  assert.strictEqual(fs.readFileSync(path.join(s.home, '.config/roost/tokens/docs'), 'utf8'), 'tok\n', 'the token is kept for Replace');
+  assert.strictEqual(fs.readFileSync(path.join(s.home, '.config/agentic-works/tokens/docs'), 'utf8'), 'tok\n', 'the token is kept for Replace');
   // the conflict stays across a later check, until Replace
   assert.strictEqual((await s.tools.check('docs')).conflict, true);
   const after = await s.tools.replaceRegistration('docs');
@@ -386,7 +386,7 @@ test('a server that exits at once: the row says why, nothing left running', asyn
 
 // ---- install: a server's program from its GitHub release, through gh (a fake runner here: no gh, no network)
 function installSetup({ tag, assets = { 'linux-x64': 'wiki-mcp-linux-x64', 'darwin-arm64': 'wiki-mcp-darwin-arm64' }, platform = 'linux-x64' } = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-install-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-install-'));
   temps.push(home);
   const tmpDir = path.join(home, 'tmp'); fs.mkdirSync(tmpDir);
   const install = { github: { repo: 'example-org/wiki-mcp', assets }, to: '~/.local/bin/wiki-mcp' };
@@ -483,7 +483,7 @@ test('install: a download that fails: a short reason, token-like text scrubbed, 
   const m = installSetup();
   m.tools.run = async (argv) => { throw Object.assign(new Error(`spawn ${argv[0]} ENOENT`), { code: 'ENOENT' }); };
   const nogh = await m.tools.connectNone('wiki');
-  assert.strictEqual(nogh.reason, "Example Wiki couldn't be downloaded: the GitHub CLI (gh) isn't installed; the Roost installer installs it.");
+  assert.strictEqual(nogh.reason, "Example Wiki couldn't be downloaded: the GitHub CLI (gh) isn't installed; the Agentic Works installer installs it.");
 });
 
 (async () => {

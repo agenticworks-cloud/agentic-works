@@ -16,7 +16,7 @@ const KEY = 'sk-example-0123456789abcdefghijklmnop';
   assert.deepStrictEqual(await runKeyCommand(fake('fail')), { ok: false, text: "Couldn't get a key automatically: You have reached the key limit." }, 'the last non-empty stderr line');
   assert.deepStrictEqual(await runKeyCommand(fake('signin')), { ok: false, text: TEXT.signIn });
   assert.strictEqual(TEXT.signIn, "The sign-in wasn't completed.");
-  assert.deepStrictEqual(await runKeyCommand(['/nonexistent/roost-test/get-key']), { ok: false, text: "The key helper isn't installed." }, 'ENOENT');
+  assert.deepStrictEqual(await runKeyCommand(['/nonexistent/agentic-works-test/get-key']), { ok: false, text: "The key helper isn't installed." }, 'ENOENT');
   const t0 = Date.now();
   assert.deepStrictEqual(await runKeyCommand(fake('sleep'), { timeoutMs: 200 }), { ok: false, text: 'That took too long.' });
   assert(Date.now() - t0 < 5000, 'stopped at the timeout');
@@ -28,7 +28,7 @@ const KEY = 'sk-example-0123456789abcdefghijklmnop';
   // a helper that leaves a child behind (a browser, a refresher) holding its pipes: answered at its exit, the child stopped
   if (process.platform !== 'win32') {
     const fs = require('fs'), os = require('os');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'roost-keycmd-'));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-works-keycmd-'));
     const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (_) { return false; } };
     const gone = async (pid) => { for (let i = 0; i < 100 && alive(pid); i++) await new Promise((r) => setTimeout(r, 50)); return !alive(pid); };
     try {

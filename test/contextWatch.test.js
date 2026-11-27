@@ -1,5 +1,5 @@
 'use strict';
-// Roost's watch on the parts' context keys: VS Code cannot read a context key back, so Roost wraps
+// Agentic Works' watch on the parts' context keys: VS Code cannot read a context key back, so Agentic Works wraps
 // commands.executeCommand and notes the setContext calls for the keys its Get started page ticks on.
 const assert = require('node:assert');
 const { watchContexts } = require('../src/contextWatch');
@@ -24,7 +24,7 @@ test('a watched setContext is noted and told, and every call is passed on; dispo
   w.dispose(); assert.strictEqual(commands.executeCommand, original, 'the original is back');
   const frozen = Object.freeze({ executeCommand: async () => {} }); const logs = [];
   assert.strictEqual(watchContexts(frozen, ['x'], { log: (l) => logs.push(l) }).get('x'), undefined);
-  assert.ok(logs[0].startsWith("Roost cannot watch the parts' context keys"));
+  assert.ok(logs[0].startsWith("Agentic Works cannot watch the parts' context keys"));
 });
 
 test('a rejection is passed on unchanged, and the original is called with its own this and arguments', async () => {

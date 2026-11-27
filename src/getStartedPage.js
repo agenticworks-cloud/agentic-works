@@ -1,5 +1,5 @@
 'use strict';
-// The page of Roost: Get started: one column of steps, each a section with its name and a tick once done; the first
+// The page of Agentic Works: Get started: one column of steps, each a section with its name and a tick once done; the first
 // step shown that isn't done is open, the others closed, and a click on a step's name opens or closes it. Every step's
 // controls are in place: no step opens another panel. Beside the steps (under them in a narrow window), the details
 // of the current step: the one last opened or clicked, else the one opened for being the first not done, else the

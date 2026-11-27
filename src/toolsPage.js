@@ -1,5 +1,5 @@
 'use strict';
-// The page of Roost: Connect Your Tools: one row per MCP server in the company file, with its name, what it is for,
+// The page of Agentic Works: Connect Your Tools: one row per MCP server in the company file, with its name, what it is for,
 // its state, and the button its sign-in needs (connect.kind): tokenPage, Open the page then a token and Check and
 // save; command, mcpTool and none, Connect. A sign-in tool's prompt (mcpTool) shows its text and Copy code and open
 // (Open with no code, Copy code with no link); a conflict with an entry Claude Code already has offers Replace. The

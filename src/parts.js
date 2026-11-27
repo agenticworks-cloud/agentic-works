@@ -27,7 +27,7 @@ function webviewTypes(dir) {
   return events.filter((e) => e.startsWith('onWebviewPanel:')).map((e) => e.slice('onWebviewPanel:'.length));
 }
 
-// Roost's context as the part's own: everything of `base` (globalState, workspaceState, secrets, storage and log
+// Agentic Works' context as the part's own: everything of `base` (globalState, workspaceState, secrets, storage and log
 // URIs, extension, extensionMode, environmentVariableCollection, ...) through the prototype, so getters are read
 // only when the part reads them; its own `subscriptions`, and its folder as extensionUri/extensionPath.
 function partContext(base, part) {
@@ -35,7 +35,7 @@ function partContext(base, part) {
   const ctx = Object.create(base);
   Object.defineProperties(ctx, {
     subscriptions: { value: [], enumerable: true },
-    // joined onto Roost's URI, which keeps its scheme in a remote window; extensionPath stays a filesystem path
+    // joined onto Agentic Works' URI, which keeps its scheme in a remote window; extensionPath stays a filesystem path
     extensionUri: { value: vscode.Uri.joinPath(base.extensionUri, 'parts', path.basename(part.dir)), enumerable: true },
     extensionPath: { value: part.dir, enumerable: true },
     asAbsolutePath: { value: (rel) => path.join(part.dir, rel), enumerable: true },

@@ -22,7 +22,7 @@ function activate(context, deps = {}) {
   const cfg = () => vscode.workspace.getConfiguration('pullRequests');
   const log = (line) => { try { out.appendLine(line); } catch (_) { /* the channel is gone */ } };
   const describe = (e) => `${(e && e.message) || e}${e && e.stack ? ` (${String(e.stack).split('\n')[1] || ''})`.replace(' ()', '') : ''}`;
-  // kestrel.* settings were renamed pullRequests.* (Roost): the user's old values, once, at the scopes they were set at
+  // kestrel.* settings were renamed pullRequests.* (Agentic Works): the user's old values, once, at the scopes they were set at
   carryOverSettings(vscode, context.globalState, { from: 'kestrel', to: 'pullRequests', keys: settingKeys(require('../package.json'), 'pullRequests'), log })
     .catch((e) => log(`settings: carry-over failed: ${describe(e)}`));
 
@@ -32,7 +32,7 @@ function activate(context, deps = {}) {
   const stored = context.globalState ? context.globalState.get('kestrel.hidden', []) : [];
   tracker.setHidden(Array.isArray(stored) ? stored : []);
   tracker.onHiddenChange((urls, entries) => { if (context.globalState) context.globalState.update('kestrel.hidden', entries); });
-  // kestrel.signedIn: true while gh has a login, for Roost's walkthrough step; sent only when it changes
+  // kestrel.signedIn: true while gh has a login, for Agentic Works' walkthrough step; sent only when it changes
   let signedInKey;
   const setSignedIn = (v) => {
     if (signedInKey === v) return;

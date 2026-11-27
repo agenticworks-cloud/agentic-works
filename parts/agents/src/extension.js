@@ -306,7 +306,7 @@ function collabInfo(a) {
   return out;
 }
 
-/** perch.messageSent: a message was sent from a tab in this window (Roost's walkthrough ticks "Talk to Claude or Codex" on it). */
+/** perch.messageSent: a message was sent from a tab in this window (Agentic Works' walkthrough ticks "Talk to Claude or Codex" on it). */
 let sentOnce = false;
 function messageSent() {
   if (sentOnce) return;
@@ -315,7 +315,7 @@ function messageSent() {
 }
 
 /**
- * A new tab's typed text from a command's argument: { fill } with a short string (Roost's Get started types "Hello",
+ * A new tab's typed text from a command's argument: { fill } with a short string (Agentic Works' Get started types "Hello",
  * and the tab's page puts it in the box and takes the focus). Anything else, such as the URI a menu passes, is nothing.
  */
 const FILL_MAX = 200;
@@ -1305,7 +1305,7 @@ class PerchView {
     this.graceTimer = null;
     this.firstStartTimer = null;     // agents.firstStart.openClaudeTab's look, once the wait for restored tabs is over
     // settled: resolves once that wait is over and firstStart has had its go (or Perch is disposed first), so a caller
-    // that asks whether a tab is open (Roost's Get started, perch.sessionCount) counts the tabs VS Code brings back
+    // that asks whether a tab is open (Agentic Works' Get started, perch.sessionCount) counts the tabs VS Code brings back
     this.settled = new Promise((resolve) => { this.settle = resolve; });
     this.sessionOpenShown = undefined;   // what perch.sessionOpen was last set to
     this.leftGroups = new Set();     // editor groups a Perch tab has just left, looked at by unlockGroups
@@ -1608,8 +1608,8 @@ class PerchView {
    * prints goes straight to saveGatewayForm, as a pasted one would; it is never posted, logged or put on a command
    * line. A helper that can't is answered keyFailed {text}, its reason made safe for the page. Without a keyCommand,
    * the key page opens. One helper at a time: a second Get a key while one runs is answered keyFailed, so the page that
-   * asked doesn't wait on a run that isn't its own. With the company file's email section, the address Roost's Get
-   * started page saved (globalState EMAIL_KEY, shared with Roost) goes to the helper in the environment variable
+   * asked doesn't wait on a run that isn't its own. With the company file's email section, the address Agentic Works' Get
+   * started page saved (globalState EMAIL_KEY, shared with Agentic Works) goes to the helper in the environment variable
    * email.env, never on its command line; it is never logged.
    */
   async getCompanyKey(cg, post, { from = 'panel', where = 'gateway form' } = {}) {
@@ -1662,7 +1662,7 @@ class PerchView {
       if (changed) this.sendTabs();
     }, () => { this.gatewayFetching = false; });
   }
-  /** perch.sessionOpen: whether any Perch tab is open, in an editor or the sidebar (Roost's Get started offers one when none is). */
+  /** perch.sessionOpen: whether any Perch tab is open, in an editor or the sidebar (Agentic Works' Get started offers one when none is). */
   syncSessionContext() {
     const open = this.sessions.length > 0;
     if (open === this.sessionOpenShown) return;
@@ -1677,7 +1677,7 @@ class PerchView {
   }
 
   /**
-   * perch.openGatewayTab (Roost's Get started, with the company file's gateway.openTabOnTalk): once the wait for restored
+   * perch.openGatewayTab (Agentic Works' Get started, with the company file's gateway.openTabOnTalk): once the wait for restored
    * tabs is over, 'notReady' while the gateway file isn't usable; else an open Claude tab on the gateway is shown
    * ('revealed'), wherever it is; else a new one opens in an editor ('opened'), whatever the default for new tabs and
    * the saved backend, which may lag a gateway just saved. 'failed' when none could be opened.
@@ -1696,7 +1696,7 @@ class PerchView {
   gatewayInfo() { const gw = this.gateway(); return { file: gw.file, exists: gw.exists, ok: gw.ok }; }
   /**
    * Tells VS Code whether there is a gateway file, so the menus offer a tab on it only then (perch.gateway), and whether
-   * it is usable, with a base URL and a token (perch.gatewayReady: Roost's walkthrough ticks its gateway step on it).
+   * it is usable, with a base URL and a token (perch.gatewayReady: Agentic Works' walkthrough ticks its gateway step on it).
    */
   syncGatewayContext() {
     const gw = this.gateway();
@@ -2126,8 +2126,8 @@ class PerchView {
 
   /**
    * Terminal `claude`'s gateway address, in ~/.claude/settings.json, moved to `baseUrl`, the company address that just
-   * answered: only while the file holds the address Roost wrote there (TerminalClaude.syncTerminalBaseUrl). The record
-   * of what Roost wrote is kept in globalState (perch.terminal.written).
+   * answered: only while the file holds the address Agentic Works wrote there (TerminalClaude.syncTerminalBaseUrl). The record
+   * of what Agentic Works wrote is kept in globalState (perch.terminal.written).
    */
   syncTerminalBaseUrl(baseUrl) {
     const p = this.meter && this.meter.meter && this.meter.meter.settingsPath;
@@ -2141,7 +2141,7 @@ class PerchView {
   }
 
   /**
-   * At activation: when Roost wrote terminal `claude`'s gateway address and there is a company gateway, its addresses are
+   * At activation: when Agentic Works wrote terminal `claude`'s gateway address and there is a company gateway, its addresses are
    * probed once, with the gateway file's key, and the file moved to the one that answers. Only when the gateway file
    * names one of the company's addresses: another gateway's key is never sent to the company's hosts.
    */
@@ -2177,7 +2177,7 @@ class PerchView {
     try { canRun = !!(this.meter && this.meter.canRun(connection === 'subscription' ? 'subscription' : undefined)); } catch (_) { /* no meter yet */ }
     return Connections.isConnected({ connection, gatewayReady: !!(gw || this.gateway()).ok, canRun, apiKeySaved: !!this.anthropicKey(), bedrockSaved: !!this.claudeBedrock() });
   }
-  /** perch.claudeConnected, sent when it changes: Roost's walkthrough ticks Connect Claude on it. */
+  /** perch.claudeConnected, sent when it changes: Agentic Works' walkthrough ticks Connect Claude on it. */
   syncClaudeConnected(gw) {
     let on;
     try { on = this.claudeConnected(gw); } catch (e) { this.trace(`connect claude: ${connectErrorText(e)}`); return; }
@@ -2296,8 +2296,8 @@ class PerchView {
       }
       case 'newTab':
         if (ctx.page) return;   // a page has no tab button
-        // Roost's, beside the walkthrough, when Roost is there; else Agents' own
-        Promise.resolve().then(() => vscode.commands.executeCommand('roost.newClaudeTab'))
+        // Agentic Works', beside the walkthrough, when Agentic Works is there; else Agents' own
+        Promise.resolve().then(() => vscode.commands.executeCommand('agenticWorks.newClaudeTab'))
           .catch(() => vscode.commands.executeCommand('perch.newClaude'))
           .catch((e) => this.trace(`connect claude: ${connectErrorText(e)}`));
         return;
@@ -2307,7 +2307,7 @@ class PerchView {
 
   /**
    * A way saved: recorded, and, with the terminal box ticked, terminal claude's settings planned against what the file
-   * holds and what Roost wrote there before. The user's own values go to the page first (masked where their name says
+   * holds and what Agentic Works wrote there before. The user's own values go to the page first (masked where their name says
    * token, key or secret); Replace or Keep finishes the write (finishTerminal).
    */
   async connectSaved(way, o = {}, ctx = this.connect, post = ctx ? ctx.post : () => {}) {
@@ -2329,7 +2329,7 @@ class PerchView {
 
   /**
    * perch.connectClaude.request: one message of Connect Claude's, or of the gateway form's renamed (gatewayReady, getKey,
-   * keyPage, gatewaySave; keyFailed is answered gatewayKeyFailed), from a page that isn't theirs (Roost's Get started); answered with the replies, in order, that the
+   * keyPage, gatewaySave; keyFailed is answered gatewayKeyFailed), from a page that isn't theirs (Agentic Works' Get started); answered with the replies, in order, that the
    * panel or the form would have been posted. The page's ctx is its own (this.pageConnect), apart from the panel's. No
    * reply holds a key: the panel's and the form's never do.
    */
@@ -2371,7 +2371,7 @@ class PerchView {
     if (way === 'bedrock') return TerminalClaude.desiredSettings('bedrock', this.claudeBedrock() || {});
     if (way === 'subscription') return TerminalClaude.desiredSettings('subscription');
     // the gateway: its address, the company's env (or the file's model names), and a key helper reading the company's
-    // first key file, else a key file of Roost's, written here with the gateway file's key
+    // first key file, else a key file of Agentic Works', written here with the gateway file's key
     const gw = o.gw || this.gateway(), cg = this.companyGateway();
     const key = Gateway.TOKEN_VARS.map((k) => gw.vars[k]).find(Boolean) || '';
     let keyFile = cg && cg.keyFiles.length ? cg.keyFiles[0] : '';
@@ -2386,7 +2386,7 @@ class PerchView {
     return TerminalClaude.desiredSettings('gateway', { env, keyFile, baseUrl: gw.vars.ANTHROPIC_BASE_URL });
   }
 
-  /** The record of what Roost wrote in terminal claude's settings (perch.terminal.written). */
+  /** The record of what Agentic Works wrote in terminal claude's settings (perch.terminal.written). */
   terminalWritten() { const w = this.context.globalState.get(TerminalClaude.WRITTEN_KEY); return w && typeof w === 'object' ? w : {}; }
 
   /** Write the plan, the conflicts named in `replace` with it, and keep the record current; then the page hears Saved. */
@@ -2412,8 +2412,8 @@ class PerchView {
   }
 
   /**
-   * A gateway saved again: where Roost wrote terminal claude's gateway, its address follows the file's
-   * (syncTerminalBaseUrl), and Roost's own key file for it the file's key.
+   * A gateway saved again: where Agentic Works wrote terminal claude's gateway, its address follows the file's
+   * (syncTerminalBaseUrl), and Agentic Works' own key file for it the file's key.
    */
   terminalFollowsGateway(gw) {
     if (!gw || !gw.ok) return;
@@ -2552,7 +2552,7 @@ class PerchView {
     if (!(await until(() => groups().some((g) => (g.tabs || []).some(isPerchTab))))) { this.trace('the first Claude tab did not show among the editor groups within a second: the left group is left as it is'); return; }
     if (this.closing) return;
     if (groups().length === 2) {
-      // beside something already open (Roost's Get started walkthrough): that keeps most of the width, since VS Code
+      // beside something already open (Agentic Works' Get started walkthrough): that keeps most of the width, since VS Code
       // drops a walkthrough's detail column when its group is narrow (Sean's first-time run, 2026-11-24)
       await Promise.resolve(vscode.commands.executeCommand('vscode.setEditorLayout', { orientation: 0, groups: [{ size: 0.7 }, { size: 0.3 }] }))
         .catch((e) => this.trace(`the first Claude tab's group could not be narrowed: ${(e && e.message) || e}`));
@@ -2865,7 +2865,7 @@ class PerchView {
       case 'openExternal': { const u = String(msg.url || ''); if (/^https:\/\/(chatgpt\.com|platform\.openai\.com|claude\.ai|console\.anthropic\.com)\//.test(u)) vscode.env.openExternal(vscode.Uri.parse(u)); return; }   // the vendors' own pages, nothing else
       case 'history': this.pickSession(); return;
       case 'pastRefresh': this.sendPast(); return;
-      case 'openSettings': Promise.resolve().then(() => vscode.commands.executeCommand('roost.openSettings')).catch(() => { /* Perch on its own: no Roost to answer */ }); return;
+      case 'openSettings': Promise.resolve().then(() => vscode.commands.executeCommand('agenticWorks.openSettings')).catch(() => { /* Perch on its own: no Agentic Works to answer */ }); return;
       case 'explorerTab': if (EXPLORER_TABS.includes(msg.tab)) this.context.globalState.update(EXPLORER_TAB_KEY, msg.tab); return;   // the tab the explorer shows, for next time
       case 'renamePast': { const p = this.pastByKey && this.pastByKey.get(String(msg.key)); if (p) this.renamePast(p).then(() => this.sendPast()); return; }
       case 'forkPast': { const p = this.pastByKey && this.pastByKey.get(String(msg.key)); if (p) this.forkPast(p); return; }
@@ -3320,13 +3320,13 @@ class PerchView {
 function activate(context) {
   watchEditors(context);
   const perch = new PerchView(context);
-  // perch.* settings were renamed agents.* (Roost): the user's old values, once, at the scopes they were set at
+  // perch.* settings were renamed agents.* (Agentic Works): the user's old values, once, at the scopes they were set at
   carryOverSettings(vscode, context.globalState, { from: 'perch', to: 'agents', keys: settingKeys(require('../package.json'), 'agents'), log: (l) => perch.trace(l) })
     .catch((e) => perch.trace(`settings: carry-over failed: ${(e && e.message) || e}`));
   perch.meter.start();
   // terminal claude's gateway address follows the company address that answers: at a tab's start, and once now
   perch.onGatewayResolved.add((baseUrl) => perch.syncTerminalBaseUrl(baseUrl));
-  // and a gateway saved again: terminal claude follows its address and key, where Roost wrote them
+  // and a gateway saved again: terminal claude follows its address and key, where Agentic Works wrote them
   perch.onGatewaySaved.add((gw) => perch.terminalFollowsGateway(gw));
   perch.checkTerminalBaseUrl().catch((e) => perch.trace(`terminal claude: the address check failed: ${(e && e.message) || e}`));
   const tg = vscode.window.tabGroups;
@@ -3396,7 +3396,7 @@ function activate(context) {
 let current = null;   // the PerchView of this activation, which confirmStop looks at
 
 /**
- * Asked by a host that switches Perch off while the window stays open (Roost), just before it does: while any tab's
+ * Asked by a host that switches Perch off while the window stays open (Agentic Works), just before it does: while any tab's
  * turn is running, whether to stop it; true to go ahead, and then the stop closes Perch's editor tabs (closeTabs),
  * which a window closing leaves to VS Code. A standalone Perch is never asked.
  */
@@ -3410,7 +3410,7 @@ async function confirmStop() {
 }
 
 // The PerchView itself is disposed with the context's subscriptions. What the module holds goes too, so an activate
-// in the same process (Roost switching Perch on again) starts as after a reload.
+// in the same process (Agentic Works switching Perch on again) starts as after a reload.
 function deactivate() {
   current = null;
   lastFile = null; front = null; frontFile = null;

@@ -4,7 +4,7 @@
 // else a failure. It is run here, in the process that checks and saves the key, so the key never leaves it: argv and
 // no shell, stdin closed, a timeout (a sign-in window may be open), stdout capped. The answer is the key, or a reason
 // fit for the page: the helper's last stderr line with anything key-shaped masked, one line, at most 200 characters.
-// Neither the key nor stdout is ever in a reason. (Design: docs/notes/101-roost.md, "A key helper for the company
+// Neither the key nor stdout is ever in a reason. (Design: docs/notes/101-agentic-works.md, "A key helper for the company
 // gateway".)
 const { spawn } = require('node:child_process');
 

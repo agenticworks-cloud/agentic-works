@@ -1,14 +1,14 @@
 {
-  "name": "roost",
-  "displayName": "Roost",
-  "publisher": "seanahn",
-  "version": "0.5.18",
+  "name": "agentic-works",
+  "displayName": "Agentic Works",
+  "publisher": "agenticworks",
+  "version": "0.6.0",
   "description": "Claude Code and Codex tabs, Teams, Jira & Confluence and pull requests in one extension.",
   "engines": {
     "vscode": "^1.90.0"
   },
   "license": "MIT",
-  "repository": "https://github.com/seanahn/roost",
+  "repository": "https://github.com/agenticworks-cloud/agentic-works",
   "icon": "parts/agents/media/icon.png",
   "extensionKind": [
     "workspace"
@@ -58,7 +58,7 @@
           "type": "webview",
           "id": "perch.main",
           "name": "Sessions",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         }
       ],
       "jay": [
@@ -66,7 +66,7 @@
           "type": "webview",
           "id": "jay.sidebar",
           "name": "Jira",
-          "when": "config.roost.jira.enabled && !roost.jira.failed"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed"
         }
       ],
       "kestrel": [
@@ -74,7 +74,7 @@
           "type": "webview",
           "id": "kestrel.prs",
           "name": "PRs",
-          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed"
+          "when": "config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed"
         }
       ],
       "chirp": [
@@ -82,7 +82,7 @@
           "type": "webview",
           "id": "chirp.sidebar",
           "name": "Chats and Channels",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         }
       ]
     },
@@ -375,479 +375,479 @@
         "title": "Teams: The Sign-in Code Waiting"
       },
       {
-        "command": "roost.openSettings",
-        "title": "Roost: Settings",
+        "command": "agenticWorks.openSettings",
+        "title": "Agentic Works: Settings",
         "icon": "$(gear)"
       },
       {
-        "command": "roost.getStarted",
-        "title": "Roost: Get Started"
+        "command": "agenticWorks.getStarted",
+        "title": "Agentic Works: Get Started"
       },
       {
-        "command": "roost.githubSignIn",
-        "title": "Roost: Sign In to GitHub"
+        "command": "agenticWorks.githubSignIn",
+        "title": "Agentic Works: Sign In to GitHub"
       },
       {
-        "command": "roost.codebaseSearchOn",
-        "title": "Roost: Turn On Codebase Search"
+        "command": "agenticWorks.codebaseSearchOn",
+        "title": "Agentic Works: Turn On Codebase Search"
       },
       {
-        "command": "roost.codebaseSearchNotNow",
-        "title": "Roost: Leave Codebase Search Off"
+        "command": "agenticWorks.codebaseSearchNotNow",
+        "title": "Agentic Works: Leave Codebase Search Off"
       },
       {
-        "command": "roost.connectClaudeNotNow",
-        "title": "Roost: Leave Connect Claude for Now"
+        "command": "agenticWorks.connectClaudeNotNow",
+        "title": "Agentic Works: Leave Connect Claude for Now"
       },
       {
-        "command": "roost.connectTools",
-        "title": "Roost: Connect Your Tools"
+        "command": "agenticWorks.connectTools",
+        "title": "Agentic Works: Connect Your Tools"
       },
       {
-        "command": "roost.toolsNotNow",
-        "title": "Roost: Leave Connect Your Tools for Now"
+        "command": "agenticWorks.toolsNotNow",
+        "title": "Agentic Works: Leave Connect Your Tools for Now"
       },
       {
-        "command": "roost.teamsSignIn",
-        "title": "Roost: Sign In to Teams"
+        "command": "agenticWorks.teamsSignIn",
+        "title": "Agentic Works: Sign In to Teams"
       },
       {
-        "command": "roost.jiraSignIn",
-        "title": "Roost: Connect Jira"
+        "command": "agenticWorks.jiraSignIn",
+        "title": "Agentic Works: Connect Jira"
       },
       {
-        "command": "roost.goToClaude",
-        "title": "Roost: Go to Your Agent Tab"
+        "command": "agenticWorks.goToClaude",
+        "title": "Agentic Works: Go to Your Agent Tab"
       },
       {
-        "command": "roost.newClaudeTab",
-        "title": "Roost: New Claude Tab Beside"
+        "command": "agenticWorks.newClaudeTab",
+        "title": "Agentic Works: New Claude Tab Beside"
       },
       {
-        "command": "roost.newCodexTab",
-        "title": "Roost: New Codex Tab Beside"
+        "command": "agenticWorks.newCodexTab",
+        "title": "Agentic Works: New Codex Tab Beside"
       },
       {
-        "command": "roost.newClaudeGatewayTab",
-        "title": "Roost: Claude Tab on the Gateway Beside"
+        "command": "agenticWorks.newClaudeGatewayTab",
+        "title": "Agentic Works: Claude Tab on the Gateway Beside"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "perch.insertText",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (false)"
         },
         {
           "command": "perch.notePrMerged",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (false)"
         },
         {
           "command": "perch.findPrSession",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (false)"
         },
         {
           "command": "perch.openPrSession",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (false)"
         },
         {
           "command": "perch.connectClaude.request",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (false)"
         },
         {
           "command": "perch.sessionCount",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (false)"
         },
         {
           "command": "perch.openGatewayTab",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (false)"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (false)"
         },
         {
           "command": "perch.open",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.newClaude",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.newClaudeGateway",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.setUpGateway",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.connectClaude",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.newCodex",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.stop",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.closeTab",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.handoff",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.continueInCodex",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.continueInClaude",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.sessions",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.renameTab",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.refreshModels",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.meter.refresh",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.meter.toggleBackend",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.meter.login",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.new",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.moveToEditor",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.moveToSidebar",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.moveAllToEditor",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.moveAllToSidebar",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.codebaseIndex.toggle",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.codebaseIndex.install",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.clearSecretExceptions",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.secretCheck.offForFolder",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.secretCheck.onForFolder",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.voice.setup",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.voice.toggle",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.voice.cancel",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.voice.unload",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.codex.toggleBackend",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.codex.setApiKey",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "perch.codex.clearApiKey",
-          "when": "config.roost.agents.enabled && !roost.agents.failed"
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
         },
         {
           "command": "jay.activeIssueFile",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (false)"
         },
         {
           "command": "jay.openTicket",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (false)"
         },
         {
           "command": "jay.signInWith",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (false)"
         },
         {
           "command": "jay.projectKeys",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (false)"
         },
         {
           "command": "jay.openPage",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (false)"
         },
         {
           "command": "jay.siteUrl",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (false)"
         },
         {
           "command": "jay.activePageFile",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (false)"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (false)"
         },
         {
           "command": "jay.refresh",
-          "when": "config.roost.jira.enabled && !roost.jira.failed"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed"
         },
         {
           "command": "jay.signIn",
-          "when": "config.roost.jira.enabled && !roost.jira.failed"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed"
         },
         {
           "command": "jay.signOut",
-          "when": "config.roost.jira.enabled && !roost.jira.failed"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed"
         },
         {
           "command": "jay.focusSearch",
-          "when": "config.roost.jira.enabled && !roost.jira.failed"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed"
         },
         {
           "command": "jay.useAtlassianView",
-          "when": "config.roost.jira.enabled && !roost.jira.failed"
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed"
         },
         {
           "command": "kestrel.watch",
-          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed && (false)"
+          "when": "config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed && (false)"
         },
         {
           "command": "kestrel.refresh",
-          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed"
+          "when": "config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed"
         },
         {
           "command": "chirp.activeConversationFile",
-          "when": "config.roost.teams.enabled && !roost.teams.failed && (false)"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed && (false)"
         },
         {
           "command": "chirp.copyCode",
-          "when": "config.roost.teams.enabled && !roost.teams.failed && (false)"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed && (false)"
         },
         {
           "command": "chirp.signInCode",
-          "when": "config.roost.teams.enabled && !roost.teams.failed && (false)"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed && (false)"
         },
         {
           "command": "chirp.refresh",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
           "command": "chirp.focusFilter",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
           "command": "chirp.signIn",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
           "command": "chirp.signOut",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
           "command": "chirp.enableChannels",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
           "command": "chirp.cancelSignIn",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
           "command": "chirp.copyAdminLink",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
           "command": "chirp.useCompanyApp",
-          "when": "config.roost.teams.enabled && !roost.teams.failed"
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed"
         },
         {
-          "command": "roost.codebaseSearchNotNow",
+          "command": "agenticWorks.codebaseSearchNotNow",
           "when": "false"
         },
         {
-          "command": "roost.goToClaude",
+          "command": "agenticWorks.goToClaude",
           "when": "false"
         },
         {
-          "command": "roost.connectClaudeNotNow",
+          "command": "agenticWorks.connectClaudeNotNow",
           "when": "false"
         },
         {
-          "command": "roost.toolsNotNow",
+          "command": "agenticWorks.toolsNotNow",
           "when": "false"
         },
         {
-          "command": "roost.teamsSignIn",
+          "command": "agenticWorks.teamsSignIn",
           "when": "false"
         },
         {
-          "command": "roost.jiraSignIn",
+          "command": "agenticWorks.jiraSignIn",
           "when": "false"
         },
         {
-          "command": "roost.newClaudeTab",
+          "command": "agenticWorks.newClaudeTab",
           "when": "false"
         },
         {
-          "command": "roost.newCodexTab",
+          "command": "agenticWorks.newCodexTab",
           "when": "false"
         },
         {
-          "command": "roost.newClaudeGatewayTab",
+          "command": "agenticWorks.newClaudeGatewayTab",
           "when": "false"
         }
       ],
       "view/title": [
         {
           "command": "perch.handoff",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "1_new@5"
         },
         {
           "command": "perch.continueInCodex",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "1_new@6"
         },
         {
           "command": "perch.continueInClaude",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "1_new@7"
         },
         {
           "command": "perch.stop",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "navigation@2"
         },
         {
           "command": "perch.sessions",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "navigation@3"
         },
         {
           "command": "perch.renameTab",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "1_new@4"
         },
         {
           "command": "perch.newClaude",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "1_new@1"
         },
         {
           "command": "perch.newClaudeGateway",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main && perch.gateway)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main && perch.gateway)",
           "group": "1_new@11"
         },
         {
           "command": "perch.newCodex",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "1_new@2"
         },
         {
           "command": "perch.closeTab",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "1_new@3"
         },
         {
           "command": "perch.refreshModels",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "2_models@1"
         },
         {
           "command": "perch.meter.toggleBackend",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "3_meter@1"
         },
         {
           "command": "perch.meter.refresh",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "3_meter@2"
         },
         {
           "command": "perch.moveToEditor",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "2_models@2"
         },
         {
           "command": "perch.moveAllToEditor",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (view == perch.main)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (view == perch.main)",
           "group": "2_models@3"
         },
         {
           "command": "jay.refresh",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (view == jay.sidebar)",
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (view == jay.sidebar)",
           "group": "navigation@1"
         },
         {
           "command": "jay.signIn",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (view == jay.sidebar)",
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (view == jay.sidebar)",
           "group": "2_account@1"
         },
         {
           "command": "jay.signOut",
-          "when": "config.roost.jira.enabled && !roost.jira.failed && (view == jay.sidebar)",
+          "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed && (view == jay.sidebar)",
           "group": "2_account@2"
         },
         {
           "command": "kestrel.refresh",
-          "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed && (view == kestrel.prs)",
+          "when": "config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed && (view == kestrel.prs)",
           "group": "navigation@1"
         },
         {
           "command": "chirp.refresh",
-          "when": "config.roost.teams.enabled && !roost.teams.failed && (view == chirp.sidebar)",
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed && (view == chirp.sidebar)",
           "group": "navigation@1"
         },
         {
           "command": "chirp.signIn",
-          "when": "config.roost.teams.enabled && !roost.teams.failed && (view == chirp.sidebar)",
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed && (view == chirp.sidebar)",
           "group": "2_account@1"
         },
         {
           "command": "chirp.signOut",
-          "when": "config.roost.teams.enabled && !roost.teams.failed && (view == chirp.sidebar)",
+          "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed && (view == chirp.sidebar)",
           "group": "2_account@2"
         },
         {
-          "command": "roost.openSettings",
+          "command": "agenticWorks.openSettings",
           "when": "view == perch.main",
           "group": "navigation@99"
         }
@@ -855,67 +855,67 @@
       "editor/title": [
         {
           "command": "perch.new",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "navigation@1"
         },
         {
           "command": "perch.handoff",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@2"
         },
         {
           "command": "perch.continueInCodex",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@6"
         },
         {
           "command": "perch.continueInClaude",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@7"
         },
         {
           "command": "perch.sessions",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "navigation@3"
         },
         {
           "command": "perch.renameTab",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "1_new@3"
         },
         {
           "command": "perch.newClaude",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "1_new@1"
         },
         {
           "command": "perch.newClaudeGateway",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session' && perch.gateway)",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session' && perch.gateway)",
           "group": "1_new@11"
         },
         {
           "command": "perch.newCodex",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "1_new@2"
         },
         {
           "command": "perch.moveToSidebar",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "2_move@1"
         },
         {
           "command": "perch.refreshModels",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "3_models@1"
         },
         {
           "command": "perch.meter.toggleBackend",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "4_meter@1"
         },
         {
           "command": "perch.meter.refresh",
-          "when": "config.roost.agents.enabled && !roost.agents.failed && (activeWebviewPanelId == 'perch.session')",
+          "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed && (activeWebviewPanelId == 'perch.session')",
           "group": "4_meter@2"
         }
       ]
@@ -930,23 +930,23 @@
         "command": "perch.open",
         "key": "ctrl+alt+p",
         "mac": "cmd+alt+p",
-        "when": "config.roost.agents.enabled && !roost.agents.failed"
+        "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed"
       }
     ],
     "walkthroughs": [
       {
-        "id": "roost.getStarted",
-        "title": "Get started with Roost",
+        "id": "agenticWorks.getStarted",
+        "title": "Get started with Agentic Works",
         "description": "Claude and Codex tabs, Teams, Jira and Confluence, and your pull requests, in one place.",
         "steps": [
           {
             "id": "githubFirst",
             "title": "Sign in to GitHub",
-            "description": "Sign in to GitHub first: your company's tools may download through it, and the PRs tab shows the PRs waiting on you.\n[Sign In to GitHub](command:roost.githubSignIn)",
+            "description": "Sign in to GitHub first: your company's tools may download through it, and the PRs tab shows the PRs waiting on you.\n[Sign In to GitHub](command:agenticWorks.githubSignIn)",
             "media": {
               "markdown": "media/walkthrough/github.md"
             },
-            "when": "roost.company && config.roost.pullRequests.enabled && !roost.pullRequests.failed",
+            "when": "agenticWorks.company && config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed",
             "completionEvents": [
               "onContext:kestrel.signedIn"
             ]
@@ -954,24 +954,24 @@
           {
             "id": "connectClaude",
             "title": "Connect Claude",
-            "description": "Choose how Claude runs: your company's gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key or AWS Bedrock. Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:roost.connectClaudeNotNow)",
+            "description": "Choose how Claude runs: your company's gateway when it has one; otherwise a gateway, a Claude subscription, an Anthropic API key or AWS Bedrock. Only using Codex? Click Not Now, then open a Codex tab: its footer signs you in (ChatGPT login, an OpenAI API key or Bedrock).\n[Connect Claude](command:perch.connectClaude)\n[Not Now](command:agenticWorks.connectClaudeNotNow)",
             "media": {
               "markdown": "media/walkthrough/connect-claude.md"
             },
-            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed",
             "completionEvents": [
               "onContext:perch.claudeConnected",
-              "onCommand:roost.connectClaudeNotNow"
+              "onCommand:agenticWorks.connectClaudeNotNow"
             ]
           },
           {
             "id": "agents",
             "title": "Talk to Claude or Codex",
-            "description": "Open a tab and type a message. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[New Claude Tab](command:roost.newClaudeTab)\n[New Codex Tab](command:roost.newCodexTab)",
+            "description": "Open a tab and type a message. Claude and Codex tabs work the same way; use whichever you are signed in to.\n[New Claude Tab](command:agenticWorks.newClaudeTab)\n[New Codex Tab](command:agenticWorks.newCodexTab)",
             "media": {
               "markdown": "media/walkthrough/agents.md"
             },
-            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed",
             "completionEvents": [
               "onContext:perch.messageSent"
             ]
@@ -979,37 +979,37 @@
           {
             "id": "tools",
             "title": "Connect your tools",
-            "description": "Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:roost.connectTools)\n[Not Now](command:roost.toolsNotNow)",
+            "description": "Sign in to the tools your company set up for Claude, and Claude Code gets them.\n[Connect Your Tools](command:agenticWorks.connectTools)\n[Not Now](command:agenticWorks.toolsNotNow)",
             "media": {
               "markdown": "media/walkthrough/tools.md"
             },
-            "when": "roost.companyTools",
+            "when": "agenticWorks.companyTools",
             "completionEvents": [
-              "onContext:roost.toolsConnected",
-              "onCommand:roost.toolsNotNow"
+              "onContext:agenticWorks.toolsConnected",
+              "onCommand:agenticWorks.toolsNotNow"
             ]
           },
           {
             "id": "codebaseSearch",
             "title": "Search your code by meaning",
-            "description": "Give Claude and Codex tabs a tool that searches the workspace, by keywords and, once installed, by meaning. Off unless you turn it on.\n[Turn On Codebase Search](command:roost.codebaseSearchOn)\n[Not Now](command:roost.codebaseSearchNotNow)",
+            "description": "Give Claude and Codex tabs a tool that searches the workspace, by keywords and, once installed, by meaning. Off unless you turn it on.\n[Turn On Codebase Search](command:agenticWorks.codebaseSearchOn)\n[Not Now](command:agenticWorks.codebaseSearchNotNow)",
             "media": {
               "markdown": "media/walkthrough/codebase-search.md"
             },
-            "when": "config.roost.agents.enabled && !roost.agents.failed",
+            "when": "config.agenticWorks.agents.enabled && !agenticWorks.agents.failed",
             "completionEvents": [
-              "onCommand:roost.codebaseSearchOn",
-              "onCommand:roost.codebaseSearchNotNow"
+              "onCommand:agenticWorks.codebaseSearchOn",
+              "onCommand:agenticWorks.codebaseSearchNotNow"
             ]
           },
           {
             "id": "teams",
             "title": "Sign in to Teams",
-            "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:roost.teamsSignIn)",
+            "description": "Read and answer your Teams chats without leaving the editor.\n[Sign In to Teams](command:agenticWorks.teamsSignIn)",
             "media": {
               "markdown": "media/walkthrough/teams.md"
             },
-            "when": "config.roost.teams.enabled && !roost.teams.failed",
+            "when": "config.agenticWorks.teams.enabled && !agenticWorks.teams.failed",
             "completionEvents": [
               "onContext:chirp.signedIn"
             ]
@@ -1017,11 +1017,11 @@
           {
             "id": "jira",
             "title": "Connect Jira and Confluence",
-            "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:roost.jiraSignIn)",
+            "description": "Sign in with your Atlassian site, email and an API token, in the Jira view.\n[Connect Jira](command:agenticWorks.jiraSignIn)",
             "media": {
               "markdown": "media/walkthrough/jira.md"
             },
-            "when": "config.roost.jira.enabled && !roost.jira.failed",
+            "when": "config.agenticWorks.jira.enabled && !agenticWorks.jira.failed",
             "completionEvents": [
               "onContext:jay.signedIn"
             ]
@@ -1029,11 +1029,11 @@
           {
             "id": "github",
             "title": "Sign in to GitHub",
-            "description": "The PRs tab shows the PRs waiting on you, using the GitHub CLI's sign-in.\n[Sign In to GitHub](command:roost.githubSignIn)",
+            "description": "The PRs tab shows the PRs waiting on you, using the GitHub CLI's sign-in.\n[Sign In to GitHub](command:agenticWorks.githubSignIn)",
             "media": {
               "markdown": "media/walkthrough/github.md"
             },
-            "when": "config.roost.pullRequests.enabled && !roost.pullRequests.failed && !roost.company",
+            "when": "config.agenticWorks.pullRequests.enabled && !agenticWorks.pullRequests.failed && !agenticWorks.company",
             "completionEvents": [
               "onContext:kestrel.signedIn"
             ]
@@ -1041,12 +1041,12 @@
           {
             "id": "parts",
             "title": "Choose your parts",
-            "description": "Switch off any part you don't use; the rest carries on.\n[Open Roost Settings](command:roost.openSettings)",
+            "description": "Switch off any part you don't use; the rest carries on.\n[Open Agentic Works Settings](command:agenticWorks.openSettings)",
             "media": {
               "markdown": "media/walkthrough/parts.md"
             },
             "completionEvents": [
-              "onCommand:roost.openSettings"
+              "onCommand:agenticWorks.openSettings"
             ]
           }
         ]
@@ -1054,28 +1054,28 @@
     ],
     "configuration": [
       {
-        "title": "Roost",
+        "title": "Agentic Works",
         "order": 0,
         "properties": {
-          "roost.agents.enabled": {
+          "agenticWorks.agents.enabled": {
             "type": "boolean",
             "default": true,
             "order": 0,
             "description": "Agents (Claude Code and Codex): switch this part on or off."
           },
-          "roost.jira.enabled": {
+          "agenticWorks.jira.enabled": {
             "type": "boolean",
             "default": true,
             "order": 1,
             "description": "Jira & Confluence: switch this part on or off."
           },
-          "roost.pullRequests.enabled": {
+          "agenticWorks.pullRequests.enabled": {
             "type": "boolean",
             "default": true,
             "order": 2,
             "description": "PRs: switch this part on or off."
           },
-          "roost.teams.enabled": {
+          "agenticWorks.teams.enabled": {
             "type": "boolean",
             "default": true,
             "order": 3,
