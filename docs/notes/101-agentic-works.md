@@ -1154,6 +1154,12 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
   *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
   (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
+- **A company installer's first run: a terminal, and a chat tab when the gateway works — Built (1.1.7)** *(Sean,
+  2026-11-27: "if it's first time, and if the ai gateway's connection is already there, it should open a chat tab, and
+  if it's first time, the terminal should always open")*. When the request file is claimed, the start opens a terminal
+  as the very first start does, and Get started opens a Claude tab on the gateway with "Hello" typed in once the key is
+  known to work, even with Talk done, the tab opened before, or other Perch tabs open (an open gateway tab is shown
+  instead). A refused key or no gateway: no tab, and the usual flow (Get a key, then the tab).
 - **The gateway's key is checked with the gateway — Built (1.1.6)** *(Sean, 2026-11-27: Get started showed Connect and
   Talk to the company gateway done while the saved key was blocked; "how do we check if the connection is there")*.
   Before, the gateway was "ready" when its file had an address and a key, and nothing asked the gateway.

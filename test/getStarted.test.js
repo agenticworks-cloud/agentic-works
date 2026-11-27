@@ -727,6 +727,33 @@ test('a refused key: both gateway steps and the tab record cleared, the reason s
   await s.extension.deactivate();
 });
 
+test('a first run (asked for by the request file): the gateway ready opens a chat tab, even with Talk done and the tab opened before', async () => {
+  const s = await pageSetup(AUTO, {}, { 'agenticWorks.getStarted.done': { claude: true, agents: true }, 'agenticWorks.getStarted.autoTabOpened': true });
+  const f = fakePerch(s, { count: 2 });
+  s.agenticWorks.getStarted.firstRun();
+  await settle();
+  assert.deepStrictEqual(f.calls, [], 'not before the gateway is ready (its key is being checked)');
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await until(() => f.calls.includes('openGatewayTab'));
+  assert.deepStrictEqual(f.calls, ['openGatewayTab'], 'other Perch tabs open: the gateway tab is shown or opened all the same');
+  assert.deepStrictEqual(f.args, [[{ fill: 'Hello' }]]);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await settle();
+  assert.deepStrictEqual(f.calls, ['openGatewayTab'], 'once');
+  await s.extension.deactivate();
+});
+
+test('a first run with a refused key or no gateway: no chat tab', async () => {
+  const s = await pageSetup(AUTO, {}, { 'agenticWorks.getStarted.done': { agents: true } });
+  const f = fakePerch(s);
+  s.agenticWorks.getStarted.firstRun();
+  await s.run('setContext', 'perch.gatewayRefused', 'Key is blocked');
+  await s.run('setContext', 'perch.gatewayReady', false);
+  await settle();
+  assert.deepStrictEqual(f.calls, []);
+  await s.extension.deactivate();
+});
+
 test('openTabOnTalk: a Perch tab open already, the marker set, the step done, Agents off, or the page closed: no tab', async () => {
   let s = await pageSetup(AUTO);
   let f = fakePerch(s, { count: 1 });

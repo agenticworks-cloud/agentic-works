@@ -87,7 +87,7 @@ class GetStarted {
     this.keyPollTimer = null;
     this.notes = { teams: '', github: '' };
     // the talk step's tab (gateway.openTabOnTalk): an open out, a retry's timer, how many tried, done for this window
-    this.autoTab = { inFlight: false, timer: null, tries: 0, settled: false };
+    this.autoTab = { inFlight: false, timer: null, tries: 0, settled: false, firstRun: false };
     this.autoTabRetriesMs = AUTO_TAB_RETRIES_MS;   // a test makes them short
     // Teams' device code while the page's sign-in waits on it (chirp.signInCode); gen drops an answer that is stale
     this.teamsCode = null;
@@ -523,14 +523,22 @@ class GetStarted {
     return this.running('agents') && this.ctx('perch.gatewayReady') && !this.ctx('perch.sessionOpen') && !a.inFlight && !a.timer;
   }
 
+  // A company installer's first run (the request file): the tab opens once the gateway is ready, whether or not Talk is
+  // done or a tab opened before, and alongside other Perch tabs (Sean, 2026-11-27: "if it's first time, and if the ai
+  // gateway's connection is already there, it should open a chat tab"). A refused key or no gateway: none.
+  firstRun() {
+    Object.assign(this.autoTab, { firstRun: true, settled: false, tries: 0 });
+    this.refresh();
+  }
+
   // Called with each refresh while the page is open: opens the tab when every condition holds (the header above)
   maybeOpenTab() {
     const a = this.autoTab;
     if (!this.autoTabOn() || !this.panel || a.inFlight || a.timer || a.settled) return;
-    if (this.store.get(AUTO_TAB_KEY)) { a.settled = true; return; }
+    if (!a.firstRun && this.store.get(AUTO_TAB_KEY)) { a.settled = true; return; }
     // the gateway ready now: the claude step done by Not Now alone is not it
     if (!this.ctx('perch.gatewayReady') || !this.running('agents')) return;
-    if (this.done().agents || this.signals().agents) return;
+    if (!a.firstRun && (this.done().agents || this.signals().agents)) return;
     a.inFlight = true;
     const panel = this.panel;
     this.autoOpen(panel).catch((err) => this.log(`Get started: the Claude tab could not be opened: ${errorMessage(err)}`));
@@ -542,7 +550,7 @@ class GetStarted {
     let result = 'failed';
     try {
       // a Perch tab open already (one the window brought back, one first start opened, one in the side bar): none opened
-      const count = await run('perch.sessionCount');
+      const count = a.firstRun ? 0 : await run('perch.sessionCount');
       if (this.disposed || this.panel !== panel) return;
       if (typeof count === 'number' && count > 0) { a.settled = true; return; }
       result = await run(OPEN_GATEWAY_TAB, GREETING);
@@ -570,6 +578,7 @@ class GetStarted {
 
   tabOpened() {
     this.autoTab.settled = true;
+    this.autoTab.firstRun = false;
     this.stopAutoTabRetry();
     Promise.resolve(this.store.update(AUTO_TAB_KEY, true)).catch((err) => this.log(`Get started: could not record the Claude tab: ${errorMessage(err)}`));
   }

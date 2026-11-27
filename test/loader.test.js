@@ -611,7 +611,7 @@ test('a request file opens Get started once, even with every step done', async (
     env.order = [];
     env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
     await activateFirst(env);
-    assert.deepStrictEqual(env.order, ['page', 'perch'], 'asked for: Get started and the Perch view');
+    assert.deepStrictEqual(env.order, ['terminal', 'page', 'perch'], 'asked for: a terminal, Get started and the Perch view (Sean: "if it\'s first time, the terminal should always open")');
     assert.strictEqual(fs.existsSync(file), false, 'the request is used up');
     await env.extension.deactivate();
     env.base.subscriptions.splice(0).forEach((d) => d.dispose());

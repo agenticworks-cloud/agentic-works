@@ -474,8 +474,10 @@ class AgenticWorks {
     if (first && on('pullRequests')) await open('the PRs tab', () => vscode.commands.executeCommand(PRS_VIEW_COMMAND));
     // a terminal, so the bottom panel shows one: VS Code remembers the panel per window and folder, and a fresh one may
     // start with it closed (Sean, 2026-11-27). Opened after the PRs tab, so the panel ends on Terminal, PRs beside it.
-    if (first) await open('a terminal', () => vscode.commands.executeCommand('workbench.action.terminal.focus'));
+    // and on a company installer's first run too (the request file), however finished the walkthrough is (Sean, 2026-11-27)
+    if (first || requested) await open('a terminal', () => vscode.commands.executeCommand('workbench.action.terminal.focus'));
     await open('its Get started page', () => this.getStarted.open());
+    if (requested) this.getStarted.firstRun();   // a chat tab on the company gateway, once its key is known to work
     // last: opened first, the side bar ended on Explorer in a fresh window (installer run, 2026-11-24)
     if (on('agents')) await open('the Perch view', () => vscode.commands.executeCommand(AGENTS_VIEW_COMMAND));
     if (!first) return;
