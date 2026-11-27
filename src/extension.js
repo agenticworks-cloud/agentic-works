@@ -6,6 +6,8 @@
 // which it restores from when it starts, is left as it is. A part's views and commands show while its setting is on
 // and its context key agenticWorks.<id>.failed is not set; Agentic Works sets that key from a failed start until the next good one.
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { randomBytes } = require('node:crypto');
 const vscode = require('vscode');
 const { readParts, partContext } = require('./parts');
@@ -20,6 +22,18 @@ const { GithubSignIn, DEVICE_URL } = require('./githubSignIn');
 const settingKey = (id) => `agenticWorks.${id}.enabled`;
 const failedKey = (id) => `agenticWorks.${id}.failed`;
 const FIRST_START_KEY = 'agenticWorks.firstStart.done';
+// A company's installer asks for Get started once, whatever the steps' state, by leaving this file (its first run on a
+// laptop opens a new window for it). The first window to start claims it by renaming it away, so only one shows the page.
+function getStartedRequestFile(env = process.env, home = os.homedir()) {
+  return env.AGENTIC_WORKS_GET_STARTED_REQUEST || path.join(home, '.config', 'agentic-works', 'open-get-started');
+}
+function claimGetStartedRequest() {
+  const file = getStartedRequestFile();
+  const claimed = `${file}.${process.pid}.${randomBytes(4).toString('hex')}`;
+  try { fs.renameSync(file, claimed); } catch (_) { return false; }
+  try { fs.unlinkSync(claimed); } catch (_) { /* gone already */ }
+  return true;
+}
 // The parts' context keys the Get started page ticks on: VS Code cannot read one back, so Agentic Works notes their setContext
 // (and perch.sessionOpen, whether a Perch tab is open, and chirp.signInCodeWaiting, a Teams code waiting, which it shows)
 const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn',
@@ -443,7 +457,8 @@ class AgenticWorks {
   // the page isn't restored when VS Code restarts, and an empty window starts with the side bar hidden (Sean, 0.5.8).
   async firstStart() {
     const first = !this.base.globalState.get(FIRST_START_KEY);
-    if (!first) {
+    const requested = claimGetStartedRequest();
+    if (!first && !requested) {
       let left = false;
       try { left = this.getStarted.unfinished(); } catch (err) { this.log(`Agentic Works could not read the Get started steps: ${errorText(err)}`); }
       if (!left) return;

@@ -592,6 +592,40 @@ test('a later start with every step done or Not Now opens nothing', async () => 
   await env.extension.deactivate();
 });
 
+// A company's installer can ask for Get started once, whatever the steps' state, with a request file: its first run on a
+// laptop opens a new window for it (Sean, 2026-11-27: a new user goes through the walkthrough). The first window to start
+// claims the file, so only one window shows it; it is gone afterwards.
+test('a request file opens Get started once, even with every step done', async () => {
+  const fs = require('fs'); const os = require('os'); const path = require('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-request-'));
+  const file = path.join(dir, 'open-get-started');
+  process.env.AGENTIC_WORKS_GET_STARTED_REQUEST = file;
+  try {
+    const env = firstStartSetup({});
+    await activateFirst(env);
+    await env.extension.deactivate();
+    env.base.subscriptions.splice(0).forEach((d) => d.dispose());
+    const all = ['github', 'email', 'claude', 'agents', 'tools', 'teams', 'jira', 'secrets', 'codebase', 'parts'];
+    env.store.set('agenticWorks.getStarted.done', Object.fromEntries(all.map((id) => [id, true])));
+    fs.writeFileSync(file, '');
+    env.order = [];
+    env.ui.commands['workbench.view.extension.perch'] = () => { env.order.push('perch'); };
+    await activateFirst(env);
+    assert.deepStrictEqual(env.order, ['page', 'perch'], 'asked for: Get started and the Perch view');
+    assert.strictEqual(fs.existsSync(file), false, 'the request is used up');
+    await env.extension.deactivate();
+    env.base.subscriptions.splice(0).forEach((d) => d.dispose());
+    env.order = [];
+    await activateFirst(env);
+    assert.deepStrictEqual(env.order, [], 'the next start, with no request, opens nothing');
+    await env.extension.deactivate();
+    assert.deepStrictEqual(fs.readdirSync(dir), [], 'nothing left behind');
+  } finally {
+    delete process.env.AGENTIC_WORKS_GET_STARTED_REQUEST;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a later start with one step left opens Get started and the Perch view', async () => {
   const env = firstStartSetup({});
   await activateFirst(env);

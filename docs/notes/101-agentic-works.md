@@ -1154,6 +1154,12 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
   *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
   (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
+- **A request file opens Get started once — Built (1.1.5)** *(Sean, 2026-11-27: a new user of a company's setup goes
+  through the walkthrough; "there will be some file under user's home directory that tells if it's first time use")*.
+  A company's installer leaves `~/.config/agentic-works/open-get-started` (`AGENTIC_WORKS_GET_STARTED_REQUEST`
+  overrides it) before opening VS Code on its first run. At start, the first window claims it by renaming it away and
+  deleting it, then opens Get started and the Perch view as for steps left, even when every step is done. Only one
+  window shows it; later starts follow the steps as before.
 - **A Cursor `code` command is never taken for VS Code — Built (1.1.4)** *(Sean, 2026-11-27: "if he was using cursor
   beforehand, what will be the experience?")*. Cursor can put its own `code` on the PATH so `code .` opens Cursor; the
   installer took it for VS Code, put Agentic Works into Cursor and its settings into VS Code's file, which Cursor doesn't
