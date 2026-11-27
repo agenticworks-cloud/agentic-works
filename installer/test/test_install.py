@@ -828,43 +828,65 @@ class _Served(_Installer):
 
 
 class TestVSCodeOpen(_Served):
-    """VS Code's local windows open while its extensions change: the old ones run on beside the new (2026-11-27)."""
+    """VS Code open while extensions change (2026-11-27): asked once to close its local windows when the standalone
+    extensions go (they'd clash with Agentic Works); an update only says to reload the local windows; a Remote window
+    (the same app here, so not told apart) is never waited for. VS Code is opened only by a first install."""
 
-    def open_env(self, times: int, **extra: str) -> dict[str, str]:
+    def open_env(self, times: int, installed: str = "seanahn.perch@0.9.0", **extra: str) -> dict[str, str]:
         count = self.tmp / "vscode-open"
         count.write_text(str(times))
         env = self.env("ubuntu", self.STUBS + ("pgrep",), real=("curl",), AGENTIC_WORKS_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
-                       VSCODE_OPEN_COUNT=str(count), CODE_EXTENSIONS="seanahn.perch@0.9.0 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS))
+                       VSCODE_OPEN_COUNT=str(count), CODE_EXTENSIONS=(installed + " " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)).strip())
         env.update(extra)
         return env
 
-    WAIT = "VS Code is open on this computer. Close its windows (Remote ones can stay open), then press Enter."
+    WAIT = "VS Code is open on this computer. Close its local windows (a Remote window can stay), then press Enter."
+    RELOAD = f"Reload your local VS Code windows to use Agentic Works {VERSION}; Remote windows aren't affected."
 
-    def test_waits_until_closed_then_changes_extensions(self) -> None:
-        rc, out = self.run_pipe(self.open_env(2, AGENTIC_WORKS_INSTALL_TTY=self.tty("y", "", "")))
+    def test_standalone_asks_once_then_goes_on(self) -> None:
+        rc, out = self.run_pipe(self.open_env(9, AGENTIC_WORKS_INSTALL_TTY=self.tty("y", "")))
         self.assertEqual(rc, 0, out)
-        self.assertEqual(out.count(self.WAIT), 2, out)  # asked again while still open; once closed, on
-        self.assertIn("  ✓ Standalone extensions (uninstalled Perch)", out)
-        self.assertNotIn("Reload", out)
-        self.assertLess(out.index(self.WAIT), out.index("✓ Standalone"))
+        self.assertEqual(out.count(self.WAIT), 1, out)
+        self.assertLess(out.index(self.WAIT), out.index("✓ Standalone extensions (uninstalled Perch)"))
+        self.assertIn(self.RELOAD, out)  # still open (a Remote window, say): its local windows to reload
 
-    def test_closed_no_question(self) -> None:
+    def test_standalone_closed_no_question(self) -> None:
         rc, out = self.run_pipe(self.open_env(0, AGENTIC_WORKS_INSTALL_TTY=self.tty("y")))
         self.assertEqual(rc, 0, out)
         self.assertNotIn(self.WAIT, out)
+        self.assertNotIn(self.RELOAD, out)
 
-    def test_no_terminal_goes_on_and_says_reload(self) -> None:
-        rc, out = self.run_pipe(self.open_env(5, AGENTIC_WORKS_INSTALL_TTY=str(self.tmp / "no-tty")), "--yes")
+    def test_standalone_no_terminal_goes_on(self) -> None:
+        rc, out = self.run_pipe(self.open_env(9, AGENTIC_WORKS_INSTALL_TTY=str(self.tmp / "no-tty")), "--yes")
         self.assertEqual(rc, 0, out)
         self.assertNotIn(self.WAIT, out)
-        self.assertIn("✓ Standalone extensions (uninstalled Perch)", out)
-        self.assertIn("VS Code was open: reload its windows on this computer to use Agentic Works.", out)
+        self.assertIn(self.RELOAD, out)
 
-    def test_gave_up_waiting_goes_on_and_says_reload(self) -> None:
-        rc, out = self.run_pipe(self.open_env(9, AGENTIC_WORKS_INSTALL_TTY=self.tty("y", "", "", "")))
+    def test_upgrade_never_asks_and_opens_nothing(self) -> None:
+        for times, reload in ((9, True), (0, False)):
+            with self.subTest(open=bool(times)):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.open_env(times, "agenticworks.agentic-works@1.0.0", AGENTIC_WORKS_INSTALL_TTY=self.tty("")))
+                self.assertEqual(rc, 0, out)
+                self.assertIn(f"✓ Agentic Works (upgraded from 1.0.0 to {VERSION})", out)
+                self.assertNotIn(self.WAIT, out)
+                self.assertEqual(self.RELOAD in out, reload, out)
+                self.assertEqual(self.opens(), [])
+
+    def test_first_install_opens_plain_code(self) -> None:
+        # plain `code`, as starting it from the dock does: VS Code brings back the windows it had, each with its
+        # layout; --new-window gave an empty window, whose layout VS Code doesn't keep
+        rc, out = self.run_pipe(self.open_env(0, ""))
         self.assertEqual(rc, 0, out)
-        self.assertEqual(out.count(self.WAIT), 3, out)
-        self.assertIn("VS Code was open: reload its windows on this computer to use Agentic Works.", out)
+        self.assertIn(f"✓ Agentic Works (installed {VERSION})", out)
+        self.assertEqual(self.opens(), ["code "], self.stub_log())
+        for args in (("--no-open",), ("--skip", "open"), ("--dry-run",)):
+            with self.subTest(args=args):
+                self.log.write_text("")
+                rc, out = self.run_pipe(self.open_env(0, ""), *args)
+                self.assertEqual(rc, 0, out)
+                self.assertEqual(self.opens(), [])
+        self.assertRegex(out, r"Would open VS Code: \$ \S*/code\n")  # the dry run shows it, with no --new-window
 
 
 class TestStandalone(_Served):
@@ -989,8 +1011,8 @@ class TestAgenticWorks(_Served):
         installed = "agenticworks.agentic-works@1.1.9 " + " ".join(f"{c}@1.0.0" for c in COMPANIONS)
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS=installed))
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"  ✓ Agentic Works (upgraded from 1.1.9 to {VERSION})\n"
-                      "      Reload any open VS Code window to use the new version.\n", out)
+        self.assertIn(f"  ✓ Agentic Works (upgraded from 1.1.9 to {VERSION})\n", out)
+        self.assertNotIn("Reload", out)  # VS Code isn't open here; when it is, the summary says so (TestVSCodeOpen)
         installs = self.vsix_installs()
         self.assertEqual(len(installs), 1, self.stub_log())
         self.assertTrue(installs[0].endswith(f"/agentic-works-{VERSION}.vsix"), installs)
@@ -1736,22 +1758,16 @@ class TestLook(_Installer):
         self.assertEqual(out.strip(), "ok /usr/bin/python3", out)
         self.assertEqual(self.logged("xcode-select"), ["xcode-select -p"])
 
-    def test_no_open_flag(self) -> None:
-        rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT))
-        self.assertEqual(rc, 0, out)
-        # plain `code`, as starting it from the dock does: VS Code brings back the windows it had, each with its
-        # layout; --new-window gave an empty window, whose layout VS Code doesn't keep (2026-11-27)
-        opens = self.opens()
-        self.assertEqual(opens, ["code "], self.stub_log())
-        self.assertGreater(self.stub_log().index("code "), _index(self.stub_log(), "vscode-layout"))
-
-        for args in (("--no-open",), ("--skip", "open"), ("--dry-run",)):
+    def test_update_opens_nothing(self) -> None:
+        # Agentic Works already there: an update or a repair; VS Code, if open, keeps its windows (2026-11-27)
+        for args in ((), ("--dry-run",)):
             with self.subTest(args=args):
                 self.log.write_text("")
                 rc, out = self.run_pipe(self.env("ubuntu", ALL_PRESENT), *args)
                 self.assertEqual(rc, 0, out)
                 self.assertEqual(self.opens(), [])
-        self.assertRegex(out, r"Would open VS Code: \$ \S*/code\n")  # the dry run shows it, with no --new-window
+                self.assertNotIn("Opening VS Code", out)
+                self.assertNotIn("Would open VS Code", out)
 
     def test_root_does_not_open(self) -> None:
         rc, out = self.run_sourced(self.env("ubuntu", ALL_PRESENT), 'id() { echo 0; }; main')

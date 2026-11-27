@@ -66,8 +66,8 @@ AS_ROOT=0
 SUDO=""
 TTY_OPEN=0
 CLASH=""  # why Agentic Works can't go in beside the standalone five; when set, Agentic Works fails and the steps after it stay out
-VSCODE_WAITED=0  # asked once a run whether VS Code is closed
-RELOAD_VSCODE=0  # VS Code stayed open while its extensions changed: say to reload it
+AGENTIC_WORKS_FRESH=0  # 1 when this run installs Agentic Works where there was none: then VS Code is opened
+RELOAD_VSCODE=0  # VS Code was open while Agentic Works came or changed: say to reload its local windows
 VSIX_DIR=""  # the .vsix download's temp dir while it exists; cleanup removes it on an interrupt too
 INLINED_HELPER=""  # the released script's own copy of the helper, written to a private temp file at start
 HOMEBREW_STATE=""  # planned (a dry run printed its install) or failed, so a second step doesn't repeat it
@@ -643,7 +643,7 @@ keep_gannet_state() {  # VS Code deletes an extension's global storage on uninst
   return 0
 }
 
-vscode_open() {  # true while VS Code's own app runs here (not a Remote window's server, which runs as node)
+vscode_open() {  # true while VS Code's app runs here: a local window or a Remote one, which can't be told apart here
   have pgrep || return 1
   case $OS in
     macos) pgrep -f '/Visual Studio Code.app/Contents/MacOS/' > /dev/null 2>&1 ;;
@@ -651,20 +651,19 @@ vscode_open() {  # true while VS Code's own app runs here (not a Remote window's
   esac
 }
 
-wait_vscode_closed() {  # before extensions change: open windows would run the old ones beside the new until reloaded
-  local tries=0 answer
+ask_vscode_closed() {  # before the standalone extensions go: open local windows run them beside Agentic Works until
+  # reloaded. Asked once; a Remote window runs its extensions on its host, so it may stay open and the run goes on
+  local answer
   [ "$DRY_RUN" = 1 ] && return 0
-  [ "$VSCODE_WAITED" = 1 ] && return 0
-  VSCODE_WAITED=1
-  while vscode_open; do
-    if [ "$TTY_OPEN" != 1 ] || [ "$YES" = 1 ] || [ "$tries" -ge 3 ]; then RELOAD_VSCODE=1; return 0; fi
-    tries=$((tries + 1))
+  vscode_open || return 0
+  if [ "$TTY_OPEN" = 1 ] && [ "$YES" != 1 ]; then
     spinner_stop
     if [ "$LINE_OPEN" = 1 ]; then printf '\n'; LINE_OPEN=0; fi
-    printf '      %s ' "VS Code is open on this computer. Close its windows (Remote ones can stay open), then press Enter."
-    if ! IFS= read -r answer <&3; then printf '\n'; RELOAD_VSCODE=1; return 0; fi
-    [ -t 1 ] || printf '\n'
-  done
+    printf '      %s ' "VS Code is open on this computer. Close its local windows (a Remote window can stay), then press Enter."
+    if IFS= read -r answer <&3; then [ -t 1 ] || printf '\n'; else printf '\n'; fi
+  fi
+  vscode_open && RELOAD_VSCODE=1
+  return 0
 }
 
 check_standalone() {  # the standalone five would clash with Agentic Works (the same command ids): uninstall them, or stop
@@ -696,7 +695,7 @@ check_standalone() {  # the standalone five would clash with Agentic Works (the 
     2) CLASH="$names would clash with Agentic Works, and there is no terminal to ask on; rerun with --yes to uninstall them"
        return 0 ;;
   esac
-  wait_vscode_closed
+  ask_vscode_closed
   case " $found " in *" seanahn.gannet "*) keep_gannet_state ;; esac
   for id in $found; do
     code_cli --uninstall-extension "$id" || failed="$failed $id"
@@ -787,18 +786,18 @@ ensure_agentic_works() {  # this release's Agentic Works: installed, upgraded ov
     step_end failed "couldn't make a temp dir for the download"
     return 0
   fi
-  wait_vscode_closed
   install_agentic_works_vsix "$VSIX_DIR"
   rm -rf "$VSIX_DIR"
   VSIX_DIR=""
   if [ -n "$AGENTIC_WORKS_ERROR" ]; then
     step_end failed "$AGENTIC_WORKS_ERROR"
   elif [ "$DRY_RUN" = 1 ]; then
+    [ -n "$current" ] || AGENTIC_WORKS_FRESH=1
     step_end done "dry run"
   else
     AGENTIC_WORKS_IN_PLACE=1
     step_end done "$detail"
-    [ -z "$current" ] || step_say "Reload any open VS Code window to use the new version."
+    if [ -z "$current" ]; then AGENTIC_WORKS_FRESH=1; elif vscode_open; then RELOAD_VSCODE=1; fi
   fi
 }
 
@@ -1231,12 +1230,14 @@ apply_icons() {  # the activity bar's icons and the vendor buttons on editor tit
   esac
 }
 
-open_vscode() {  # VS Code, with the windows it had (a plain start brings them back with their layouts), once the checklist is done; not as root, nor with --no-open or --dry-run
+open_vscode() {  # VS Code, after a first install only: a plain start, which brings back any windows it had; once the checklist is done; not as root, nor with --no-open or --dry-run
   skip_named open && return 0
   [ "$NO_OPEN" = 1 ] && return 0
   [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
   find_code || [ "$DRY_RUN" = 1 ] || return 0
-  if [ "$DRY_RUN" = 1 ]; then
+  if [ "$AS_ROOT" != 1 ] && [ "$AGENTIC_WORKS_FRESH" != 1 ]; then
+    return 0  # an update or a repair: VS Code's windows stay as they are; the summary says when to reload them
+  elif [ "$DRY_RUN" = 1 ]; then
     printf 'Would open VS Code: $ %s\n' "$CODE"
   elif [ "$AS_ROOT" = 1 ]; then
     if [ -n "$CODE_DATA" ]; then
@@ -1394,7 +1395,7 @@ cleanup() {  # on exit: the log is kept, and named, only when a step failed and 
 finish() {
   printf '\n'
   tally
-  [ "$RELOAD_VSCODE" != 1 ] || printf 'VS Code was open: reload its windows on this computer to use Agentic Works.\n'
+  [ "$RELOAD_VSCODE" != 1 ] || printf "Reload your local VS Code windows to use Agentic Works %s; Remote windows aren't affected.\n" "$AGENTIC_WORKS_VERSION"
 }
 
 main() {  # the steps, in order

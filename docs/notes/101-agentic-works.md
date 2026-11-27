@@ -1141,15 +1141,21 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   turn; 429 and 5xx are not refusals and keep Claude Code's own retrying.)*
 - **The side bar says Repos — Built** *(Sean, 2026-11-27, "yes, do that")*. The Repos part's view container was still
   titled GitHub, from the standalone Gannet; it shows repos, GitHub's now and other hosts' later.
-- **The installer waits for VS Code to close, then starts it plainly — Built** *(Sean, 2026-11-27: "when i close the
-  works and starts again, it does not remember the layout anymore")*. Two causes: VS Code's local windows stayed open
-  while the standalone extensions went and Agentic Works came, so the old ones ran beside the new until a reload, and
-  a running VS Code never restores windows; and the installer opened `code --new-window`, an empty window whose layout
-  VS Code doesn't keep. Now, before it changes extensions, the installer checks for VS Code's own app (`pgrep -x code`;
-  on macOS the app bundle's path), not a Remote window's server; on a terminal it asks to close the local windows
-  (Remote ones can stay) and press Enter, checking again, up to three times; with no terminal, with `--yes`, or after
-  three it goes on and says at the end to reload VS Code's windows. At the end it runs plain `code`, which brings back
-  the windows VS Code had, each with its layout.
+- **The installer opens VS Code only on a first install — Built (1.1.3)** *(Sean, 2026-11-27: "when i close the works
+  and starts again, it does not remember the layout anymore"; "i don't want my remote ssh one to seclab affected")*.
+  Causes: the installer opened `code --new-window`, an empty window whose layout VS Code doesn't keep, and a VS Code
+  still running (any window, a Remote one too) never restores windows on a new start. VS Code keeps each folder's and
+  workspace's layout itself, so opening it again brings it back. Now:
+  - a first install (no Agentic Works before) ends with a plain `code`, which brings back any windows VS Code had;
+  - an update or a repair opens nothing; when VS Code is open the summary says "Reload your local VS Code windows to
+    use Agentic Works X; Remote windows aren't affected." (a Remote window runs its extensions on its host, which the
+    installer never touches);
+  - only when the standalone extensions go (they'd clash with Agentic Works in a local window), and VS Code is open, it
+    asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
+  *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
+  (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
+  `works` does the same: it runs the installer with `--no-open` and opens VS Code itself only when Agentic Works
+  wasn't installed before.
 
 ## Left to the builder
 
