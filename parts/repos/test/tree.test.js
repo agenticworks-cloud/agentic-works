@@ -1,0 +1,390 @@
+'use strict';
+// The Gannet tree: one node per owner an account reaches, each with its Recent repos and All repos (the account's
+// full list, kept on disk once read); each repo's files from GitHub or from disk; items that stand in for errors.
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { fakeVscode, installVscode, makeMemento } = require('./stubs.js');
+const vscode = fakeVscode();
+installVscode(vscode);
+const { GitHubError } = require('../src/github.js');
+const { createRecent } = require('../src/recent.js');
+const { createLocalRepos } = require('../src/localRepos.js');
+const { createRepoCache } = require('../src/repoCache.js');
+const { createWorkspaces } = require('../src/workspaces.js');
+const { GannetTree } = require('../src/tree.js');
+const { createNewFolders } = require('../src/newFolders.js');
+const { nodeKey, childIds } = require('../src/rows.js');
+
+const R = (fullName, extra = {}) => ({ fullName, owner: fullName.split('/')[0], name: fullName.split('/')[1], private: false, archived: false, defaultBranch: 'main', htmlUrl: 'https://github.com/' + fullName, cloneUrl: `https://github.com/${fullName}.git`, ...extra });
+const E = (name, type, extra = {}) => ({ name, path: name, type, size: 1, htmlUrl: 'https://github.com/o/r/tree/main/' + name, ...extra });
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gannet-tree-'));
+const S = vscode.TreeItemCollapsibleState;
+
+(async () => {
+  try {
+    const home = path.join(tmp, 'home');
+    fs.mkdirSync(home, { recursive: true });
+    const listings = new Map();   // "login fullName path" -> { entries, truncated } | GitHubError
+    const repoLists = {
+      'c3-sahn': { orgs: ['c3-e'], pushed: [R('c3-e/hub'), R('c3-sahn/notes')], all: [R('c3-e/hub'), R('c3-e/zeta'), R('c3-sahn/notes'), R('c3-taehokgil/tool')] },
+      seanahn: { orgs: [], pushed: [R('seanahn/perch', { private: true }), R('seanahn/roost', { archived: true })], all: [R('zz/last'), R('seanahn/perch', { private: true }), R('seanahn/roost', { archived: true })] },
+    };
+    const calls = [];
+    const clientFor = (login) => ({
+      listOrgs: async () => { calls.push(['orgs', login]); const v = repoLists[login]; if (v instanceof Error) throw v; if (v.orgs instanceof Error) throw v.orgs; return v.orgs; },
+      listRepos: async ({ sort }) => { calls.push(['repos', login, sort]); const v = repoLists[login]; if (v instanceof Error) throw v; return sort === 'pushed' ? v.pushed : v.all; },
+      listDir: async (owner, repo, p) => { calls.push(['dir', login, `${owner}/${repo}`, p]); const v = listings.get(`${login} ${owner}/${repo} ${p}`); if (v instanceof Error) throw v; return v || { entries: [], truncated: false }; },
+    });
+    const accountList = [{ login: 'c3-sahn', source: 'gh' }, { login: 'seanahn', source: 'vscode' }];
+    const accounts = { list: async () => accountList };
+    const recent = createRecent(makeMemento());
+    const local = createLocalRepos({ memento: makeMemento(), home });
+    const cacheDir = path.join(tmp, 'store');
+    const workspaces = createWorkspaces({ memento: makeMemento(), home });
+    const make = (o = {}) => new GannetTree({ vscode, accounts, clientFor, recent, local, cache: createRepoCache(cacheDir), workspaces, home, ...o });
+    const tree = make();
+    const item = (n) => tree.getTreeItem(n);
+    const labels = async (node, t = tree) => (await t.getChildren(node)).map((n) => t.getTreeItem(n).label);
+    const fullCalls = (login) => calls.filter((c) => c[0] === 'repos' && c[1] === login && c[2] === 'full_name').length;
+    const ownerNode = async (name, t = tree) => (await t.getChildren()).find((n) => t.getTreeItem(n).label === name);
+
+    // root: one node per owner, by name; whom it is reached through; which start open
+    let roots = await tree.getChildren();
+    assert.deepStrictEqual(roots.map((n) => item(n).label), ['c3-e', 'c3-sahn', 'seanahn'], 'owners of the pushed list and organizations');
+    assert.deepStrictEqual(roots.map((n) => item(n).description), ['via c3-sahn', undefined, undefined]);
+    assert.deepStrictEqual(roots.map((n) => item(n).collapsibleState), [S.Expanded, S.Collapsed, S.Expanded], 'organizations open; an account with organizations has its own login closed');
+    assert.deepStrictEqual(roots.map((n) => item(n).contextValue), ['owner', 'account-gh', 'account-vscode'], 'Hide account is on the own node');
+    assert.deepStrictEqual(roots.map((n) => item(n).iconPath.id), ['organization', 'account', 'account']);
+    assert.deepStrictEqual(roots.map((n) => item(n).id), ['owner:c3-sahn:c3-e', 'owner:c3-sahn:c3-sahn', 'owner:seanahn:seanahn'], 'ids, so VS Code remembers what is open');
+    assert.ok(/Accounts menu/.test(item(roots[2]).tooltip), 'how to sign a VS Code account out');
+    assert.ok(/gh CLI/.test(item(roots[1]).tooltip));
+
+    // an owner: its recent repos, by name alone, then All repos
+    const sean = roots[2];
+    await recent.touch('seanahn', 'seanahn/roost');
+    assert.deepStrictEqual(await labels(sean), ['roost', 'perch', 'All repos']);
+    assert.strictEqual(item((await tree.getChildren(sean)).at(-1)).iconPath.id, 'repos', 'All repos: the two-cat icon the page draws');
+    assert.deepStrictEqual(await labels(roots[0]), ['hub', 'All repos'], "c3-e's own, not c3-sahn's");
+    const [roostNode, perchNode, allNode] = await tree.getChildren(sean);
+    assert.ok(!item(perchNode).description, 'no "private" after the name (Sean: "remove the private")');
+    assert.strictEqual(item(roostNode).description, 'archived');
+    assert.strictEqual(item(perchNode).contextValue, 'repo-remote');
+    assert.strictEqual(item(perchNode).iconPath.id, 'github-alt', 'the Octocat without the circle');
+    assert.strictEqual(item(perchNode).iconPath.color, undefined, 'not checked out: not green');
+    assert.strictEqual(item(perchNode).tooltip, 'Only on GitHub');
+    assert.strictEqual(item(allNode).collapsibleState, S.Collapsed);
+
+    // All repos: the account's full list, this owner's part, sorted; read once, then kept on disk
+    assert.deepStrictEqual(await labels(allNode), ['perch', 'roost']);
+    await tree.getChildren(allNode);
+    assert.strictEqual(fullCalls('seanahn'), 1);
+    assert.ok(fs.existsSync(path.join(cacheDir, 'repos-seanahn.json')));
+    assert.strictEqual(item(allNode).description, '2');
+    assert.ok(/^Fetched /.test(item(allNode).tooltip), item(allNode).tooltip);
+    const c3e = await ownerNode('c3-e');
+    assert.deepStrictEqual(await labels((await tree.getChildren(c3e)).at(-1)), ['hub', 'zeta']);
+
+    // Hide owner: an organization or another owner is left out (any case); an account's own login is not
+    const th = make({ hiddenOwners: () => ['C3-E', 'seanahn'] });
+    assert.deepStrictEqual(await labels(undefined, th), ['c3-sahn', 'c3-taehokgil', 'seanahn', 'zz', 'Hidden']);
+    // what is hidden stays reachable: a Hidden row last, listing hidden owners then hidden accounts, as set
+    const tv = make({ hiddenOwners: () => ['bpmn2', 'tmio'], hiddenAccounts: () => ['old-login'] });
+    const hiddenNode = (await tv.getChildren()).at(-1);
+    const hi = tv.getTreeItem(hiddenNode);
+    assert.deepStrictEqual([hiddenNode.kind, hi.label, hi.description, hi.contextValue, hi.collapsibleState, hi.iconPath.id], ['hidden', 'Hidden', '3', 'group-hidden', S.Collapsed, 'eye-closed']);
+    const hk = await tv.getChildren(hiddenNode);
+    assert.deepStrictEqual(hk.map((n) => [n.kind, tv.getTreeItem(n).label, tv.getTreeItem(n).description, tv.getTreeItem(n).contextValue]),
+      [['hiddenOwner', 'bpmn2', 'owner', 'hidden-owner'], ['hiddenOwner', 'tmio', 'owner', 'hidden-owner'], ['hiddenAccount', 'old-login', 'account', 'hidden-account']]);
+    assert.strictEqual(tv.getTreeItem(hk[0]).iconPath.color.id, 'descriptionForeground');
+    assert.deepStrictEqual(childIds('hidden', hk), ['hidden/h:bpmn2', 'hidden/h:tmio', 'hidden/a:old-login']);
+    assert.ok(!(await make().getChildren()).some((n) => n.kind === 'hidden'), 'nothing hidden: no row');
+
+    // a new window (another tree on the same folder): owners found only in the kept list show, with no fetch
+    const t2 = make();
+    assert.deepStrictEqual(await labels(undefined, t2), ['c3-e', 'c3-sahn', 'c3-taehokgil', 'seanahn', 'zz']);
+    const tae = await ownerNode('c3-taehokgil', t2);
+    assert.strictEqual(t2.getTreeItem(tae).description, 'via c3-sahn');
+    assert.strictEqual(t2.getTreeItem(tae).collapsibleState, S.Collapsed, "another user's repos start closed");
+    assert.deepStrictEqual(await labels((await t2.getChildren(tae)).at(-1), t2), ['tool']);
+    assert.strictEqual(fullCalls('c3-sahn'), 1, 'read from disk, not GitHub');
+    // ⟳: the next All repos is read from GitHub again and the file replaced
+    repoLists.seanahn.all = [...repoLists.seanahn.all, R('seanahn/new')];
+    t2.refresh();
+    const seanAll2 = (await t2.getChildren(await ownerNode('seanahn', t2))).at(-1);
+    assert.deepStrictEqual(await labels(seanAll2, t2), ['new', 'perch', 'roost']);
+    assert.strictEqual(fullCalls('seanahn'), 2);
+    assert.ok(createRepoCache(cacheDir).get('seanahn').repos.some((r) => r.fullName === 'seanahn/new'));
+    await t2.getChildren(seanAll2);
+    assert.strictEqual(fullCalls('seanahn'), 2, 'once per refresh');
+    // Final review: a checkout, a workspace change or an account change redraws, and never reads GitHub's list again
+    t2.redraw();
+    await t2.getChildren((await t2.getChildren(await ownerNode('seanahn', t2))).at(-1));
+    assert.strictEqual(fullCalls('seanahn'), 2, 'a redraw keeps the kept list');
+    const t3 = make();
+    t3.redraw();
+    await t3.getChildren((await t3.getChildren(await ownerNode('seanahn', t3))).at(-1));
+    assert.strictEqual(fullCalls('seanahn'), 2, 'a redraw in a new window reads the file');
+
+    // a remote repo's folders, lazily; opening it moves it to the top of Recent
+    listings.set('seanahn seanahn/perch ', { entries: [E('src', 'dir'), E('big.bin', 'file', { size: 11 * 1024 * 1024 }), E('a.js', 'file'), E('lib', 'submodule'), E('link', 'symlink')], truncated: false });
+    listings.set('seanahn seanahn/perch src', { entries: [E('x.js', 'file', { path: 'src/x.js' })], truncated: true });
+    const top = await tree.getChildren(perchNode);
+    assert.deepStrictEqual(top.map((n) => item(n).label), ['src', 'big.bin', 'a.js', 'lib', 'link']);
+    assert.deepStrictEqual(await labels(sean), ['perch', 'roost', 'All repos']);
+    const [srcNode, bigNode, aNode, libNode, linkNode] = top;
+    assert.strictEqual(item(srcNode).collapsibleState, S.Collapsed);
+    assert.strictEqual(item(aNode).collapsibleState, S.None);
+    assert.strictEqual(item(aNode).command.command, 'gannet.openFile');
+    assert.strictEqual(item(aNode).contextValue, 'file');
+    assert.strictEqual(item(bigNode).contextValue, 'file-large');
+    assert.strictEqual(item(libNode).collapsibleState, S.None, 'a submodule does not expand');
+    assert.strictEqual(item(libNode).command.command, 'gannet.openUrl');
+    assert.strictEqual(item(linkNode).collapsibleState, S.None);
+    assert.strictEqual(item(linkNode).command.command, 'gannet.openFile', 'a symlink opens as a file');
+    // icons as VS Code's own explorer draws them: the file icon theme's, from the resource; folders take the
+    // theme's folder icon (none in Seti), and files the File kind, so VS Code lines them up with the folders' arrows
+    for (const n of [srcNode, aNode, linkNode]) assert.strictEqual(item(n).resourceUri.scheme, 'gannet', item(n).label);
+    assert.strictEqual(item(srcNode).resourceUri.path, '/seanahn/perch/src');
+    assert.strictEqual(item(srcNode).iconPath, vscode.ThemeIcon.Folder);
+    assert.strictEqual(item(aNode).iconPath, vscode.ThemeIcon.File);
+    // a folder over GitHub's 1,000-entry limit ends with a way to see the rest
+    const inSrc = await tree.getChildren(srcNode);
+    assert.deepStrictEqual(inSrc.map((n) => item(n).label), ['x.js', 'More files — open on GitHub']);
+    assert.strictEqual(item(inSrc[1]).command.command, 'gannet.openUrl');
+    await tree.getChildren(srcNode);
+    assert.strictEqual(calls.filter((c) => c[0] === 'dir' && c[3] === 'src').length, 1, 'cached');
+
+    // an empty repo
+    listings.set('c3-sahn c3-e/hub ', new GitHubError('empty', 409, 'This repository is empty.'));
+    const [hub] = await tree.getChildren(c3e);
+    assert.deepStrictEqual(await labels(hub), ['Empty repository']);
+    assert.strictEqual(item(hub).contextValue, 'repo-remote', 'still offers Check out');
+
+    // a checked-out repo lists the disk, .git hidden
+    const dir = path.join(tmp, 'hub');
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'docs'));
+    fs.writeFileSync(path.join(dir, 'README.md'), 'hi');
+    fs.writeFileSync(path.join(dir, 'docs', 'n.md'), 'n');
+    await local.remember('c3-e/hub', { path: dir, login: 'c3-sahn', byGannet: true });
+    const [hubLocal] = await tree.getChildren(c3e);
+    assert.strictEqual(item(hubLocal).contextValue, 'repo-local');
+    const onDisk = await tree.getChildren(hubLocal);
+    assert.deepStrictEqual(onDisk.map((n) => item(n).label), ['docs', 'README.md']);
+    assert.strictEqual(item(onDisk[1]).command.command, 'vscode.open');
+    assert.strictEqual(item(onDisk[1]).resourceUri.fsPath, path.join(dir, 'README.md'));
+    assert.strictEqual(item(onDisk[0]).iconPath, vscode.ThemeIcon.Folder);
+    assert.strictEqual(item(onDisk[1]).iconPath, vscode.ThemeIcon.File);
+    assert.deepStrictEqual((await tree.getChildren(onDisk[0])).map((n) => item(n).label), ['n.md']);
+    // found on disk with no account yet: offers Push as
+    await local.remember('c3-e/hub', { path: dir, login: null, byGannet: false });
+    assert.strictEqual(item(hubLocal).contextValue, 'repo-local-foreign');
+
+    // several checkouts: green, the workspaces they are in, one node per checkout
+    {
+      const gws = path.join(home, 'github'), other = path.join(tmp, 'git');
+      await workspaces.add(gws); await workspaces.add(other);
+      const p1 = path.join(gws, 'perch'), p2 = path.join(other, 'perch');
+      for (const p of [p1, p2]) { fs.mkdirSync(path.join(p, '.git'), { recursive: true }); fs.writeFileSync(path.join(p, 'f.txt'), 'x'); }
+      fs.writeFileSync(path.join(p1, '.git', 'HEAD'), 'ref: refs/heads/feat/x\n');
+      fs.writeFileSync(path.join(p2, '.git', 'HEAD'), '0123456789abcdef0123456789abcdef01234567\n');
+      await local.remember('seanahn/perch', { path: p1, login: 'seanahn', byGannet: true });
+      await local.remember('seanahn/perch', { path: p2, login: null, byGannet: false });
+      const perch = { kind: 'repo', account: accountList[1], repo: R('seanahn/perch', { private: true }) };
+      const it = item(perch);
+      assert.strictEqual(it.description, `~/github · ${other}`);
+      assert.strictEqual(it.iconPath.id, 'github-alt');
+      assert.strictEqual(it.iconPath.color.id, 'charts.green');
+      assert.strictEqual(it.contextValue, 'repo-multi');
+      // Sean: the tooltip leaves out the repo's name, and shows each checkout's branch
+      assert.strictEqual(it.tooltip, `${p1} · feat/x · pushes as seanahn\n${p2} · detached at 0123456`);
+      const copies = await tree.getChildren(perch);
+      assert.deepStrictEqual(copies.map((n) => item(n).label), ['~/github/perch', p2]);
+      assert.deepStrictEqual(copies.map((n) => item(n).contextValue), ['checkout-local', 'checkout-local-foreign']);
+      assert.strictEqual(item(copies[0]).tooltip, `${p1} · feat/x · pushes as seanahn`);
+      assert.strictEqual(item(copies[1]).tooltip, `${p2} · detached at 0123456`);
+      // a worktree's .git is a file naming its git dir; no .git: no branch
+      const { branchOf } = require('../src/localRepos.js');
+      const wt = path.join(tmp, 'wt'), gd = path.join(tmp, 'wtgit');
+      fs.mkdirSync(wt); fs.mkdirSync(gd);
+      fs.writeFileSync(path.join(gd, 'HEAD'), 'ref: refs/heads/side\n');
+      fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${gd}\n`);
+      assert.strictEqual(branchOf(wt), 'side');
+      fs.writeFileSync(path.join(wt, '.git'), 'gitdir: ../wtgit\n');
+      assert.strictEqual(branchOf(wt), 'side', 'relative to the worktree');
+      assert.strictEqual(branchOf(path.join(tmp, 'nowhere')), '');
+      assert.strictEqual(item(copies[0]).collapsibleState, S.Collapsed);
+      assert.deepStrictEqual((await tree.getChildren(copies[1])).map((n) => item(n).label), ['f.txt']);
+      // one left: it is the repo's checkout again
+      fs.rmSync(p1, { recursive: true });
+      assert.strictEqual(item(perch).contextValue, 'repo-local-foreign');
+      assert.strictEqual(item(perch).description, other);
+      assert.deepStrictEqual((await tree.getChildren(perch)).map((n) => item(n).label), ['f.txt']);
+      // a checkout outside every workspace shows the folder it sits in
+      const lone = path.join(tmp, 'elsewhere', 'perch');
+      fs.mkdirSync(lone, { recursive: true });
+      await local.remember('seanahn/perch', { path: lone });
+      assert.strictEqual(item(perch).description, `${other} · ${path.join(tmp, 'elsewhere')}`);
+    }
+
+    // Review Focus 2: an owner spelled two ways is one node
+    {
+      const lists = { x: { orgs: ['c3-e'], pushed: [R('C3-E/up')], all: [] } };
+      const t = make({ accounts: { list: async () => [{ login: 'x', source: 'gh' }] }, clientFor: (l) => ({ listOrgs: async () => lists[l].orgs, listRepos: async ({ sort }) => (sort === 'pushed' ? lists[l].pushed : lists[l].all) }), cache: createRepoCache(path.join(tmp, 'store-case')) });
+      assert.deepStrictEqual(await labels(undefined, t), ['c3-e', 'x']);
+      assert.deepStrictEqual(await labels((await t.getChildren())[0], t), ['up', 'All repos']);
+    }
+
+    // organizations not readable (no read:org): owners still come from the repos; none opens as an organization
+    {
+      const lists = { x: { pushed: [R('org/up')], all: [] } };
+      const t = make({ accounts: { list: async () => [{ login: 'x', source: 'gh' }] }, clientFor: (l) => ({ listOrgs: async () => { throw new GitHubError('other', 403, 'no'); }, listRepos: async ({ sort }) => (sort === 'pushed' ? lists[l].pushed : lists[l].all) }), cache: createRepoCache(path.join(tmp, 'store-noorg')) });
+      const r = await t.getChildren();
+      assert.deepStrictEqual(r.map((n) => [t.getTreeItem(n).label, t.getTreeItem(n).collapsibleState]), [['org', S.Collapsed], ['x', S.Expanded]]);
+    }
+
+    // errors: Review Focus 4 — one account signed out leaves the other's owners alone; its own node shows the error
+    repoLists.seanahn = new GitHubError('auth', 401, 'Bad credentials');
+    tree.refresh();
+    roots = await tree.getChildren();
+    assert.deepStrictEqual(roots.map((n) => item(n).label), ['c3-e', 'c3-sahn', 'c3-taehokgil', 'seanahn'], "c3-sahn's owners as before (c3-taehokgil from its kept list); seanahn's own node only");
+    let [err] = await tree.getChildren(roots[3]);
+    assert.strictEqual(item(err).label, 'Signed out');
+    assert.strictEqual(item(err).command.command, 'gannet.signIn');
+    assert.strictEqual(item(roots[3]).collapsibleState, S.Expanded, 'the error shows');
+    repoLists['c3-sahn'] = new GitHubError('auth', 401, 'Bad credentials');
+    tree.refresh();
+    [err] = await tree.getChildren(await ownerNode('c3-sahn'));
+    assert.strictEqual(item(err).description, 'run gh auth login');
+    repoLists.seanahn = new GitHubError('sso', 403, 'SSO', { ssoUrl: 'https://github.com/orgs/c3-e/sso' });
+    tree.refresh();
+    [err] = await tree.getChildren(await ownerNode('seanahn'));
+    assert.strictEqual(item(err).contextValue, 'error-sso');
+    assert.deepStrictEqual(item(err).command.arguments, ['https://github.com/orgs/c3-e/sso']);
+    repoLists.seanahn = new GitHubError('rate', 403, 'rate', { retryAt: new Date(2026, 10, 25, 14, 5) });
+    tree.refresh();
+    [err] = await tree.getChildren(await ownerNode('seanahn'));
+    assert.strictEqual(item(err).label, 'Rate limited — try again at 14:05');
+    repoLists.seanahn = { orgs: [], pushed: [R('seanahn/perch')], all: [R('seanahn/perch')] };
+
+    // a repo GitHub no longer shows is dropped from Recent
+    await recent.touch('seanahn', 'seanahn/gone');
+    repoLists.seanahn.pushed = [R('seanahn/perch'), R('seanahn/gone')];
+    tree.refresh();
+    const goneNode = (await tree.getChildren(await ownerNode('seanahn')))[0];
+    assert.strictEqual(item(goneNode).label, 'gone');
+    listings.set('seanahn seanahn/gone ', new GitHubError('notFound', 404, 'Not Found'));
+    assert.deepStrictEqual(await labels(goneNode), ['No longer on GitHub']);
+    repoLists.seanahn.pushed = [R('seanahn/perch')];
+    tree.refresh();
+    assert.deepStrictEqual(await labels(await ownerNode('seanahn')), ['perch', 'roost', 'All repos'], "gone is dropped; roost, used before, is still in the kept list");
+
+    // a refused token is dropped, so after gh auth login and refresh the account works again
+    {
+      const forgotten = [];
+      const t = make({ accounts: { list: async () => accountList, forget: (l) => forgotten.push(l) }, clientFor: () => ({ listOrgs: async () => [], listRepos: async () => { throw new GitHubError('auth', 401, 'Bad credentials'); } }), cache: createRepoCache(path.join(tmp, 'store-x')) });
+      const [acct] = await t.getChildren();
+      await t.getChildren(acct);
+      assert.deepStrictEqual(forgotten, ['c3-sahn']);
+    }
+
+    // 0.5.0: folders not on GitHub yet show first under the owner row they were put under
+    {
+      repoLists['c3-sahn'] = { orgs: ['c3-e'], pushed: [R('c3-e/hub')], all: [R('c3-e/hub')] };   // signed in again
+      const nf = createNewFolders({ memento: makeMemento() });
+      const ghW = path.join(home, 'github');
+      await workspaces.add(ghW);
+      const mk = (p, files = []) => { fs.mkdirSync(p, { recursive: true }); for (const f of files) fs.writeFileSync(path.join(p, f), 'x'); return p; };
+      const a = mk(path.join(ghW, 'newthing'), ['notes.md']);
+      const b = mk(path.join(home, 'other', 'newthing'));
+      const gone = mk(path.join(ghW, 'gone'));
+      const unlisted = mk(path.join(ghW, 'unlisted'));
+      fs.mkdirSync(path.join(unlisted, '.git'));
+      fs.writeFileSync(path.join(unlisted, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/c3-e/unlisted.git\n');
+      const pushed = mk(path.join(ghW, 'pushedNow'));
+      fs.mkdirSync(path.join(pushed, '.git'));
+      const cfg = '[remote "origin"]\n\turl = git@github.com:seanahn/perch.git\n';
+      fs.writeFileSync(path.join(pushed, '.git', 'config'), cfg);
+      for (const p of [a, b, gone, unlisted, pushed]) await nf.add({ path: p, owner: 'c3-e', account: 'c3-sahn' });
+      await nf.add({ path: mk(path.join(ghW, 'hiddenOne')), owner: 'nobody', account: 'c3-sahn' });
+      fs.rmSync(gone, { recursive: true });
+      const t = make({ newFolders: nf });
+      let fired = 0;
+      t.onDidChangeTreeData(() => { fired++; });
+      const c3eNode = await ownerNode('c3-e', t);
+      const kids = await t.getChildren(c3eNode);
+      const dim = kids.filter((n) => n.kind === 'newFolder');
+      assert.deepStrictEqual(dim.map((n) => n.rec.path), [a, b, unlisted], 'first, in record order; gone and pushed ones not shown');
+      assert.strictEqual(kids[0].kind, 'newFolder');
+      const ia = t.getTreeItem(dim[0]);
+      assert.strictEqual(ia.label, 'newthing');
+      assert.strictEqual(ia.description, 'not on GitHub yet · ~/github');
+      assert.strictEqual(ia.contextValue, 'newfolder');
+      assert.strictEqual(ia.iconPath.id, 'github-alt');
+      assert.strictEqual(ia.iconPath.color.id, 'descriptionForeground');
+      assert.strictEqual(ia.collapsibleState, S.Collapsed);
+      assert.deepStrictEqual((await t.getChildren(dim[0])).map((n) => t.getTreeItem(n).label), ['notes.md']);
+      // Review Focus 5 and 1: outside every listed workspace, the parent; two of one name, two ids
+      assert.strictEqual(t.getTreeItem(dim[1]).description, 'not on GitHub yet · ~/other');
+      const ids = childIds('o:c3-sahn:c3-e', dim);
+      assert.strictEqual(new Set(ids).size, 2 + 1);
+      assert.notStrictEqual(nodeKey(dim[0]), nodeKey(dim[1]));
+      // a GitHub origin no list has yet: still waiting
+      assert.strictEqual(t.getTreeItem(dim[2]).description, 'c3-e/unlisted, not on GitHub yet');
+      // gone: dropped; listed (Review Focus 4, another owner): becomes a checkout of seanahn/perch, nothing written
+      const left = nf.list().map((r) => r.path);
+      assert.ok(!left.includes(gone) && !left.includes(pushed), JSON.stringify(left));
+      assert.ok(left.includes(unlisted) && left.includes(path.join(ghW, 'hiddenOne')), 'waiting and hidden-owner records kept');
+      assert.deepStrictEqual(local.checkoutsOf('seanahn/perch').filter((c) => c.path === pushed), [{ path: pushed, login: null, byGannet: false }]);
+      assert.strictEqual(fs.readFileSync(path.join(pushed, '.git', 'config'), 'utf8'), cfg, 'nothing written in the folder');
+      assert.strictEqual(fired, 1, 'redrawn once, so every row of seanahn shows it');
+      assert.ok(!(await t.getChildren(await ownerNode('c3-e', t))).some((n) => n.kind === 'newFolder' && n.rec.path === pushed));
+      const perch = (await t.getChildren(await ownerNode('seanahn', t))).find((n) => n.repo && n.repo.fullName === 'seanahn/perch');
+      assert.strictEqual(t.getTreeItem(perch).iconPath.color.id, 'charts.green');
+      assert.ok(t.isListed('SEANAHN/perch') && !t.isListed('c3-e/unlisted'));
+      // an older repo only All repos lists: the converted folder shows at the owner's top level, not only inside All repos
+      repoLists['c3-sahn'].all = [R('c3-e/hub'), R('c3-e/old')];
+      const old = mk(path.join(ghW, 'oldone'));
+      fs.mkdirSync(path.join(old, '.git'));
+      fs.writeFileSync(path.join(old, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/c3-e/old.git\n');
+      await nf.add({ path: old, owner: 'c3-e', account: 'c3-sahn' });
+      const t2 = make({ newFolders: nf, cache: createRepoCache(fs.mkdtempSync(path.join(tmp, 'cache2-'))) });   // not the kept list of earlier blocks
+      await t2.fullList('c3-sahn');
+      await t2.getChildren(await ownerNode('c3-e', t2));
+      const top = await t2.getChildren(await ownerNode('c3-e', t2));
+      assert.ok(top.some((n) => n.kind === 'repo' && n.repo.fullName === 'c3-e/old'), top.map((n) => n.kind + ':' + (n.repo ? n.repo.fullName : '')).join(' '));
+      // no newFolders: no rows
+      assert.ok(!(await make().getChildren(await ownerNode('c3-e'))).some((n) => n.kind === 'newFolder'));
+    }
+    // 0.5.6: a repo checked out on this machine ranks ahead of GitHub's pushed order, most recently worked on first
+    {
+      const pushed = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'sec'].map((n) => R('c3-e/' + n));
+      const saved = repoLists['c3-sahn'];
+      repoLists['c3-sahn'] = { orgs: ['c3-e'], pushed, all: pushed };
+      try {
+        const sec = path.join(tmp, 'sec-checkout');
+        fs.mkdirSync(path.join(sec, '.git', 'logs'), { recursive: true });
+        fs.writeFileSync(path.join(sec, '.git', 'logs', 'HEAD'), 'x');
+        const loc = createLocalRepos({ memento: makeMemento(), home });
+        await loc.remember('C3-E/sec', { path: sec });
+        const t3 = make({ local: loc, recent: createRecent(makeMemento()), cache: createRepoCache(fs.mkdtempSync(path.join(tmp, 'cache3-'))) });
+        const kids = await t3.getChildren(await ownerNode('c3-e', t3));
+        const names = kids.filter((n) => n.kind === 'repo').map((n) => n.repo.fullName);
+        assert.strictEqual(names[0], 'c3-e/sec', names.join(' '));
+        assert.strictEqual(names.length, 10);
+        // 0.5.7: Recent rows and All repos rows say where they sit; a repo taken out gives way to the next
+        assert.ok(kids.filter((n) => n.kind === 'repo').every((n) => n.place === 'recent'));
+        const allG = kids.find((n) => n.kind === 'group');
+        assert.ok((await t3.getChildren(allG)).every((n) => n.place === 'all'));
+        const rec3 = createRecent(makeMemento());
+        await rec3.drop('c3-sahn', 'c3-e/sec');
+        const t4 = make({ local: loc, recent: rec3, cache: createRepoCache(fs.mkdtempSync(path.join(tmp, 'cache4-'))) });
+        const names4 = (await t4.getChildren(await ownerNode('c3-e', t4))).filter((n) => n.kind === 'repo').map((n) => n.repo.fullName);
+        assert.ok(!names4.includes('c3-e/sec') && names4.length === 10 && names4[9] === 'c3-e/p10', names4.join(' '));
+      } finally { repoLists['c3-sahn'] = saved; }
+    }
+    console.log('TREE OK');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+})().catch((e) => { console.error(e); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(1); });
