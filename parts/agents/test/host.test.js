@@ -1635,6 +1635,56 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
     m.perch.dispose();
   }
 
+  // ---- the gateway file's key, checked with the gateway once per key a window (Sean, 2026-11-27: Get started showed the gateway
+  // steps done with a blocked key). Refused: not ready, and perch.gatewayRefused says why; accepted or not reachable: ready.
+  // A tab's refusal checks the key again; a gateway tab's answer is perch.gatewayAnswered (the walkthrough's talk step).
+  {
+    const fs = require('fs'), os = require('os'), path = require('path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'perch-gwcheck-')), file = path.join(dir, 'env');
+    const write = (token) => fs.writeFileSync(file, `export ANTHROPIC_BASE_URL=https://gw.example.com/llm-api\nexport ANTHROPIC_AUTH_TOKEN=${token}\n`, { mode: 0o600 });
+    const blocked = new Set(['sk-old']); let asked = 0;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      const token = String(init.headers.Authorization).replace('Bearer ', '');
+      if (url.endsWith('/v1/models')) asked++;
+      if (token === 'sk-down') throw new Error('offline');
+      if (blocked.has(token)) return { ok: false, status: 401, json: async () => ({ error: { message: 'Authentication Error, Key is blocked. Update via `/key/unblock` if you\'re an admin.' } }), text: async () => '' };
+      return { ok: true, status: 200, json: async () => ({ data: [{ id: 'router' }] }), text: async () => '' };
+    };
+    const last = (m, k) => (m.ui.contexts.filter((c) => c[0] === k).pop() || [])[1];
+    try {
+      write('sk-old');
+      const m = install(undefined, { config: { 'claude.gatewayEnv': file } }); await flush();
+      await until(() => last(m, 'perch.gatewayRefused') === 'Key is blocked');
+      assert.strictEqual(last(m, 'perch.gatewayReady'), false, 'a refused key: the gateway is not ready');
+      const n = asked; m.perch.syncGatewayContext(); await flush();
+      assert.strictEqual(asked, n, 'the same key is not asked about again');
+      write('sk-new'); m.perch.syncGatewayContext();
+      await until(() => last(m, 'perch.gatewayReady') === true);
+      assert.strictEqual(last(m, 'perch.gatewayRefused'), false, 'a key the gateway takes');
+      write('sk-down'); m.perch.syncGatewayContext(); await flush(); await flush();
+      assert.deepStrictEqual([last(m, 'perch.gatewayReady'), last(m, 'perch.gatewayRefused')], [true, false], 'offline says nothing about the key');
+      // a tab's refusal: the key is asked about again, and refused now
+      write('sk-new'); m.perch.syncGatewayContext(); await flush();
+      blocked.add('sk-new');
+      const v = fakeView(); m.registered['perch.main'].resolveWebviewView(v.view); v.fire({ type: 'ready' }); await flush();
+      v.fire({ type: 'new', kind: 'claude' }); const s = m.perch.get(v.lastTabs().active);
+      v.fire({ type: 'send', sid: s.id, text: 'Hello' }); await flush();
+      s.gateway = true;
+      s.post({ kind: 'gatewayRefused', status: 401, message: 'Authentication Error, Key is blocked' });
+      await until(() => last(m, 'perch.gatewayRefused') === 'Key is blocked');
+      assert.strictEqual(last(m, 'perch.gatewayReady'), false);
+      // the gateway answering a tab: the talk step's signal; a failed turn, or a tab off the gateway, is not it
+      assert.strictEqual(last(m, 'perch.gatewayAnswered'), undefined);
+      s.post({ kind: 'result', ok: false, error: 'error_during_execution' });
+      s.gateway = false; s.post({ kind: 'result', ok: true });
+      assert.strictEqual(last(m, 'perch.gatewayAnswered'), undefined, 'not by a failed turn or off the gateway');
+      s.gateway = true; s.post({ kind: 'result', ok: true });
+      assert.strictEqual(last(m, 'perch.gatewayAnswered'), true, 'the gateway answered');
+      m.perch.dispose();
+    } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
   // ---- a tab the user has not named takes the title of its agent's record, so the tab and its row in the sessions list say the same name
   {
     const m = install(); await flush();
@@ -2132,7 +2182,8 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       const m = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': written } });
       assert.strictEqual(baseNow(), PRIVATE, 'activation does not wait for the probe');
       release(); await until(() => baseNow() === PUBLIC);
-      assert.deepStrictEqual([baseNow(), asked, m.globalState._dump()['perch.terminal.written']], [PUBLIC, [[PRIVATE + '/v1/models', 'sk-term'], [PUBLIC + '/v1/models', 'sk-term']], Object.assign({}, written, { 'env.ANTHROPIC_BASE_URL': PUBLIC })],
+      const firsts = asked.filter((x, i) => asked.findIndex((y) => y[0] === x[0]) === i);   // the file's key is also checked at its own address
+      assert.deepStrictEqual([baseNow(), firsts, m.globalState._dump()['perch.terminal.written']], [PUBLIC, [[PRIVATE + '/v1/models', 'sk-term'], [PUBLIC + '/v1/models', 'sk-term']], Object.assign({}, written, { 'env.ANTHROPIC_BASE_URL': PUBLIC })],
         'the address that answered, in settings.json and in the record');
       assert(!m.ui.traces.some((l) => /sk-term/.test(l)), 'the key is not traced');
       // a tab start's probe resolved another: settings.json follows
@@ -2146,14 +2197,15 @@ const LIM = (pct) => [{ kind: 'session', percent: pct, resetsAt: new Date(Date.n
       // Agentic Works never wrote the address: no probe at activation
       asked.length = 0; settingsWith(PRIVATE);
       const n = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': { apiKeyHelper: "cat '/k'" } } }); await flush(); await wait(20);
-      assert.deepStrictEqual([asked, baseNow()], [[], PRIVATE], 'nothing asked, nothing written');
+      assert.deepStrictEqual([asked.filter((x) => !(x[0] === PRIVATE + '/v1/models' && asked.length === 1)), baseNow()], [[], PRIVATE], 'no probe (only the key\'s own check, at the file\'s address), nothing written');
       n.perch.onGatewayResolved.forEach((f) => f(PUBLIC));
       assert.strictEqual(baseNow(), PRIVATE, 'nor on a tab start');
       n.perch.dispose();
       // the gateway file names another gateway: its key is not sent to the company's hosts
       fs.writeFileSync(file, 'export ANTHROPIC_BASE_URL=https://other.example.com\nexport ANTHROPIC_AUTH_TOKEN=sk-other\n');
+      asked.length = 0;
       const o = install(undefined, { config: { 'claude.gatewayEnv': file }, company, meter: { claudeDir, settingsPath }, globals: { 'perch.terminal.written': written } }); await flush(); await wait(20);
-      assert.deepStrictEqual(asked, [], 'no probe with another gateway\'s key');
+      assert.deepStrictEqual(asked.filter((x) => x[0].startsWith(PRIVATE) || x[0].startsWith(PUBLIC)), [], 'no probe with another gateway\'s key (its own check goes to its own address)');
       o.perch.dispose();
     } finally { globalThis.fetch = realFetch; fs.rmSync(dir, { recursive: true, force: true }); }
   }

@@ -186,7 +186,8 @@ class GetStarted {
     return {
       github: ctx('kestrel.signedIn'),
       claude: c && c.gateway ? ctx('perch.gatewayReady') : ctx('perch.claudeConnected'),
-      agents: ctx('perch.messageSent'),
+      // a company gateway's talk step: the gateway answered a tab (a message sent may have been refused)
+      agents: c && c.gateway ? ctx('perch.gatewayAnswered') : ctx('perch.messageSent'),
       tools: !!(tools && tools.allConnected()),
       teams: ctx('chirp.signedIn'),
       jira: ctx('jay.signedIn'),
@@ -223,8 +224,32 @@ class GetStarted {
       .catch((err) => this.log(`Get started: could not show the ${view[0]} view: ${errorMessage(err)}`));
   }
 
-  // Every step whose signal is true is recorded done; done is never cleared
+  // The Agents part's word that the gateway refuses the saved key (perch.gatewayRefused: its reason, or true without one)
+  refusal() {
+    const c = this.company();
+    const raw = this.agenticWorks.contexts && this.agenticWorks.contexts.get('perch.gatewayRefused');
+    if (!(c && c.gateway) || !raw) return null;
+    return { reason: typeof raw === 'string' ? raw : '' };
+  }
+
+  // A refused key undoes the gateway's two steps and the record that the talk step's tab opened, so that a working key
+  // takes the user through them again, the tab opening by itself as for someone new (Sean, 2026-11-27)
+  forgetGatewaySteps() {
+    if (!this.refusal()) return;
+    const done = this.done();
+    if (done.claude || done.agents) {
+      delete done.claude; delete done.agents;
+      Promise.resolve(this.store.update(DONE_KEY, done)).catch((err) => this.log(`Get started: could not record a step: ${errorMessage(err)}`));
+    }
+    if (this.store.get(AUTO_TAB_KEY)) {
+      Promise.resolve(this.store.update(AUTO_TAB_KEY, undefined)).catch((err) => this.log(`Get started: could not record the Claude tab: ${errorMessage(err)}`));
+    }
+    Object.assign(this.autoTab, { settled: false, tries: 0 });
+  }
+
+  // Every step whose signal is true is recorded done; done is cleared only for the gateway's steps, by a refused key
   noteDone() {
+    this.forgetGatewaySteps();
     const s = this.signals();
     return this.markDone(...Object.keys(s).filter((id) => s[id]));
   }
@@ -288,7 +313,7 @@ class GetStarted {
       title: `Get started with ${(c && c.title) || 'Agentic Works'}`,
       steps,
       email: c && c.email ? { domain: c.email.domain, example: c.email.example, value: saved } : null,
-      claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand), keyRunning: this.waiting.key > 0 },
+      claude: { companyGateway: gwName, keyCommand: !!(c && c.gateway && c.gateway.keyCommand), keyRunning: this.waiting.key > 0, refused: this.refusal() },
       agents: { autoTab, openTab: autoTab && this.offerTab() },
       github: { logins: [...this.logins], running: !!gh, code: gh && gh.code ? { ...gh.code } : null, note: this.notes.github },
       teams: { rowId: this.rowFor('teams'), note: teamsSigned ? '' : this.notes.teams, code: teamsCode ? { ...teamsCode } : null },
@@ -505,7 +530,7 @@ class GetStarted {
     if (this.store.get(AUTO_TAB_KEY)) { a.settled = true; return; }
     // the gateway ready now: the claude step done by Not Now alone is not it
     if (!this.ctx('perch.gatewayReady') || !this.running('agents')) return;
-    if (this.done().agents || this.ctx('perch.messageSent')) return;
+    if (this.done().agents || this.signals().agents) return;
     a.inFlight = true;
     const panel = this.panel;
     this.autoOpen(panel).catch((err) => this.log(`Get started: the Claude tab could not be opened: ${errorMessage(err)}`));

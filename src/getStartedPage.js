@@ -270,6 +270,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     const helper = () => !!(state && state.claude && state.claude.keyCommand);
     v.company = el('div', 'company');
     v.companyAbout = el('p', 'muted');
+    v.refused = el('p', 'error refused'); v.refused.setAttribute('role', 'alert');   // the gateway refused the saved key (state.claude.refused)
     v.companyKeySet = el('p', '', 'A key is saved. Paste another to replace it.');
     v.companyKey = input('password', 'companyKey');
     v.companySave = button('Check and save', '', () => {
@@ -292,7 +293,7 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
     v.paste = button('Paste a key instead', 'link', () => { manual = true; show(); v.companyKey.focus(); });
     v.companyManual = el('div', 'manual');
     v.companyManual.append(v.companyKeySet, field('Key', v.companyKey), row(v.companySave));
-    v.company.append(v.companyAbout, row(v.getKey, v.cancelKey, v.keyPage, v.paste), v.companyManual, v.companyVerdict);
+    v.company.append(v.refused, v.companyAbout, row(v.getKey, v.cancelKey, v.keyPage, v.paste), v.companyManual, v.companyVerdict);
     // the helper's run has ended: a reason (or a verdict on its key) leaves Try again and the manual way
     const helperEnded = (failed) => { if (!keyRunning) return; keyRunning = false; if (failed) { keyFailed = true; manual = true; } else keyFailed = false; };
 
@@ -369,6 +370,9 @@ function GetStarted(vscode, ToolsList, JIRA_TOKEN_PAGE) {
       const h = helper();
       v.companyAbout.textContent = !name ? '' : h ? 'Get a key signs you in to ' + name + ' and gets your key; it is checked with the gateway before it is saved.'
         : 'Get a key from ' + name + '\'s page, paste it below, and it is checked with the gateway before it is saved.';
+      const refused = state && state.claude && state.claude.refused;
+      v.refused.hidden = !(name && refused);
+      v.refused.textContent = name && refused ? name + ' refused your saved key' + (refused.reason ? ' (' + refused.reason + ')' : '') + '. Get a key to replace it.' : '';
       v.getKey.textContent = h && keyRunning ? 'Getting a key…' : h && keyFailed ? 'Try again' : 'Get a key';
       v.getKey.disabled = h && keyRunning;
       v.cancelKey.hidden = !(h && keyRunning);
@@ -616,7 +620,7 @@ function getStartedHtml({ nonce, cspSource }) {
   a { color: var(--vscode-textLink-foreground); }
   /* the steps, about 680px, and their details beside them, up to about 560px, kept in view while the page scrolls;
      in a narrow window the details go under the steps */
-  .layout { display: grid; grid-template-columns: 680px minmax(0, 560px); gap: 24px; align-items: start; }
+  .layout { display: grid; grid-template-columns: minmax(300px, 440px) minmax(0, 640px); gap: 24px; align-items: start; }
   .details { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box; margin: 10px 0; padding: 14px 18px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; background: var(--vscode-textBlockQuote-background, transparent); line-height: 1.6; }
   .details .detailsTitle { font-size: 1.15em; font-weight: 600; margin: 0 0 8px; }
   .details p { line-height: 1.6; margin: 8px 0; }
@@ -624,7 +628,7 @@ function getStartedHtml({ nonce, cspSource }) {
   .details ul, .details ol { margin: 8px 0; padding-left: 22px; }
   .details li { margin: 4px 0; }
   .details code { font-family: var(--vscode-editor-font-family); font-size: 0.95em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); }
-  @media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 680px); } .details { position: static; max-height: none; overflow: visible; } }
+  @media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 680px); } .details { position: static; max-height: none; overflow: visible; } }
   [hidden] { display: none !important; }
 </style></head>
 <body>

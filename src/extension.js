@@ -36,7 +36,7 @@ function claimGetStartedRequest() {
 }
 // The parts' context keys the Get started page ticks on: VS Code cannot read one back, so Agentic Works notes their setContext
 // (and perch.sessionOpen, whether a Perch tab is open, and chirp.signInCodeWaiting, a Teams code waiting, which it shows)
-const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn',
+const WATCHED_CONTEXTS = ['kestrel.signedIn', 'perch.gatewayReady', 'perch.gatewayRefused', 'perch.gatewayAnswered', 'perch.claudeConnected', 'perch.messageSent', 'chirp.signedIn', 'jay.signedIn',
   'perch.sessionOpen', 'chirp.signInCodeWaiting'];
 const PRS_VIEW_COMMAND = 'workbench.view.extension.kestrel';   // kestrel's panel view container id
 const AGENTS_VIEW_COMMAND = 'workbench.view.extension.perch';  // Perch's activity-bar container id: opens the side bar on it

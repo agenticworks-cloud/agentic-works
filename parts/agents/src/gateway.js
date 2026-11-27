@@ -264,6 +264,37 @@ async function fetchGatewayModels(vars, opts = {}) {
   } catch (_) { return null; } finally { clearTimeout(timer); }
 }
 
+/**
+ * The file's key, checked with the gateway (GET /v1/models): 'ok' when it answers, 'refused' on a 401 or 403 with the
+ * gateway's reason (its "Authentication Error, " and any advice after the first sentence left off; never the key), and
+ * 'unreachable' for anything else (no network, a gateway error, no key to send), which says nothing about the key.
+ * @param {Record<string,string>} vars  the file's variables
+ * @param {{ timeoutMs?: number, fetch?: Function }} [opts]
+ * @returns {Promise<{ result: 'ok'|'refused'|'unreachable', message: string }>}
+ */
+async function checkGatewayKey(vars, opts = {}) {
+  const v = vars || {};
+  const token = TOKEN_VARS.map((k) => v[k]).find(Boolean);
+  const unreachable = { result: 'unreachable', message: '' };
+  if (!v[URL_VAR] || !token) return unreachable;
+  const doFetch = opts.fetch || globalThis.fetch;
+  if (typeof doFetch !== 'function') return unreachable;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), opts.timeoutMs || 10000);
+  try {
+    const res = await doFetch(String(v[URL_VAR]).replace(/\/+$/, '') + '/v1/models', { headers: { Authorization: 'Bearer ' + token, 'x-api-key': token }, signal: ctl.signal });
+    if (!res) return unreachable;
+    if (res.status >= 200 && res.status < 300) return { result: 'ok', message: '' };
+    if (res.status !== 401 && res.status !== 403) return unreachable;
+    let body = null;
+    try { body = await res.json(); } catch (_) { /* no JSON: no reason */ }
+    const raw = body && body.error && typeof body.error.message === 'string' ? body.error.message : '';
+    let message = raw.replace(/^Authentication Error,?\s*/i, '').split(/\.(\s|$)/)[0].trim();
+    if (message.includes(token)) message = '';
+    return { result: 'refused', message: message.slice(0, 200) };
+  } catch (_) { return unreachable; } finally { clearTimeout(timer); }
+}
+
 /** What is wrong with the file, in a sentence that names it. */
 function describe(gw) {
   const why = { missing: 'does not exist', unreadable: 'cannot be read', 'no-url': 'sets no ' + URL_VAR, 'no-token': 'sets no ' + TOKEN_VARS.join(' or ') }[gw.error];
@@ -411,4 +442,4 @@ function formState(gw) {
   return { file: gw ? gw.file : '', exists: !!(gw && gw.exists), ok: !!(gw && gw.ok), baseUrl: v[URL_VAR] || '', tokenSet: TOKEN_VARS.some((k) => v[k]), models };
 }
 
-module.exports = { normalBaseUrl, isOneOf, writeSecretFile, saveKeyFiles, MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };
+module.exports = { checkGatewayKey, normalBaseUrl, isOneOf, writeSecretFile, saveKeyFiles, MODEL_VARS, shellQuote, tokenVar, updateEnvText, checkForm, saveGateway, formState, DEFAULT_FILE, URL_VAR, TOKEN_VARS, TEMPLATE, expandHome, gatewayFile, parseEnvFile, readGateway, gatewayEnv, gatewaySettings, offGatewaySettings, ownBackendSettings, gatewayModels, gatewayCatalog, gatewayModelName, fetchGatewayModels, describe, createTemplate };

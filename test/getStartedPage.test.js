@@ -423,6 +423,19 @@ assert.deepStrictEqual(out.pop(), { type: 'partsDone' });
 button(p, 'All settings').click();
 assert.deepStrictEqual(out.pop(), { type: 'openSettings' });
 
+// ---- the gateway refused the saved key: the step says so, with the gateway's reason, and Get a key replaces it
+{
+  const refusedState = (refused) => st({ claude: { companyGateway: 'Example Gateway', keyCommand: true, refused }, steps: [S('claude', 'Connect Example Gateway')] });
+  host({ type: 'state', state: refusedState({ reason: 'Key is blocked' }) });
+  const c = step('claude'), r = c.querySelector('.refused');
+  assert.ok(shown(r), 'shown');
+  assert.strictEqual(r.textContent, 'Example Gateway refused your saved key (Key is blocked). Get a key to replace it.');
+  host({ type: 'state', state: refusedState({ reason: '' }) });
+  assert.strictEqual(c.querySelector('.refused').textContent, 'Example Gateway refused your saved key. Get a key to replace it.', 'no reason given');
+  host({ type: 'state', state: refusedState(null) });
+  assert.ok(!shown(c.querySelector('.refused')), 'gone once a key works');
+}
+
 // ---- the company's key helper: Get a key runs it in Agents; when it can't, the reason, Try again and the manual way
 {
   host({ type: 'state', state: st({ steps: [] }) });   // a fresh claude step
@@ -530,9 +543,9 @@ assert.ok(!d.querySelectorAll('input[type=password]').length || [...d.querySelec
 // ---- the details beside the steps, on a fresh page: the step last opened or clicked, else the one opened for being
 // the first not done, else the first; its name, then the host's text; a link in it goes to the host
 {
-  assert.match(raw, /\.layout \{[^}]*display: grid; grid-template-columns: 680px minmax\(0, 560px\)/, 'wide: the steps, then the details beside them');
+  assert.match(raw, /\.layout \{[^}]*display: grid; grid-template-columns: minmax\(300px, 440px\) minmax\(0, 640px\)/, 'wide: the steps, narrow (Sean: \"the description becomes so squeezed\"), then the details beside them');
   assert.match(raw, /\.details \{[^}]*position: sticky; top: 16px;/, 'the details stay in view while the page scrolls');
-  assert.match(raw, /@media \(max-width: 1000px\) \{ \.layout \{ grid-template-columns: minmax\(0, 680px\); \} \.details \{ position: static;/, 'narrow: the details under the steps');
+  assert.match(raw, /@media \(max-width: 760px\) \{ \.layout \{ grid-template-columns: minmax\(0, 680px\); \} \.details \{ position: static;/, 'narrow: the details under the steps');
   assert.match(raw, /--vscode-panel-border/);
   const sent = [];
   const page = new JSDOM(html, { runScripts: 'dangerously', virtualConsole, beforeParse(win) { win.acquireVsCodeApi = () => ({ postMessage: (m) => sent.push(JSON.parse(JSON.stringify(m))) }); } });

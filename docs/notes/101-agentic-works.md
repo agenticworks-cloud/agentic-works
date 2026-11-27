@@ -1154,6 +1154,23 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
   *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
   (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
+- **The gateway's key is checked with the gateway — Built (1.1.6)** *(Sean, 2026-11-27: Get started showed Connect and
+  Talk to the company gateway done while the saved key was blocked; "how do we check if the connection is there")*.
+  Before, the gateway was "ready" when its file had an address and a key, and nothing asked the gateway.
+  - The Agents part asks the gateway (`GET /v1/models`, the key in a header) once per key a window, at start and when
+    the file changes. Accepted: ready. Refused (401/403): not ready, and `perch.gatewayRefused` holds the gateway's
+    reason (its first sentence without "Authentication Error, "; never the key), or true without one. Not reachable
+    (offline, a gateway error): ready, since that says nothing about the key. While it is asked, not ready.
+  - A key just saved by the gateway form or Get a key was checked then and isn't asked about again. A tab's 401/403
+    asks again, so Get started learns of a key revoked while the window is open.
+  - Get started, on a refusal: Connect and Talk are no longer done, the record that the talk step's tab opened is
+    cleared, and the Connect step says "<gateway> refused your saved key (<reason>). Get a key to replace it." Once a
+    key works, the tab opens by itself with "Hello" typed in, as for someone new (unless a Perch tab is open: then
+    Open Claude Tab).
+  - Get started's steps column is narrower (300–440px, was 680px) and its details get up to 640px; they stack only
+    below 760px (Sean: "the description becomes so squeezed").
+  - With a company gateway, Talk is ticked by `perch.gatewayAnswered` (a Claude tab on the gateway had a turn answered),
+    no longer by a message sent, which may have been refused.
 - **A request file opens Get started once — Built (1.1.5)** *(Sean, 2026-11-27: a new user of a company's setup goes
   through the walkthrough; "there will be some file under user's home directory that tells if it's first time use")*.
   A company's installer leaves `~/.config/agentic-works/open-get-started` (`AGENTIC_WORKS_GET_STARTED_REQUEST`

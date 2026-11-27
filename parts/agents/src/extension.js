@@ -312,6 +312,21 @@ function collabInfo(a) {
   return out;
 }
 
+/** perch.gatewayAnswered: a Claude tab on the gateway had a turn answered in this window (Agentic Works' walkthrough ticks a
+ * company gateway's talk step on it: a message sent and refused is not talking to the gateway). */
+let answeredOnce = false;
+function gatewayAnswered() {
+  if (answeredOnce) return;
+  answeredOnce = true;
+  Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.gatewayAnswered', true)).catch(() => { /* an older VS Code */ });
+}
+
+/** The gateway's address and key, as one value that names them without holding the key. */
+function keyPrint(vars) {
+  const v = vars || {};
+  return require('crypto').createHash('sha256').update(`${v.ANTHROPIC_BASE_URL || ''}\n${Gateway.TOKEN_VARS.map((k) => v[k]).find(Boolean) || ''}`).digest('hex');
+}
+
 /** perch.messageSent: a message was sent from a tab in this window (Agentic Works' walkthrough ticks "Talk to Claude or Codex" on it). */
 let sentOnce = false;
 function messageSent() {
@@ -768,6 +783,7 @@ class Session {
       case 'gatewayRefused': {       // the gateway refused the tab's key (401/403): Claude Code would retry for minutes behind Working…
         if (!this.gateway || this.refusedSaid) return;   // once a turn
         this.refusedSaid = true;
+        this.view.checkGatewayKey(this.view.gateway(), { again: true });   // the walkthrough learns the key no longer works
         const back = this.turnText && String(this.turnText).trim() ? this.turnText : '';
         this.interrupt();
         this.post({ kind: 'note', nid: 'gatewayKey', text: `The gateway refused this tab's key (${ev.status}${ev.message ? ': ' + ev.message : ''}). Get a new key, then send the message again.` + (back ? ' The message is back in the box.' : ''),
@@ -796,6 +812,7 @@ class Session {
       case 'context': this.context = { percent: Math.max(0, Math.min(100, Math.round(ev.percent))), used: ev.used, max: ev.max }; this.ran(ev.model); this.view.sendTabs(); return;
       case 'responded': this.respondedAt = ev.at; this.view.sendTabs(); return;
       case 'result': {
+        if (this.kind === 'claude' && this.gateway && ev.ok) gatewayAnswered();
         if (typeof ev.cost === 'number') { this.costSoFar = ev.cost; this.view.persist(); }
         if (this.handoffSent) { this.handoff = null; this.handoffSent = false; this.view.persist(); }
         if (this.recordsSent) { this.records.splice(0, this.recordsSent); this.recordsSent = 0; this.view.persist(); }
@@ -1726,12 +1743,43 @@ class PerchView {
       this.gatewayShown = gw.exists;
       Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.gateway', gw.exists)).catch(() => { /* an older VS Code */ });
     }
-    if (gw.ok !== this.gatewayReadyShown) {
-      this.gatewayReadyShown = gw.ok;
-      Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.gatewayReady', gw.ok)).catch(() => { /* an older VS Code */ });
+    this.checkGatewayKey(gw);
+    const ready = this.gatewayUsable(gw);
+    if (ready !== this.gatewayReadyShown) {
+      this.gatewayReadyShown = ready;
+      Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.gatewayReady', ready)).catch(() => { /* an older VS Code */ });
+    }
+    // perch.gatewayRefused: the gateway's reason (true when it gave none) while it refuses the file's key, else false
+    const refused = this.gatewayRefusal(gw);
+    const said = refused ? refused.message || true : false;
+    if (said !== (this.gatewayRefusedShown || false)) {
+      this.gatewayRefusedShown = said;
+      Promise.resolve(vscode.commands.executeCommand('setContext', 'perch.gatewayRefused', said)).catch(() => { /* an older VS Code */ });
     }
     this.syncClaudeConnected(gw);
   }
+
+  /**
+   * The file's key, checked with the gateway (Gateway.checkGatewayKey) once per key a window, or again ({ again }: a tab
+   * was refused). The contexts follow when the answer comes. While it is asked, and after a refusal, the gateway is not
+   * ready; an answer that says nothing about the key (no network, a gateway error) leaves it ready. (Sean, 2026-11-27)
+   */
+  checkGatewayKey(gw, { again = false } = {}) {
+    if (!gw || !gw.ok || this.closing) return;
+    const print = keyPrint(gw.vars);
+    if (!again && this.keyCheck && this.keyCheck.print === print) return;
+    const seq = this.keyCheckSeq = (this.keyCheckSeq || 0) + 1;
+    this.keyCheck = { print, result: 'checking', message: '' };
+    Gateway.checkGatewayKey(gw.vars).then((r) => {
+      if (seq !== this.keyCheckSeq || this.closing) return;
+      this.keyCheck = { print, result: r.result, message: r.message };
+      this.syncGatewayContext();
+    }, () => { /* checkGatewayKey does not throw */ });
+  }
+  /** The check of the file's key now, when it is a refusal. */
+  gatewayRefusal(gw) { const k = this.keyCheck; return gw && gw.ok && k && k.result === 'refused' && k.print === keyPrint(gw.vars) ? k : null; }
+  /** The file is usable and its key is neither refused nor still being asked about. */
+  gatewayUsable(gw) { const k = this.keyCheck; return !!(gw && gw.ok && k && k.print === keyPrint(gw.vars) && k.result !== 'refused' && k.result !== 'checking'); }
 
   /**
    * Agents: Set Up a Gateway…: a form in an editor tab that writes the gateway file (Gateway.saveGateway). The page is
@@ -1797,6 +1845,7 @@ class PerchView {
       gw = Gateway.saveGateway(file, form);
       if (cg) Gateway.saveKeyFiles(cg.keyFiles, key);
     } catch (e) { post({ type: 'error', text: (e && e.message) || String(e) }); return null; }
+    if (check && check.verdict === 'works' && gw.ok) this.keyCheck = { print: keyPrint(gw.vars), result: 'ok', message: '' };   // just checked: not asked again
     this.syncGatewayContext();
     this.sendTabs();   // the tabs' footers and menus learn of the gateway now
     post(Object.assign({ type: 'saved', state: this.gatewayFormState(gw) }, check ? { answeredAt: check.baseUrl } : {}));
@@ -2197,7 +2246,7 @@ class PerchView {
     const connection = this.claudeConnection();
     let canRun = false;
     try { canRun = !!(this.meter && this.meter.canRun(connection === 'subscription' ? 'subscription' : undefined)); } catch (_) { /* no meter yet */ }
-    return Connections.isConnected({ connection, gatewayReady: !!(gw || this.gateway()).ok, canRun, apiKeySaved: !!this.anthropicKey(), bedrockSaved: !!this.claudeBedrock() });
+    return Connections.isConnected({ connection, gatewayReady: this.gatewayUsable(gw || this.gateway()), canRun, apiKeySaved: !!this.anthropicKey(), bedrockSaved: !!this.claudeBedrock() });
   }
   /** perch.claudeConnected, sent when it changes: Agentic Works' walkthrough ticks Connect Claude on it. */
   syncClaudeConnected(gw) {

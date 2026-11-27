@@ -187,7 +187,7 @@ test('words and order from the company file; steps of a part that is off are hid
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['github', 'claude', 'agents', 'tools', 'teams', 'jira', 'secrets', 'codebase', 'parts']);
   assert.deepStrictEqual(st.steps.slice(1, 4).map((x) => x.name), ['Connect Example Gateway', 'Talk to Claude or Codex', 'Connect your tools']);
   assert.deepStrictEqual(st.steps.map((x) => [x.done, x.waiting]), st.steps.map(() => [false, '']));
-  assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway', keyCommand: false, keyRunning: false });
+  assert.deepStrictEqual(st.claude, { companyGateway: 'Example Gateway', keyCommand: false, keyRunning: false, refused: null });
   assert.strictEqual(st.steps.find((x) => x.id === 'agents').name, 'Talk to Claude or Codex', 'no steps.talk: the default');
   assert.deepStrictEqual(st.parts.map((p) => [p.id, p.on]), [['agents', true], ['jira', true], ['pullRequests', true], ['repos', true], ['teams', true]]);
   assert.deepStrictEqual(st.parts[0].title, 'Agents (Claude Code and Codex)');
@@ -257,7 +257,7 @@ test('no company file: Agentic Works\' words and order', async () => {
   assert.deepStrictEqual(st.steps.map((x) => x.id), ['claude', 'agents', 'teams', 'jira', 'github', 'secrets', 'codebase', 'parts']);
   assert.strictEqual(st.steps[0].name, 'Connect Claude');
   assert.deepStrictEqual(st.steps.slice(1).map((x) => x.name), ['Talk to Claude or Codex', 'Sign in to Teams', 'Connect Jira and Confluence', 'Sign in to GitHub', 'Check messages for secrets', 'Search your code by meaning', 'Choose your parts']);
-  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false, keyRunning: false }, { logins: [], running: false, code: null, note: '' }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
+  assert.deepStrictEqual([st.claude, st.github, st.teams, st.jira], [{ companyGateway: '', keyCommand: false, keyRunning: false, refused: null }, { logins: [], running: false, code: null, note: '' }, { rowId: '', note: '', code: null }, { rowId: '', site: '', email: '', form: true }]);
   await s.extension.deactivate();
 });
 
@@ -687,6 +687,43 @@ test('openTabOnTalk: no tab before the gateway is ready, nor after a Not Now; on
   await s.page.receive({ type: 'openTab' });
   assert.deepStrictEqual(f.calls.slice(2), ['openGatewayTab'], 'Open Claude Tab: the same command');
   assert.deepStrictEqual(f.args, [[{ fill: 'Hello' }], [{ fill: 'Hello' }]], '"Hello" typed in the tab, by itself and with Open Claude Tab');
+  await s.extension.deactivate();
+});
+
+// ---- the gateway's key checked with the gateway (Sean, 2026-11-27: the gateway steps were ticked with a blocked key)
+test('a company gateway: talking to it is ticked by the gateway answering, not by a message sent', async () => {
+  const s = await pageSetup(EXAMPLE);
+  await s.run('setContext', 'perch.messageSent', true);
+  assert.strictEqual((await s.step('agents')).done, false, 'a message sent may have been refused');
+  await s.run('setContext', 'perch.gatewayAnswered', true);
+  assert.strictEqual((await s.step('agents')).done, true, 'the gateway answered');
+  await s.extension.deactivate();
+});
+
+test('a refused key: both gateway steps and the tab record cleared, the reason shown; a working key opens the tab again', async () => {
+  const s = await pageSetup(AUTO, {}, { 'agenticWorks.getStarted.done': { github: true, claude: true, agents: true },
+    'agenticWorks.getStarted.autoTabOpened': true });
+  const f = fakePerch(s);
+  let st = await s.stateOf();
+  assert.strictEqual(st.claude.refused, null, 'nothing refused yet');
+  await s.run('setContext', 'perch.gatewayRefused', 'Key is blocked');
+  await settle();
+  st = await s.stateOf();
+  assert.deepStrictEqual(st.steps.filter((x) => x.done).map((x) => x.id), ['github'], 'Connect and Talk are not done any more');
+  assert.deepStrictEqual(st.claude.refused, { reason: 'Key is blocked' }, 'the step says why');
+  assert.strictEqual(s.store.get('agenticWorks.getStarted.autoTabOpened'), undefined, 'the tab may open again');
+  assert.deepStrictEqual(s.store.get('agenticWorks.getStarted.done'), { github: true }, 'and that is kept');
+  assert.deepStrictEqual(f.calls, [], 'no tab on a refused key');
+  // a new key the gateway takes: ready, the step done again, and the tab opens with Hello typed in
+  await s.run('setContext', 'perch.gatewayRefused', false);
+  await s.run('setContext', 'perch.gatewayReady', true);
+  await until(() => s.store.get('agenticWorks.getStarted.autoTabOpened'));
+  assert.deepStrictEqual(f.calls, ['sessionCount', 'openGatewayTab']);
+  st = await s.stateOf();
+  assert.deepStrictEqual([st.claude.refused, (await s.step('claude')).done], [null, true]);
+  // refused with no reason given
+  await s.run('setContext', 'perch.gatewayRefused', true);
+  assert.deepStrictEqual((await s.stateOf()).claude.refused, { reason: '' });
   await s.extension.deactivate();
 });
 

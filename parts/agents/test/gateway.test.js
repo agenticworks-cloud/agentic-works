@@ -137,6 +137,24 @@ try {
     assert.strictEqual(await G.fetchGatewayModels({ ANTHROPIC_BASE_URL: 'u' }, { fetch: ok }), null, 'no token: not asked');
   })().catch((e) => { console.error(e); process.exitCode = 1; });
 
+  // ---- the saved key, checked with the gateway: accepted, refused (401/403, with the gateway's reason), or not reachable
+  (async () => {
+    const vars = { ANTHROPIC_BASE_URL: 'https://gw/llm-api/', ANTHROPIC_AUTH_TOKEN: 'sk-secret-1' };
+    let seen;
+    const answer = (status, body) => async (url, init) => { seen = { url, init }; return { ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }; };
+    assert.deepStrictEqual(await G.checkGatewayKey(vars, { fetch: answer(200, { data: [] }) }), { result: 'ok', message: '' });
+    assert.strictEqual(seen.url, 'https://gw/llm-api/v1/models');
+    assert.strictEqual(seen.init.headers.Authorization, 'Bearer sk-secret-1', 'the key goes in a header');
+    const blocked = { error: { message: 'Authentication Error, Key is blocked. Update via `/key/unblock` if you\'re an admin.', code: '401' } };
+    assert.deepStrictEqual(await G.checkGatewayKey(vars, { fetch: answer(401, blocked) }), { result: 'refused', message: 'Key is blocked' }, 'the reason, without the admin advice');
+    assert.deepStrictEqual(await G.checkGatewayKey(vars, { fetch: answer(403, 'nope') }), { result: 'refused', message: '' }, 'a 403 with no reason');
+    const echo = { error: { message: 'Authentication Error, bad key sk-secret-1' } };
+    assert.ok(!(await G.checkGatewayKey(vars, { fetch: answer(401, echo) })).message.includes('sk-secret-1'), 'the key never comes back in the reason');
+    assert.deepStrictEqual(await G.checkGatewayKey(vars, { fetch: answer(502, {}) }), { result: 'unreachable', message: '' }, 'a gateway error is not a refusal');
+    assert.deepStrictEqual(await G.checkGatewayKey(vars, { fetch: async () => { throw new Error('down'); } }), { result: 'unreachable', message: '' }, 'no network');
+    assert.deepStrictEqual(await G.checkGatewayKey({ ANTHROPIC_BASE_URL: 'u' }, { fetch: answer(200, {}) }), { result: 'unreachable', message: '' }, 'no key: nothing to check');
+  })().catch((e) => { console.error(e); process.exitCode = 1; });
+
   // ---- the same variables as the process's own settings, which Claude Code applies over ~/.claude/settings.json: without the token, to the relay
   assert.deepStrictEqual(G.gatewaySettings(G.gatewayEnv({ ANTHROPIC_BASE_URL: 'https://gw.example.com/llm-api', ANTHROPIC_AUTH_TOKEN: 'tok', ANTHROPIC_API_KEY: 'key', ANTHROPIC_MODEL: 'router-auto[1m]' }), 'http://127.0.0.1:5000'),
     { env: { CLAUDE_CODE_USE_BEDROCK: '0', ANTHROPIC_BASE_URL: 'http://127.0.0.1:5000', ANTHROPIC_MODEL: 'router-auto[1m]' } }, 'Bedrock off and the file\'s names over the user\'s settings; the token stays in the environment; requests go to the relay');
