@@ -1166,6 +1166,14 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     where the profile's own are blank (`--fill`).
   - A name is letters, digits, spaces, dots, dashes and underscores, up to 40.
   - Each profile has its own state, so it starts with a fresh walkthrough.
+- **One window when VS Code is open: `--folder` and `--window-mark` — Built (1.1.10)** *(Sean, 2026-11-27: "it
+  started 2 new vscode, first one looks good, second one has trust issue")*. With VS Code open, `--profile` opens a
+  window on the name to make the profile; a company's setup that then opened its own folder made a second window.
+  - `--folder <dir>` (absolute, there): that window opens on the folder.
+  - `--window-mark <file>` (absolute): made when the run opened a window, so the setup around it opens no other.
+  - The installer's own open at the end of a first install is left out when it opened that window.
+  - Agentic Works starts in that window as soon as it's installed, so the setup puts what it reads when it starts
+    (the company file, its skills, the Get started request) there before running the installer.
 - **The first terminal in the folder the installer was run in — Built (1.1.9)** *(Sean, 2026-11-27: "the current
   directory in terminal, can it be the original directory?")*. The request file may hold
   `{"terminalCwd": "<absolute folder>"}`; when it names a folder that's there, the first start's terminal opens in it,

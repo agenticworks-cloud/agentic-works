@@ -908,6 +908,45 @@ class TestProfile(_Served):
         lines = self.stub_log()
         self.assertLess(_index(lines, "--new-window"), _index(lines, "--install-extension"))
 
+    def test_vscode_open_makes_it_in_a_window_on_the_folder(self) -> None:
+        # one window, not two: a company's setup that opens a folder after has it opened in the window that makes the
+        # profile, and learns so from the mark (2026-11-27)
+        made, mark, folder = self.tmp / "made", self.tmp / "opened", self.tmp / "works"
+        folder.mkdir()
+        env = self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running", PROFILE_MADE=str(made),
+                               PY_FILL_OUT="filled")
+        rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open", "--folder", str(folder),
+                                "--window-mark", str(mark))
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"code --profile Acme Works --new-window {folder}", self.code_calls())
+        self.assertTrue(mark.is_file())
+        self.assertIn(f"  ✓ Profile Acme Works (made in a window VS Code opened on it, with your settings; on {folder})", out)
+
+    def test_the_window_that_made_the_profile_is_the_one_opened(self) -> None:
+        made = self.tmp / "made"
+        env = self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running", PROFILE_MADE=str(made),
+                               PY_FILL_OUT="filled")
+        rc, out = self.run_pipe(env, "--profile", self.NAME)
+        self.assertEqual(rc, 0, out)
+        opens = [c for c in self.code_calls() if not any(w in c for w in ("--install-extension", "--list-extensions",
+                                                                          "--uninstall-extension", "--version"))]
+        self.assertEqual(opens, ["code --profile Acme Works --new-window"], self.code_calls())
+
+    def test_no_window_no_mark(self) -> None:
+        mark, folder = self.tmp / "opened", self.tmp / "works"
+        folder.mkdir()
+        rc, out = self.run_pipe(self.profile_env(PY_PROFILE_OUT="made"), "--profile", self.NAME, "--no-open",
+                                "--folder", str(folder), "--window-mark", str(mark))
+        self.assertEqual(rc, 0, out)
+        self.assertFalse(mark.exists())
+        self.assertFalse([c for c in self.code_calls() if "--new-window" in c])
+
+    def test_folder_must_be_a_folder(self) -> None:
+        for args in (["--folder", str(self.tmp / "nowhere")], ["--folder", "relative"], ["--folder"],
+                     ["--window-mark"], ["--window-mark", "relative"]):
+            rc, out = self.run_pipe(self.profile_env(), "--profile", self.NAME, *args)
+            self.assertEqual(rc, 2, (args, out))
+
     def test_window_that_never_makes_it_stops_the_run(self) -> None:
         env = self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running", AGENTIC_WORKS_INSTALL_PROFILE_WAIT="1")
         rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open")

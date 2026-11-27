@@ -55,6 +55,9 @@ ORIG_PATH=$PATH  # the PATH a new terminal would have, before this run adds to i
 DRY_RUN=0
 YES=0
 NO_OPEN=0
+FOLDER=""  # --folder DIR: the folder the window opened to make --profile's profile opens on, so a setup that opens it after needs no second window
+WINDOW_OPENED=0  # this run opened a VS Code window (to make the profile): open_vscode opens no other
+WINDOW_MARK=""  # --window-mark FILE: made when this run opened a VS Code window, so a setup run around it doesn't open another
 PROFILE=""  # --profile NAME: the VS Code profile the extensions, settings and icons go into; else the user's own
 CODEBASE_SEARCH=0  # --codebase-search: agents.codebaseIndex.enabled true in the settings step; else the walkthrough offers it
 TEAMS_APP=""       # --teams-app <clientId>:<tenant>: the Teams sign-in's company app, for the settings step
@@ -595,8 +598,10 @@ ensure_profile() {  # --profile's VS Code profile, before any extension goes in:
        step_end failed "couldn't make it; see $LOG"
        return 0 ;;
   esac
-  printf '$ %s --profile %s --new-window\n' "$CODE" "$PROFILE" >> "$LOG"
-  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --profile "$PROFILE" --new-window < /dev/null >> "$LOG" 2>&1
+  printf '$ %s --profile %s --new-window %s\n' "$CODE" "$PROFILE" "$FOLDER" >> "$LOG"
+  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --profile "$PROFILE" --new-window ${FOLDER:+"$FOLDER"} < /dev/null >> "$LOG" 2>&1
+  WINDOW_OPENED=1
+  [ -z "$WINDOW_MARK" ] || : > "$WINDOW_MARK" 2>> "$LOG"
   while :; do
     run_helper vscode-profile "$PROFILE" && [ "$HELPER_OUT" = "already set" ] && break
     if [ "$waited" -ge "$wait" ]; then
@@ -607,10 +612,12 @@ ensure_profile() {  # --profile's VS Code profile, before any extension goes in:
     sleep 1
     waited=$((waited + 1))
   done
+  local on=""
+  [ -z "$FOLDER" ] || on="; on $FOLDER"
   if run_helper vscode-profile "$PROFILE" --fill && [ "$HELPER_OUT" = filled ]; then
-    step_end done "made in a window VS Code opened on it, with your settings"
+    step_end done "made in a window VS Code opened on it, with your settings$on"
   else
-    step_end done "made in a window VS Code opened on it"
+    step_end done "made in a window VS Code opened on it$on"
   fi
 }
 
@@ -1313,6 +1320,7 @@ open_vscode() {  # VS Code, after a first install only: a plain start, which bri
   skip_named open && return 0
   [ "$NO_OPEN" = 1 ] && return 0
   [ -n "$CLASH" ] && return 0  # the run stopped at the standalone five
+  [ "$WINDOW_OPENED" = 1 ] && return 0  # the window that made the profile is VS Code, opened
   find_code || [ "$DRY_RUN" = 1 ] || return 0
   if [ "$AS_ROOT" != 1 ] && [ "$AGENTIC_WORKS_FRESH" != 1 ]; then
     return 0  # an update or a repair: VS Code's windows stay as they are; the summary says when to reload them
@@ -1415,6 +1423,9 @@ Options:
   --profile <name>
                  install into the VS Code profile of that name, made when there is none (your settings, keybindings
                  and snippets copied in); your own profile is left as it is
+  --folder <dir> with --profile: when VS Code is open, the window opened to make the profile opens on this folder
+  --window-mark <file>
+                 made when this run opened a VS Code window
   --teams-app <clientId>:<tenant>
                  sign Teams in with your company's own Microsoft app: its Application (client) ID, then the
                  Directory (tenant) ID or domain, from your IT team (added only when not already set)
@@ -1454,6 +1465,20 @@ parse_args() {
           exit 2
         }
         PROFILE=$2
+        shift ;;
+      --folder)
+        [ $# -ge 2 ] && [ "${2#/}" != "$2" ] && [ -d "$2" ] || {
+          printf 'agentic-works-install: --folder needs a folder that is there, as an absolute path\n' >&2
+          exit 2
+        }
+        FOLDER=$2
+        shift ;;
+      --window-mark)
+        [ $# -ge 2 ] && [ "${2#/}" != "$2" ] || {
+          printf 'agentic-works-install: --window-mark needs a file, as an absolute path\n' >&2
+          exit 2
+        }
+        WINDOW_MARK=$2
         shift ;;
       --skip)
         [ $# -ge 2 ] || { printf 'agentic-works-install: --skip needs a step: %s\n' "$STEP_NAMES" >&2; exit 2; }
