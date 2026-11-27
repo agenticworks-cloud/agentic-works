@@ -53,7 +53,7 @@ const helper = (dir, args, input = 'protocol=https\nhost=github.com\n\n') => run
     assert.ok(!fs.existsSync(server.path));
     r = await helper(path.dirname(server.path), ['seanahn', 'get']);
     assert.strictEqual(r.code, 1);
-    assert.ok(r.stderr.includes('gannet: no VS Code window is serving seanahn — open VS Code, or add the account to gh'), r.stderr);
+    assert.ok(r.stderr.includes('Repos: no VS Code window is serving seanahn — open VS Code, or add the account to gh'), r.stderr);
 
     // a socket path too long for the OS falls back to a folder under the temp dir
     const deep = path.join(tmp, 'x'.repeat(120));

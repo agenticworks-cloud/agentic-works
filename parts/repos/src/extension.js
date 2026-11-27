@@ -14,7 +14,7 @@ const { GannetFs, toUri } = require('./fsProvider.js');
 const { GannetTree } = require('./tree.js');
 const W = require('./workspaces.js');
 const { createMachineState } = require('./machineState.js');
-const { carryMachineState, repointOldShim } = require('./standalone.js');
+const { carryMachineState, repointCheckouts } = require('./standalone.js');
 const { alive, expandHome } = require('./localRepos.js');
 const { GannetSidebar } = require('./sidebar.js');
 const { createRepoCache } = require('./repoCache.js');
@@ -62,13 +62,14 @@ async function activateWith(context, { run = runProcess, fetch = globalThis.fetc
   if (process.platform !== 'win32') {
     try {
       server = await startServer({ dir: store, token: (login) => accounts.token(login) });
-      const script = path.join(context.extensionPath, 'bin', 'gannet-credential.js');
-      shim = writeShim({ dir: store, execPath: process.execPath, script, socketDir: socketDir(store) });
-      // repos the standalone Gannet checked out name its shim: keep them pushing through this window
-      try { repointOldShim({ store, execPath: process.execPath, script }); } catch (e) { /* they fall back to git's own sign-in */ }
+      shim = writeShim({ dir: store, execPath: process.execPath, script: path.join(context.extensionPath, 'bin', 'gannet-credential.js'), socketDir: socketDir(store) });
     } catch (e) {
       shim = '';
     }
+  }
+  // repos the standalone Gannet checked out named its shim, gone with it: once, point those it knew of at this one
+  if (shim && !machine.get('repos.checkoutsRepointed')) {
+    try { await repointCheckouts({ run, local, shim }); await machine.update('repos.checkoutsRepointed', true); } catch (e) { /* tried again next start */ }
   }
   const helperCommand = (account) => {
     if ((account.source || accounts.sourceOf(account.login)) !== 'vscode') return ghHelper(account.login);

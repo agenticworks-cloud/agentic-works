@@ -76,7 +76,7 @@ function fakeVscode(opts = {}) {
   const sessionsChanged = new EventEmitter();
   const configChanged = new EventEmitter();
   const foldersChanged = new EventEmitter();
-  const config = Object.assign({ 'gannet.checkoutFolder': '~/github', 'repos.hiddenAccounts': [], 'repos.hiddenOwners': [] }, opts.config || {});
+  const config = Object.assign({ 'gannet.checkoutFolder': '~/github' }, opts.config || {});   // unset keys read as their defaults
   const rec = { quickPicks: [], inputBoxes: [], messages: [], opened: [], commands: new Map(), executed: [], providers: [], trees: [], webviews: [], folderUpdates: [], sessionCalls: [], configWrites: [], progress: [] };
   const vs = {
     _rec: rec, _config: config, _sessionsChanged: sessionsChanged,
@@ -116,6 +116,7 @@ function fakeVscode(opts = {}) {
       },
       getConfiguration: (section) => ({
         get: (k, d) => { const v = config[section ? section + '.' + k : k]; return v === undefined ? d : v; },
+        inspect: (k) => { const key = section ? section + '.' + k : k; return { key, globalValue: config[key] }; },   // every value is a user one
         update: async (k, v, target) => { const key = section ? section + '.' + k : k; config[key] = v; rec.configWrites.push({ key, v, target }); configChanged.fire({ affectsConfiguration: (s) => key === s || key.startsWith(s + '.') }); },
       }),
       onDidChangeConfiguration: configChanged.event,

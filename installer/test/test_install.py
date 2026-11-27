@@ -881,6 +881,22 @@ class TestStandalone(_Served):
         self.assertEqual(rc, 1, out)
         self.assertIn("Agentic Works replaces Gannet. Uninstall them and use Agentic Works? [Y/n]", out)
 
+    def test_standalone_gannet_state_is_kept(self) -> None:
+        # VS Code deletes an extension's global storage when it is uninstalled: Gannet's machine.json is copied first
+        storage = self.home / ".config" / "Code" / "User" / "globalStorage"
+        (storage / "seanahn.gannet").mkdir(parents=True)
+        (storage / "seanahn.gannet" / "machine.json").write_text('{"gannet.workspaces": ["/git"]}')
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS="seanahn.gannet@0.5.7"), "--yes")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Standalone extensions (uninstalled Gannet)", out)
+        self.assertEqual(self.logged("--uninstall-extension"), ["code --uninstall-extension seanahn.gannet"])
+        self.assertEqual((storage / "agenticworks.agentic-works" / "machine.json").read_text(), '{"gannet.workspaces": ["/git"]}')
+        # Agentic Works' own is never replaced
+        (storage / "seanahn.gannet" / "machine.json").write_text('{"gannet.workspaces": ["/other"]}')
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS="seanahn.gannet@0.5.7"), "--yes")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((storage / "agenticworks.agentic-works" / "machine.json").read_text(), '{"gannet.workspaces": ["/git"]}')
+
     def test_no_terminal_without_yes_stops(self) -> None:
         env = self.served_env(CODE_EXTENSIONS="seanahn.jay@0.5.0", AGENTIC_WORKS_INSTALL_TTY=str(self.tmp / "no-tty"))
         rc, out = self.run_pipe(env)

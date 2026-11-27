@@ -4,7 +4,7 @@
 #   bash agentic-works-install.sh
 #
 # macOS (arm64, x86_64); Ubuntu 22.04+ and Debian-based Linux; RHEL/Rocky 8 and 9; Fedora. Installs VS Code if it
-# is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay and kestrel (after asking),
+# is missing and puts `code` on the PATH; uninstalls the standalone Perch, chirp, jay, kestrel and Gannet (after asking),
 # which Agentic Works replaces; installs this release's Agentic Works .vsix (SHA-256 checked), its companion extensions and the
 # GitHub CLI (signed in from Agentic Works' walkthrough, not here); sets VS Code's look and its activity-bar icons (on a
 # VS Code never started), then opens VS Code. It prints a checklist, one line per step. Each step checks first, so
@@ -630,6 +630,17 @@ ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = n
   esac
 }
 
+keep_gannet_state() {  # VS Code deletes an extension's global storage on uninstall: Gannet's machine.json (its folders
+  # and checkouts) goes to Agentic Works' Repos part first, unless Agentic Works already has one
+  local user from to
+  if [ "$OS" = macos ]; then user="$HOME/Library/Application Support/Code/User"; else user="${CODE_DATA:-$HOME/.config/Code}/User"; fi
+  from="$user/globalStorage/seanahn.gannet/machine.json"
+  to="$user/globalStorage/agenticworks.agentic-works/machine.json"
+  [ -f "$from" ] && [ ! -e "$to" ] || return 0
+  mkdir -p "${to%/*}" && cat "$from" > "$to.tmp" && mv "$to.tmp" "$to" || { rm -f "$to.tmp"; printf "couldn't keep Gannet's machine.json\n" >> "$LOG"; }
+  return 0
+}
+
 check_standalone() {  # the standalone five would clash with Agentic Works (the same command ids): uninstall them, or stop
   local installed id found="" failed="" names rc
   skipped standalone "Standalone extensions" && return 0
@@ -659,6 +670,7 @@ check_standalone() {  # the standalone five would clash with Agentic Works (the 
     2) CLASH="$names would clash with Agentic Works, and there is no terminal to ask on; rerun with --yes to uninstall them"
        return 0 ;;
   esac
+  case " $found " in *" seanahn.gannet "*) keep_gannet_state ;; esac
   for id in $found; do
     code_cli --uninstall-extension "$id" || failed="$failed $id"
   done

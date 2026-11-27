@@ -34,6 +34,6 @@ function ask(where) {
     if (r.token) { process.stdout.write(`username=${login}\npassword=${r.token}\n`); process.exit(0); }
     if (r.dead) { try { fs.rmSync(s, { force: true }); } catch { /* another helper got there first */ } }
   }
-  process.stderr.write(`gannet: no VS Code window is serving ${login} — open VS Code, or add the account to gh\n`);
+  process.stderr.write(`Repos: no VS Code window is serving ${login} — open VS Code, or add the account to gh\n`);
   process.exit(1);
 })();

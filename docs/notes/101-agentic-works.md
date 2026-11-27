@@ -1094,11 +1094,17 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     directories, the checkouts it knows, new folders), the `gannet-credential` shim and the token sockets. The part
     uses Agentic Works' own global storage, directly (no subfolder), since the part's code and tests assume a store
     of its own *(my call)*.
-  - On its first start, if that store has no `machine.json`, the standalone's (the sibling folder `seanahn.gannet`)
-    is copied, once. On every start, if the standalone's shim is there, it is rewritten to run this part's helper on
-    this store's sockets: repos the standalone checked out name that shim in their `.git/config`, and would
-    otherwise fall back to git's own sign-in once Gannet is gone *(my call)*. This relies on VS Code leaving an
-    uninstalled extension's global storage folder in place, as it does. `src/standalone.js`.
+  - VS Code deletes an extension's global storage folder when it uninstalls it (`postUninstall` in its
+    `extensionLifecycle.ts`), so the standalone's `machine.json` and its shim are gone once Gannet is. The installer
+    copies `machine.json` into Agentic Works' global storage before it uninstalls Gannet, unless one is there. The part
+    also copies it on its first start if the standalone is still installed (the sibling folder `seanahn.gannet`) and
+    this store has none.
+  - Repos the standalone checked out name its shim in their `.git/config`. Once, after writing its own shim, the part
+    finds the checkouts it knows (from that `machine.json`) whose helper names the standalone's shim, and sets them up
+    again with this store's shim and their login, as a new checkout would be *(my call: edit those repos' config, not
+    recreate a folder of an uninstalled extension)*. `repos.checkoutsRepointed` in `machine.json` records it. A
+    checkout the standalone didn't record, or every one when Gannet was uninstalled by hand, falls back to git's own
+    sign-in until checked out again or added to gh. `src/standalone.js`.
   - The retired `gannet.checkoutFolder`, which only the one-time move to directories reads, is still read under its
     old name *(my call)*. The Recent list (globalState) starts empty, as other parts' stored state did.
 

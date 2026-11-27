@@ -192,21 +192,33 @@ const seed = (c, k, v) => { const m = machine(c); m[k] = v; fs.mkdirSync(path.di
       await ext.deactivate();
     }
 
-    // in Agentic Works: the standalone Gannet's directories come along, and its shim (named by its checkouts) runs this helper
+    // in Agentic Works: the standalone Gannet's directories and checkouts come along, and its checkouts use our shim
     {
       const hS = path.join(t, 'hS');
       const F2 = path.join(t, 'F2');
       fs.mkdirSync(F2);
       const gs = path.join(t, 'gs');
+      const oldShim = path.join(gs, 'seanahn.gannet', 'gannet-credential');
+      const co = path.join(F2, 'rookery');
+      fs.mkdirSync(co, { recursive: true });
+      const git = (...a) => require('child_process').execFileSync('git', ['-C', co, ...a], { encoding: 'utf8' });
+      git('init', '-q'); git('config', '--local', 'credential.https://github.com.helper', `!"${oldShim}" co-sahn`);
       fs.mkdirSync(path.join(gs, 'seanahn.gannet'), { recursive: true });
-      fs.writeFileSync(path.join(gs, 'seanahn.gannet', 'machine.json'), JSON.stringify({ 'gannet.workspaces': [F2] }));
-      fs.writeFileSync(path.join(gs, 'seanahn.gannet', 'gannet-credential'), '#!/bin/sh\nexec "/gone/bin/gannet-credential.js"\n');
-      const c = { globalState: makeMemento(), subscriptions: [], globalStorageUri: Uri.file(path.join(gs, 'agenticworks.agentic-works')), extensionPath: path.join(__dirname, '..') };
+      fs.writeFileSync(path.join(gs, 'seanahn.gannet', 'machine.json'), JSON.stringify({ 'gannet.workspaces': [F2], 'gannet.local': { 'co-e/rookery': [{ path: co, login: 'co-sahn', byGannet: true }] } }));
+      const store = path.join(gs, 'agenticworks.agentic-works');
+      const c = { globalState: makeMemento(), subscriptions: [], globalStorageUri: Uri.file(store), extensionPath: path.join(__dirname, '..') };
+      const before = { ...vscode._config };
+      delete vscode._config['repos.hiddenOwners'];
+      vscode._config['gannet.hiddenOwners'] = ['legacy'];   // set in the standalone's day
       await ext.activateWith(c, { run, fetch, home: hS });
       assert.ok(machine(c)['gannet.workspaces'].includes(F2), 'the standalone\'s directories carried over');
-      const old = fs.readFileSync(path.join(gs, 'seanahn.gannet', 'gannet-credential'), 'utf8');
-      assert.ok(old.includes(path.join(__dirname, '..', 'bin', 'gannet-credential.js')) && !old.includes('/gone/'), 'its shim runs this helper');
+      await new Promise((r) => setImmediate(r));
+      assert.deepStrictEqual(vscode._config['repos.hiddenOwners'], ['legacy'], 'gannet.hiddenOwners carried over to repos.hiddenOwners');
+      assert.strictEqual(git('config', '--local', '--get-all', 'credential.https://github.com.helper').trim(), `!"${path.join(store, 'gannet-credential')}" co-sahn`, 'its checkout pushes through this part');
+      assert.ok(!fs.existsSync(oldShim), 'no shim made in the standalone\'s folder');
       await ext.deactivate();
+      for (const k of Object.keys(vscode._config)) delete vscode._config[k];
+      Object.assign(vscode._config, before);
     }
 
     // Final review: the first question's Choose a folder… refuses a git repo, as + does

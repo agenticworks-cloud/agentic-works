@@ -2,11 +2,11 @@
 // From the standalone Gannet extension (seanahn.gannet) to Agentic Works' Repos part. VS Code gives each extension its
 // own global storage folder, side by side, so the standalone's is a sibling of this part's store:
 // - its machine.json (the directories, the checkouts it knows, new folders) is copied once, when this store has none;
-// - its credential shim is rewritten, on every start, to run this part's helper on this store's sockets: repos it
-//   checked out name that shim in their .git/config, and would stop pushing once the standalone is uninstalled.
+// - repos it checked out name its credential shim in their .git/config, and VS Code deletes that shim with the rest
+//   of its storage when it is uninstalled: those it knew of are pointed at this part's shim instead.
 const fs = require('fs');
 const path = require('path');
-const { writeShim, socketDir } = require('./tokenServer.js');
+const { configurePush } = require('./checkout.js');
 
 const STANDALONE_ID = 'seanahn.gannet';
 const oldStore = (store) => path.join(path.dirname(store), STANDALONE_ID);
@@ -20,11 +20,22 @@ function carryMachineState(store) {
   return true;
 }
 
-/** Rewrites the standalone's shim, if there is one, to run `script` on `store`'s sockets; its path, or ''. */
-function repointOldShim({ store, execPath, script }) {
-  const dir = oldStore(store);
-  if (path.resolve(dir) === path.resolve(store) || !fs.existsSync(path.join(dir, 'gannet-credential'))) return '';
-  return writeShim({ dir, execPath, script, socketDir: socketDir(store) });
+const HELPER = 'credential.https://github.com.helper';
+const OLD_SHIM = `${path.sep}${STANDALONE_ID}${path.sep}gannet-credential"`;
+
+/** Points the checkouts `local` knows whose helper is the standalone's shim at `shim`; how many it changed. */
+async function repointCheckouts({ run, local, shim }) {
+  let n = 0;
+  for (const list of local.all().values()) {
+    for (const c of list) {
+      if (!c.byGannet || !c.login) continue;
+      const r = await run('git', ['-C', c.path, 'config', '--local', '--get-all', HELPER]).catch(() => ({ code: -1 }));
+      if (r.code !== 0 || !String(r.stdout).includes(OLD_SHIM)) continue;
+      await configurePush(run, c.path, c.login, `!"${shim}" ${c.login}`);
+      n++;
+    }
+  }
+  return n;
 }
 
-module.exports = { carryMachineState, repointOldShim, STANDALONE_ID };
+module.exports = { carryMachineState, repointCheckouts, STANDALONE_ID };

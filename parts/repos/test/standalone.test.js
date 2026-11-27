@@ -1,13 +1,14 @@
 'use strict';
 // Moving from the standalone Gannet extension (seanahn.gannet) to this part: its per-machine state is copied once, and
-// its credential shim, which repos it checked out still name in their .git/config, is pointed at this part's helper.
+// the repos it checked out, whose .git/config names its credential shim, are pointed at this part's shim.
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { carryMachineState, repointOldShim, STANDALONE_ID } = require('../src/standalone.js');
+const { carryMachineState, repointCheckouts, STANDALONE_ID } = require('../src/standalone.js');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'repos-standalone-'));
+(async () => {
 try {
   const globalStorage = path.join(tmp, 'globalStorage');
   const old = path.join(globalStorage, STANDALONE_ID);
@@ -16,7 +17,6 @@ try {
 
   // nothing to carry: nothing happens
   assert.strictEqual(carryMachineState(store), false);
-  assert.strictEqual(repointOldShim({ store, execPath: '/node', script: '/new/bin/gannet-credential.js' }), '');
   assert.ok(!fs.existsSync(store), 'nothing written');
 
   // the standalone's machine.json is copied when this store has none
@@ -29,23 +29,38 @@ try {
   assert.strictEqual(carryMachineState(store), false);
   assert.strictEqual(fs.readFileSync(path.join(store, 'machine.json'), 'utf8'), '{"gannet.workspaces":["/mine"]}');
 
-  // no old shim: none is made
-  assert.strictEqual(repointOldShim({ store, execPath: '/node', script: '/new/bin/gannet-credential.js' }), '');
-  assert.ok(!fs.existsSync(path.join(old, 'gannet-credential')));
-  // an old shim (named by repos the standalone checked out): rewritten to run this part's helper on this store's sockets
-  fs.writeFileSync(path.join(old, 'gannet-credential'), '#!/bin/sh\nexec "/old/seanahn.gannet-0.5.7/bin/gannet-credential.js"\n');
-  const shim = repointOldShim({ store, execPath: '/node', script: '/new/bin/gannet-credential.js' });
-  assert.strictEqual(shim, path.join(old, 'gannet-credential'));
-  const text = fs.readFileSync(shim, 'utf8');
-  assert.ok(text.includes('"/new/bin/gannet-credential.js"') && text.includes('"/node"') && !text.includes('/old/'), text);
-  assert.ok(text.includes(path.join(store, 'sockets')) || text.includes('GANNET_SOCKET_DIR="'), text);
-  const { socketDir } = require('../src/tokenServer.js');
-  assert.ok(text.includes(`GANNET_SOCKET_DIR="${socketDir(store)}"`), 'this store\'s sockets');
+  // repos the standalone checked out name its shim, which VS Code deletes with its storage: they are pointed at ours
+  {
+    const { runProcess } = require('../src/accounts.js');
+    const { createLocalRepos } = require('../src/localRepos.js');
+    const memo = () => { const m = {}; return { get: (k, d) => (k in m ? m[k] : d), update: async (k, v) => { m[k] = v; } }; };
+    const git = (dir, ...a) => require('node:child_process').execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
+    const repo = (name, helper) => {
+      const d = path.join(tmp, name);
+      fs.mkdirSync(d); git(d, 'init', '-q');
+      if (helper) { git(d, 'config', '--local', 'credential.https://github.com.helper', ''); git(d, 'config', '--local', '--add', 'credential.https://github.com.helper', helper); }
+      return d;
+    };
+    const ours = repo('ours', `!"${path.join(old, 'gannet-credential')}" co-sahn`);
+    const gh = repo('gh', '!f() { echo gh; }; f');
+    const plain = repo('plain');
+    const memento = memo();
+    const local = createLocalRepos({ memento });
+    await local.remember('co-e/ours', { path: ours, login: 'co-sahn', byGannet: true });
+    await local.remember('co-e/gh', { path: gh, login: 'co-sahn', byGannet: true });
+    await local.remember('co-e/plain', { path: plain, login: null, byGannet: false });
+    const shim = path.join(store, 'gannet-credential');
+    assert.strictEqual(await repointCheckouts({ run: runProcess, local, shim }), 1, 'only the one naming the old shim');
+    assert.deepStrictEqual(git(ours, 'config', '--local', '--get-all', 'credential.https://github.com.helper').split('\n').filter(Boolean), [`!"${shim}" co-sahn`]);
+    assert.strictEqual(git(ours, 'config', '--local', 'credential.https://github.com.username').trim(), 'co-sahn');
+    assert.ok(git(gh, 'config', '--local', '--get-all', 'credential.https://github.com.helper').includes('echo gh'), 'a gh helper is left');
+    assert.strictEqual(await repointCheckouts({ run: runProcess, local, shim }), 0, 'nothing left to do');
+  }
 
   // running as the standalone itself: nothing to do
   assert.strictEqual(carryMachineState(old), false);
-  assert.strictEqual(repointOldShim({ store: old, execPath: '/node', script: '/x.js' }), '');
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 console.log('STANDALONE OK');
+})().catch((e) => { console.error(e); process.exit(1); });
