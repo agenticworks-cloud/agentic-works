@@ -598,6 +598,9 @@ ensure_profile() {  # --profile's VS Code profile, before any extension goes in:
        step_end failed "couldn't make it; see $LOG"
        return 0 ;;
   esac
+  # the window starts before the profile has its settings (Copilot off among them); on VS Code's very first launch it
+  # showed VS Code's welcome, a Copilot sign-in: that is off in the user's own settings, the one place VS Code reads it
+  run_helper vscode-no-onboarding || true
   printf '$ %s --profile %s --new-window %s\n' "$CODE" "$PROFILE" "$FOLDER" >> "$LOG"
   "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --profile "$PROFILE" --new-window ${FOLDER:+"$FOLDER"} < /dev/null >> "$LOG" 2>&1
   WINDOW_OPENED=1

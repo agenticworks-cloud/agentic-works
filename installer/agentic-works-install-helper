@@ -404,6 +404,32 @@ def cmd_vscode_layout(_args: argparse.Namespace) -> int:
     return EXIT_DONE
 
 
+NO_ONBOARDING = {"workbench.welcomePage.experimentalOnboarding": False}
+
+
+def cmd_vscode_no_onboarding(_args: argparse.Namespace) -> int:
+    """VS Code's first-launch welcome (its Copilot sign-in) off, in the user's own settings.json, whatever --profile.
+
+    The setting is application-wide, so VS Code reads it only from there. With VS Code open, the window that makes a
+    profile starts before the profile has its settings (Copilot off among them), and on VS Code's very first launch it
+    showed the welcome (2026-11-27). A value there is kept; JSONC is left alone."""
+    path = user_dir() / "settings.json"
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        merged = merge_settings(text, NO_ONBOARDING)
+    except UnicodeDecodeError:
+        merged = None
+    if merged is None:
+        print(f"{path} has comments or is not plain UTF-8 JSON; not rewriting it")
+        return EXIT_SKIPPED
+    if merged == text:
+        print("already set")
+        return EXIT_DONE
+    _write_atomic(path, merged)
+    print("added")
+    return EXIT_DONE
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agentic-works-install-helper", description=__doc__)
     parser.add_argument("--profile", metavar="NAME", help="the VS Code profile the settings and layout go into")
@@ -417,6 +443,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("vscode-layout", help="write the activity-bar layout into state.vscdb").set_defaults(
         func=cmd_vscode_layout
     )
+    sub.add_parser("vscode-no-onboarding", help="turn VS Code's first-launch welcome off in the user's own settings.json"
+                   ).set_defaults(func=cmd_vscode_no_onboarding)
     made = sub.add_parser("vscode-profile", help="make a VS Code profile, with the user's settings copied in")
     made.add_argument("name")
     made.add_argument("--fill", action="store_true",

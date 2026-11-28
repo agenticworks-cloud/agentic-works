@@ -1166,6 +1166,16 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     where the profile's own are blank (`--fill`).
   - A name is letters, digits, spaces, dots, dashes and underscores, up to 40.
   - Each profile has its own state, so it starts with a fresh walkthrough.
+- **No VS Code welcome in the window that makes the profile — Built (1.1.11)** *(Sean, 2026-11-28: two "Welcome to
+  VS Code" Copilot sign-ins; "we already turned offf the copilot. check how it came back")*. With VS Code open, the
+  window that makes the profile starts before the profile has its settings (`chat.disableAIFeatures` among them); on
+  VS Code's very first launch it showed VS Code's first-launch welcome, a Copilot sign-in. That welcome is read only
+  from the user's own settings.json, whatever the profile.
+  - The helper's `vscode-no-onboarding` adds `"workbench.welcomePage.experimentalOnboarding": false` there; a file
+    with comments, or not plain UTF-8 JSON, is left alone. The installer runs it just before that window, only then.
+  - Checked under Xvfb with a throwaway home: the welcome shows without the line and not with it.
+  - Left: in that window the profile's other settings still arrive after it starts, so the chat panel or VS Code's own
+    walkthrough may still show there once.
 - **One window when VS Code is open: `--folder` and `--window-mark` — Built (1.1.10)** *(Sean, 2026-11-27: "it
   started 2 new vscode, first one looks good, second one has trust issue")*. With VS Code open, `--profile` opens a
   window on the name to make the profile; a company's setup that then opened its own folder made a second window.

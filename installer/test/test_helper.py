@@ -378,6 +378,40 @@ class LayoutTests(_Case):
         self.assertFalse((self.user / "globalStorage" / "state.vscdb").exists())
 
 
+class NoOnboardingTests(_Case):
+    """`vscode-no-onboarding`: VS Code's first-launch welcome (its Copilot sign-in) off, in the user's own settings.json
+    (2026-11-27). The setting is application-wide, read only from there; with VS Code open, the window that makes a
+    profile starts before the profile has settings, and on VS Code's very first launch showed the welcome."""
+
+    KEY = "workbench.welcomePage.experimentalOnboarding"
+
+    def test_added_to_the_users_own_settings(self) -> None:
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text('{"editor.fontSize": 15}\n')
+        code, out = self.run_cli("--profile", "Acme Works", "vscode-no-onboarding")
+        self.assertEqual((code, out.strip()), (0, "added"))
+        self.assertEqual(json.loads((self.user / "settings.json").read_text()), {"editor.fontSize": 15, self.KEY: False})
+
+    def test_a_value_there_is_kept(self) -> None:
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text(json.dumps({self.KEY: True}))
+        code, out = self.run_cli("vscode-no-onboarding")
+        self.assertEqual((code, out.strip()), (0, "already set"))
+        self.assertEqual(json.loads((self.user / "settings.json").read_text()), {self.KEY: True})
+
+    def test_no_settings_file(self) -> None:
+        code, out = self.run_cli("vscode-no-onboarding")
+        self.assertEqual((code, out.strip()), (0, "added"))
+        self.assertEqual(json.loads((self.user / "settings.json").read_text()), {self.KEY: False})
+
+    def test_jsonc_left_alone(self) -> None:
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text('{ // mine\n}\n')
+        code, _ = self.run_cli("vscode-no-onboarding")
+        self.assertNotEqual(code, 0)
+        self.assertEqual((self.user / "settings.json").read_text(), '{ // mine\n}\n')
+
+
 class ProfileTests(_Case):
     """--profile NAME: a VS Code profile of its own (a company's, beside the user's own); `vscode-profile NAME` makes
     it, and the settings and layout then go into its folder rather than the user's."""

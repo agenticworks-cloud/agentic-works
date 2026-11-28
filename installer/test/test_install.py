@@ -77,6 +77,7 @@ INSTALLS = ('case " $* " in *" install "*) for w in "$@"; do [ -f "${STUB_INSTAL
 PYTHON3 = r"""[ -z "${AGENTIC_WORKS_VSCODE_USER_DIR:-}" ] || printf 'user-dir %s\n' "$AGENTIC_WORKS_VSCODE_USER_DIR" >> "$STUB_LOG"
 case "$*" in
   *vscode-layout*) [ -z "${PY_LAYOUT_OUT:-}" ] || printf '%s\n' "$PY_LAYOUT_OUT"; exit "${PY_LAYOUT_RC:-0}" ;;
+  *vscode-no-onboarding*) echo added; exit 0 ;;
   *vscode-profile*--fill*) printf '%s\n' "${PY_FILL_OUT:-filled}"; exit 0 ;;
   *vscode-profile*) [ -f "${PROFILE_MADE:-/nonexistent}" ] && { echo "already set"; exit 0; }
     printf '%s\n' "${PY_PROFILE_OUT:-made}"; exit "${PY_PROFILE_RC:-0}" ;;
@@ -907,6 +908,23 @@ class TestProfile(_Served):
         self.assertIn("  ✓ Profile Acme Works (made in a window VS Code opened on it, with your settings)", out)
         lines = self.stub_log()
         self.assertLess(_index(lines, "--new-window"), _index(lines, "--install-extension"))
+
+    def test_the_window_that_makes_it_starts_without_vscodes_welcome(self) -> None:
+        # the window starts before the profile has settings (Copilot off among them): on VS Code's very first launch it
+        # showed VS Code's welcome, a Copilot sign-in (Sean, 2026-11-27: "we already turned off the copilot. check how
+        # it came back"; "have the installer add that one line")
+        made = self.tmp / "made"
+        env = self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running", PROFILE_MADE=str(made))
+        rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 0, out)
+        lines = self.stub_log()
+        self.assertGreaterEqual(_index(lines, "vscode-no-onboarding"), 0, lines)
+        self.assertLess(_index(lines, "vscode-no-onboarding"), _index(lines, "--new-window"))
+
+    def test_vscode_closed_leaves_the_users_settings(self) -> None:
+        rc, out = self.run_pipe(self.profile_env(PY_PROFILE_OUT="made"), "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 0, out)
+        self.assertFalse([line for line in self.stub_log() if "vscode-no-onboarding" in line])
 
     def test_vscode_open_makes_it_in_a_window_on_the_folder(self) -> None:
         # one window, not two: a company's setup that opens a folder after has it opened in the window that makes the
