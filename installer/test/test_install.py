@@ -54,7 +54,10 @@ printf '%s\\n' "{name} $*" >> "$STUB_LOG"
 WRITE_O = ('out="" prev=""; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done; '
            '[ -z "$out" ] || echo "${CURL_BODY:-stub}" > "$out"\n')
 # code lists $CODE_EXTENSIONS (id@version words), notes when a .vsix it is given exists, and fails on $CODE_FAIL_ON.
+# code --version says $CODE_VERSION_SAYS first (1.129.1 unless set), as VS Code's CLI says its version, and starts nothing.
 CODE = r"""case " $* " in
+  *" --version "*) printf '%s\n' "${CODE_VERSION_SAYS-1.129.1}" 0123456789abcdef0123456789abcdef01234567 x64
+    exit "${CODE_VERSION_RC:-0}" ;;
   *" --list-extensions "*)
     for e in ${CODE_EXTENSIONS:-}; do
       case " $* " in *" --show-versions "*) echo "$e" ;; *) echo "${e%%@*}" ;; esac
@@ -63,7 +66,10 @@ CODE = r"""case " $* " in
 esac
 for a in "$@"; do case $a in *.vsix) [ -f "$a" ] && printf 'vsix-present %s\n' "$a" >> "$STUB_LOG"
   [ -z "${CODE_SLEEP:-}" ] || exec sleep "$CODE_SLEEP" ;; esac; done
-[ -n "${PROFILE_MADE:-}" ] && case " $* " in *" --new-window "*) : > "$PROFILE_MADE" ;; esac
+[ -n "${PROFILE_MADE:-}" ] && case " $* " in *" --new-window "*) : > "$PROFILE_MADE"
+  # the helper's --wait runs beside the window being opened, not after it: 5 s for it to say it is there
+  i=0; while [ ! -f "$PROFILE_MADE.waited" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+  [ ! -f "$PROFILE_MADE.waited" ] || printf 'window: the helper waits beside it\n' >> "$STUB_LOG" ;; esac
 [ -n "${CODE_FAIL_ON:-}" ] && case "$*" in *"$CODE_FAIL_ON"*) [ -z "${CODE_FAIL_MSG:-}" ] || echo "$CODE_FAIL_MSG" >&2
   exit 1 ;; esac
 """
@@ -74,11 +80,23 @@ INSTALLS = ('case " $* " in *" install "*) for w in "$@"; do [ -f "${STUB_INSTAL
 # python3 (running the helper) prints $PY_SETTINGS_OUT / $PY_LAYOUT_OUT and exits $PY_SETTINGS_RC / $PY_LAYOUT_RC;
 # it notes the AGENTIC_WORKS_VSCODE_USER_DIR it was given. vscode-profile prints $PY_PROFILE_OUT ("made") and exits
 # $PY_PROFILE_RC, or "already set" once $PROFILE_MADE exists (which `code --new-window` makes, as VS Code would).
+# vscode-profile --fill prints $PY_FILL_OUT ("filled") and exits $PY_FILL_RC; with --wait N it first gives
+# $PROFILE_MADE N seconds to be there, and skips (2) when it isn't. vscode-running exits $PY_RUNNING_RC (0: a `code`
+# run now opens its window in a VS Code already running).
 PYTHON3 = r"""[ -z "${AGENTIC_WORKS_VSCODE_USER_DIR:-}" ] || printf 'user-dir %s\n' "$AGENTIC_WORKS_VSCODE_USER_DIR" >> "$STUB_LOG"
 case "$*" in
   *vscode-layout*) [ -z "${PY_LAYOUT_OUT:-}" ] || printf '%s\n' "$PY_LAYOUT_OUT"; exit "${PY_LAYOUT_RC:-0}" ;;
   *vscode-no-onboarding*) echo added; exit 0 ;;
-  *vscode-profile*--fill*) printf '%s\n' "${PY_FILL_OUT:-filled}"; exit 0 ;;
+  *vscode-running*) exit "${PY_RUNNING_RC:-0}" ;;
+  *vscode-profile*--fill*)
+    w=""; prev=""; for a in "$@"; do [ "$prev" = --wait ] && w=$a; prev=$a; done
+    if [ -n "$w" ]; then
+      [ -z "${PROFILE_MADE:-}" ] || : > "$PROFILE_MADE.waited"
+      i=0; while [ ! -f "${PROFILE_MADE:-/nonexistent}" ]; do
+        [ "$i" -lt $((w * 20)) ] || { echo "VS Code didn't make it"; exit 2; }
+        sleep 0.05; i=$((i + 1)); done
+    fi
+    printf '%s\n' "${PY_FILL_OUT:-filled}"; exit "${PY_FILL_RC:-0}" ;;
   *vscode-profile*) [ -f "${PROFILE_MADE:-/nonexistent}" ] && { echo "already set"; exit 0; }
     printf '%s\n' "${PY_PROFILE_OUT:-made}"; exit "${PY_PROFILE_RC:-0}" ;;
   *) [ -z "${PY_SETTINGS_OUT:-}" ] || printf '%s\n' "$PY_SETTINGS_OUT"; exit "${PY_SETTINGS_RC:-0}" ;;
@@ -862,9 +880,14 @@ class TestProfile(_Served):
     """--profile NAME (2026-11-27, for a company's setup beside the user's own VS Code): the extensions, settings and
     icons go into that VS Code profile, and the user's default profile is left as it is. The profile is made by the
     helper with VS Code closed; with VS Code open (it would lose a profile written beside it) a window opened on the
-    name makes it, and the user's settings are copied in after."""
+    name makes it, and the helper, waiting beside it, puts the user's settings and the look in as it does."""
 
     NAME = "Acme Works"
+
+    def window_env(self, **extra: str) -> dict[str, str]:
+        """VS Code open: the helper skips making the profile, and `code --new-window` makes it."""
+        return self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running",
+                                PROFILE_MADE=str(self.tmp / "made"), **extra)
 
     def profile_env(self, **extra: str) -> dict[str, str]:
         return self.env("ubuntu", self.STUBS + ("python3",), real=("curl",), AGENTIC_WORKS_INSTALL_VSIX_URL=f"{self.url}/good.vsix",
@@ -902,12 +925,63 @@ class TestProfile(_Served):
                                PY_FILL_OUT="filled")
         rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open")
         self.assertEqual(rc, 0, out)
-        self.assertIn("code --profile Acme Works --new-window", self.code_calls())
+        # --skip-welcome: that window only (VS Code is running), so it shows none of VS Code's own walkthroughs
+        self.assertIn("code --skip-welcome --profile Acme Works --new-window", self.code_calls())
         helper = [line for line in self.stub_log() if line.startswith("python3 ") and "vscode-profile" in line]
-        self.assertEqual(helper[-1], f"python3 {HELPER} vscode-profile Acme Works --fill")
+        self.assertEqual(helper, [f"python3 {HELPER} vscode-profile Acme Works",
+                                  f"python3 {HELPER} vscode-profile Acme Works --fill --look --wait 30"])
         self.assertIn("  ✓ Profile Acme Works (made in a window VS Code opened on it, with your settings)", out)
         lines = self.stub_log()
         self.assertLess(_index(lines, "--new-window"), _index(lines, "--install-extension"))
+
+    def test_the_helper_waits_beside_the_window_being_opened(self) -> None:
+        # the window reads its profile's settings about half a second after `code` is run, a good half second before
+        # `code` returns (VS Code 1.129, 2026-11-28): a helper run after it would be too late with them
+        rc, out = self.run_pipe(self.window_env(), "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("window: the helper waits beside it", self.stub_log())
+
+    def test_a_fill_that_fails_doesnt_stop_the_run(self) -> None:
+        rc, out = self.run_pipe(self.window_env(PY_FILL_RC="1"), "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("  ✓ Profile Acme Works (made in a window VS Code opened on it)", out)
+        self.assertTrue(self.logged("--install-extension"))
+
+    def test_settings_are_written_again_for_the_window_opened(self) -> None:
+        # that window misses a settings.json written before it watches the file, about a second after it opens,
+        # until the file is written again: the settings step does, once the window has had its settle time
+        rc, out = self.run_pipe(self.window_env(AGENTIC_WORKS_INSTALL_SETTLE="0"), "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"python3 {HELPER} --profile Acme Works vscode-settings --rewrite 0", self.stub_log())
+
+    def test_settings_wait_out_what_is_left_of_the_windows_ten_seconds(self) -> None:
+        began = time.monotonic()
+        rc, out = self.run_pipe(self.window_env(), "--profile", self.NAME, "--no-open")
+        took = time.monotonic() - began
+        self.assertEqual(rc, 0, out)
+        (call,) = [line for line in self.stub_log() if "vscode-settings" in line]
+        left = re.search(r" vscode-settings --rewrite ([0-9]+)$", call)
+        self.assertTrue(left, call)
+        # ten seconds from the window, less what the steps since took (the whole run took `took`; bash counts in seconds)
+        self.assertLessEqual(int(left.group(1)), 10, call)
+        self.assertGreaterEqual(int(left.group(1)), 10 - took - 1, call)
+
+    def test_a_settle_time_with_a_zero_in_front_is_a_number_too(self) -> None:
+        # bash reads 08 as an octal number, which it isn't: the run ended there
+        rc, out = self.run_pipe(self.window_env(AGENTIC_WORKS_INSTALL_SETTLE="08"), "--profile", self.NAME, "--no-open")
+        self.assertEqual(rc, 0, out)
+        (call,) = [line for line in self.stub_log() if "vscode-settings" in line]
+        self.assertRegex(call, r" vscode-settings --rewrite [0-8]$")
+        self.assertIn("  ✓ Settings", out)
+
+    def test_skipping_the_settings_keeps_the_look_out_of_the_profile_too(self) -> None:
+        # --skip settings: none of the look's settings are written, by the settings step or as the profile is made
+        rc, out = self.run_pipe(self.window_env(), "--profile", self.NAME, "--no-open", "--skip", "settings")
+        self.assertEqual(rc, 0, out)
+        helper = [line for line in self.stub_log() if line.startswith("python3 ")]
+        self.assertIn(f"python3 {HELPER} vscode-profile Acme Works --fill --wait 30", helper)
+        self.assertEqual([line for line in helper if "--look" in line or "vscode-settings" in line], [])
+        self.assertIn("  ✓ Profile Acme Works (made in a window VS Code opened on it, with your settings)", out)
 
     def test_the_window_that_makes_it_starts_without_vscodes_welcome(self) -> None:
         # the window starts before the profile has settings (Copilot off among them): on VS Code's very first launch it
@@ -936,9 +1010,87 @@ class TestProfile(_Served):
         rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open", "--folder", str(folder),
                                 "--window-mark", str(mark))
         self.assertEqual(rc, 0, out)
-        self.assertIn(f"code --profile Acme Works --new-window {folder}", self.code_calls())
+        self.assertEqual([c for c in self.code_calls() if "--disable-workspace-trust" in c], [], "not without --trust-folder")
+        self.assertIn(f"code --skip-welcome --profile Acme Works --new-window {folder}", self.code_calls())
         self.assertTrue(mark.is_file())
         self.assertIn(f"  ✓ Profile Acme Works (made in a window VS Code opened on it, with your settings; on {folder})", out)
+
+    def test_a_folder_the_setup_vouches_for_opens_trusted(self) -> None:
+        # a folder VS Code doesn't trust opens in Restricted Mode, where Agentic Works is off and VS Code shows its own
+        # walkthrough instead of Get started (Sean, 2026-11-28: "we can't get a new vscode with [the] walkthrough
+        # screen?"). VS Code, running, reads no trust written beside it; --disable-workspace-trust holds for that
+        # window only
+        folder = self.tmp / "works"
+        folder.mkdir()
+        rc, out = self.run_pipe(self.window_env(), "--profile", self.NAME, "--no-open", "--folder", str(folder),
+                                "--trust-folder")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"code --skip-welcome --disable-workspace-trust --profile Acme Works --new-window {folder}",
+                      self.code_calls())
+
+    def test_the_windows_flags_wait_for_a_vscode_that_surely_runs(self) -> None:
+        # asked last, right before the window: what `code` is given holds for that window alone only while a VS Code
+        # runs to take it
+        folder = self.tmp / "works"
+        folder.mkdir()
+        rc, out = self.run_pipe(self.window_env(), "--profile", self.NAME, "--no-open", "--folder", str(folder),
+                                "--trust-folder")
+        self.assertEqual(rc, 0, out)
+        lines = self.stub_log()
+        # VS Code finds the one running by a socket named after its version: the helper is told which `code` is on disk
+        self.assertEqual([line for line in lines if "vscode-running" in line],
+                         [f"python3 {HELPER} vscode-running --code-version 1.129.1"])
+        self.assertEqual([line for line in lines if "--version" in line and line.startswith("code ")], ["code --version"])
+        self.assertLess(_index(lines, "vscode-no-onboarding"), _index(lines, "code --version"))
+        self.assertLess(_index(lines, "code --version"), _index(lines, "vscode-running"))
+        self.assertLess(_index(lines, "vscode-running"), _index(lines, "--new-window"))
+
+    def test_a_code_that_says_no_version_gets_none_of_the_windows_flags(self) -> None:
+        # without it the helper can't tell where this `code` looks for a VS Code already running
+        folder = self.tmp / "works"
+        folder.mkdir()
+        for says in ("", "Unknown version", "1.129.1 (user setup)", "1.129.1; rm -rf x"):
+            with self.subTest(says=says):
+                self.log.write_text("")
+                (self.tmp / "made").unlink() if (self.tmp / "made").exists() else None
+                rc, out = self.run_pipe(self.window_env(CODE_VERSION_SAYS=says), "--profile", self.NAME, "--no-open",
+                                        "--folder", str(folder), "--trust-folder")
+                self.assertEqual(rc, 0, out)
+                self.assertIn(f"code --profile Acme Works --new-window {folder}", self.code_calls())
+                self.assertEqual([c for c in self.code_calls() if "--skip-welcome" in c or "--disable-workspace-trust" in c], [])
+                self.assertEqual(self.logged("vscode-running"), [], "nothing to ask the helper with")
+
+    def test_a_code_that_fails_to_say_its_version_gets_none_of_the_windows_flags(self) -> None:
+        folder = self.tmp / "works"
+        folder.mkdir()
+        rc, out = self.run_pipe(self.window_env(CODE_VERSION_SAYS="", CODE_VERSION_RC="1"), "--profile", self.NAME,
+                                "--no-open", "--folder", str(folder), "--trust-folder")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"code --profile Acme Works --new-window {folder}", self.code_calls())
+        self.assertEqual([c for c in self.code_calls() if "--skip-welcome" in c or "--disable-workspace-trust" in c], [])
+
+    def test_a_vscode_that_may_not_be_running_gets_none_of_the_windows_flags(self) -> None:
+        # code.lock outlives a VS Code that crashed, and the `code` of an update on disk doesn't find the VS Code still
+        # running: `code` then starts a VS Code, though the helper said one runs. Options given to a VS Code being
+        # started hold for all of its windows until it quits, and one of them turns Restricted Mode off
+        folder = self.tmp / "works"
+        folder.mkdir()
+        rc, out = self.run_pipe(self.window_env(PY_RUNNING_RC="2"), "--profile", self.NAME, "--no-open",
+                                "--folder", str(folder), "--trust-folder")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(f"code --profile Acme Works --new-window {folder}", self.code_calls())
+        self.assertEqual([c for c in self.code_calls() if "--skip-welcome" in c or "--disable-workspace-trust" in c], [])
+        self.assertIn(f"  ✓ Profile Acme Works (made in a window VS Code opened on it, with your settings; on {folder})", out)
+
+    def test_vscode_closed_gets_none_of_the_windows_flags(self) -> None:
+        # given to a VS Code that isn't running they would hold for all of its windows, until it quits
+        folder = self.tmp / "works"
+        folder.mkdir()
+        rc, out = self.run_pipe(self.profile_env(PY_PROFILE_OUT="made"), "--profile", self.NAME, "--folder", str(folder),
+                                "--trust-folder")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("code --profile Acme Works", self.code_calls(), "VS Code is opened, as before")
+        self.assertEqual([c for c in self.code_calls() if "--skip-welcome" in c or "--disable-workspace-trust" in c], [])
 
     def test_the_window_that_made_the_profile_is_the_one_opened(self) -> None:
         made = self.tmp / "made"
@@ -948,7 +1100,7 @@ class TestProfile(_Served):
         self.assertEqual(rc, 0, out)
         opens = [c for c in self.code_calls() if not any(w in c for w in ("--install-extension", "--list-extensions",
                                                                           "--uninstall-extension", "--version"))]
-        self.assertEqual(opens, ["code --profile Acme Works --new-window"], self.code_calls())
+        self.assertEqual(opens, ["code --skip-welcome --profile Acme Works --new-window"], self.code_calls())
 
     def test_no_window_no_mark(self) -> None:
         mark, folder = self.tmp / "opened", self.tmp / "works"
@@ -965,12 +1117,19 @@ class TestProfile(_Served):
             rc, out = self.run_pipe(self.profile_env(), "--profile", self.NAME, *args)
             self.assertEqual(rc, 2, (args, out))
 
+    def test_trust_folder_needs_a_folder(self) -> None:
+        rc, out = self.run_pipe(self.profile_env(), "--profile", self.NAME, "--trust-folder")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("--trust-folder needs --folder", out)
+        self.assertEqual(self.stub_log(), [], "nothing run")
+
     def test_window_that_never_makes_it_stops_the_run(self) -> None:
         env = self.profile_env(PY_PROFILE_RC="2", PY_PROFILE_OUT="VS Code is running", AGENTIC_WORKS_INSTALL_PROFILE_WAIT="1")
         rc, out = self.run_pipe(env, "--profile", self.NAME, "--no-open")
         self.assertEqual(rc, 1, out)
         self.assertRegex(out, r"  ✗ Profile Acme Works: VS Code didn't make it")
         self.assertRegex(out, r"  ✗ Agentic Works: .*profile")
+        self.assertIn(f"python3 {HELPER} vscode-profile Acme Works --fill --look --wait 1", self.stub_log())
         self.assertEqual(self.logged("--install-extension"), [], "nothing goes into the default profile")
 
     def test_helper_failure_stops_the_run(self) -> None:
@@ -1139,6 +1298,16 @@ class TestStandalone(_Served):
         # Agentic Works' own is never replaced
         (storage / "seanahn.gannet" / "machine.json").write_text('{"gannet.workspaces": ["/other"]}')
         rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS="seanahn.gannet@0.5.7"), "--yes")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((storage / "agenticworks.agentic-works" / "machine.json").read_text(), '{"gannet.workspaces": ["/git"]}')
+
+    def test_standalone_gannet_state_is_kept_where_vscode_keeps_it(self) -> None:
+        # on Linux VS Code's data is in $XDG_CONFIG_HOME/Code when that is set
+        config = self.tmp / "cfg"
+        storage = config / "Code" / "User" / "globalStorage"
+        (storage / "seanahn.gannet").mkdir(parents=True)
+        (storage / "seanahn.gannet" / "machine.json").write_text('{"gannet.workspaces": ["/git"]}')
+        rc, out = self.run_pipe(self.served_env(CODE_EXTENSIONS="seanahn.gannet@0.5.7", XDG_CONFIG_HOME=str(config)), "--yes")
         self.assertEqual(rc, 0, out)
         self.assertEqual((storage / "agenticworks.agentic-works" / "machine.json").read_text(), '{"gannet.workspaces": ["/git"]}')
 

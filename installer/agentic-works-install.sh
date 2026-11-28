@@ -56,7 +56,9 @@ DRY_RUN=0
 YES=0
 NO_OPEN=0
 FOLDER=""  # --folder DIR: the folder the window opened to make --profile's profile opens on, so a setup that opens it after needs no second window
+TRUST_FOLDER=0  # --trust-folder: that window opens --folder trusted (no Restricted Mode, where Agentic Works is off); the setup vouches for the folder
 WINDOW_OPENED=0  # this run opened a VS Code window (to make the profile): open_vscode opens no other
+WINDOW_AT=0  # $SECONDS when that window was open: the settings step writes settings.json once more, that window's settle time later
 WINDOW_MARK=""  # --window-mark FILE: made when this run opened a VS Code window, so a setup run around it doesn't open another
 PROFILE=""  # --profile NAME: the VS Code profile the extensions, settings and icons go into; else the user's own
 CODEBASE_SEARCH=0  # --codebase-search: agents.codebaseIndex.enabled true in the settings step; else the walkthrough offers it
@@ -577,8 +579,10 @@ profile_name_ok() {  # $1 = a profile name: letters, digits, spaces, dots, dashe
 ensure_profile() {  # --profile's VS Code profile, before any extension goes in: a failure stops the run, so nothing lands
   # in the user's own profile. VS Code closed: the helper makes it, with the user's settings, keybindings and snippets
   # copied in. VS Code open: it would lose a profile written beside it (tried, 2026-11-27), so a window opened on the
-  # name makes it, and the user's settings are copied in after
-  local label="Profile $PROFILE" rc waited=0 wait=${AGENTIC_WORKS_INSTALL_PROFILE_WAIT:-30}
+  # name makes it, and the helper, waiting beside that window, puts the user's settings and the look in as it does
+  local label="Profile $PROFILE" rc out code_pid limit=${AGENTIC_WORKS_INSTALL_PROFILE_WAIT:-30}
+  local -a window=() fill=(--fill)
+  case $limit in ''|*[!0-9]*) limit=30 ;; esac
   [ -n "$PROFILE" ] || return 0
   skipped profile "$label" && return 0
   step_begin "$label"
@@ -598,26 +602,43 @@ ensure_profile() {  # --profile's VS Code profile, before any extension goes in:
        step_end failed "couldn't make it; see $LOG"
        return 0 ;;
   esac
-  # the window starts before the profile has its settings (Copilot off among them); on VS Code's very first launch it
-  # showed VS Code's welcome, a Copilot sign-in: that is off in the user's own settings, the one place VS Code reads it
+  # VS Code's first-launch welcome, a Copilot sign-in, is off in the user's own settings, the one place VS Code reads it
   run_helper vscode-no-onboarding || true
-  printf '$ %s --profile %s --new-window %s\n' "$CODE" "$PROFILE" "$FOLDER" >> "$LOG"
-  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --profile "$PROFILE" --new-window ${FOLDER:+"$FOLDER"} < /dev/null >> "$LOG" 2>&1
+  # Two options for this window: --skip-welcome, none of VS Code's own walkthroughs; and --disable-workspace-trust, no
+  # Restricted Mode on the folder, where Agentic Works is off and Get started can't show (VS Code, running, reads no
+  # trust written beside it, and the setup vouches for the folder). A VS Code that runs takes them for this window
+  # alone; one being started would take them for every window until it quits. The helper said "running" above from
+  # code.lock, which outlives a VS Code that crashed, and says nothing of which `code` reaches the one alive (the `code`
+  # of an update on disk starts a second). So they are given only when vscode-running, asked last, finds a VS Code
+  # answering where this `code`, of this version, will look for one: VS Code's own test for handing the call over
+  if code_version && run_helper vscode-running --code-version "$CODE_VERSION"; then
+    window=(--skip-welcome)
+    [ -z "$FOLDER" ] || [ "$TRUST_FOLDER" != 1 ] || window+=(--disable-workspace-trust)
+  fi
+  printf '$ %s%s --profile %s --new-window %s\n' "$CODE" "${window[*]+ ${window[*]}}" "$PROFILE" "$FOLDER" >> "$LOG"
+  # The window reads its profile's settings.json about half a second after this, half a second before `code` returns,
+  # and misses one written later until it is written again (VS Code 1.129, 2026-11-28). So `code` runs behind, and the
+  # helper beside it puts the settings in the moment VS Code makes the profile's folder: the window starts with the
+  # look. Should it be late, apply_settings writes the file once more
+  "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} ${window[@]+"${window[@]}"} --profile "$PROFILE" --new-window ${FOLDER:+"$FOLDER"} < /dev/null >> "$LOG" 2>&1 &
+  code_pid=$!
   WINDOW_OPENED=1
   [ -z "$WINDOW_MARK" ] || : > "$WINDOW_MARK" 2>> "$LOG"
-  while :; do
-    run_helper vscode-profile "$PROFILE" && [ "$HELPER_OUT" = "already set" ] && break
-    if [ "$waited" -ge "$wait" ]; then
-      CLASH="there is no VS Code profile $PROFILE to install into; quit VS Code and rerun"
-      step_end failed "VS Code didn't make it in the window opened on it; quit VS Code and rerun"
-      return 0
-    fi
-    sleep 1
-    waited=$((waited + 1))
-  done
+  skip_named settings || fill+=(--look)  # --skip settings: none of the look's settings, here either
+  run_helper vscode-profile "$PROFILE" "${fill[@]}" --wait "$limit"
+  rc=$?
+  out=$HELPER_OUT
+  wait "$code_pid" 2> /dev/null
+  WINDOW_AT=$SECONDS
+  # a profile that is there with nothing copied in is still the profile: only one that isn't stops the run
+  if [ "$rc" != 0 ] && ! run_helper vscode-profile "$PROFILE"; then
+    CLASH="there is no VS Code profile $PROFILE to install into; quit VS Code and rerun"
+    step_end failed "VS Code didn't make it in the window opened on it; quit VS Code and rerun"
+    return 0
+  fi
   local on=""
   [ -z "$FOLDER" ] || on="; on $FOLDER"
-  if run_helper vscode-profile "$PROFILE" --fill && [ "$HELPER_OUT" = filled ]; then
+  if [ "$rc" = 0 ] && [ "$out" = filled ]; then
     step_end done "made in a window VS Code opened on it, with your settings$on"
   else
     step_end done "made in a window VS Code opened on it$on"
@@ -625,6 +646,19 @@ ensure_profile() {  # --profile's VS Code profile, before any extension goes in:
 }
 
 # ---- the extensions: the standalone five, Agentic Works, its companions ---------------------------------------------
+
+CODE_VERSION=""  # what this run's `code` says its version is, 1.129.1 say (code_version)
+code_version() {  # sets CODE_VERSION; false when `code` says none. `code --version` starts no VS Code
+  local first=""
+  CODE_VERSION=""
+  printf '$ %s --version\n' "$CODE" >> "$LOG"
+  IFS= read -r first <<EOF_VERSION
+$("$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} --version < /dev/null 2>> "$LOG")
+EOF_VERSION
+  printf '%s\n' "$first" >> "$LOG"
+  case $first in ''|*[!0-9.]*) return 1 ;; esac
+  CODE_VERSION=$first
+}
 
 code_cli() {  # argv for VS Code's CLI; as root on Linux, with the --user-data-dir it insists on; in --profile's profile
   run "$CODE" ${CODE_DATA:+--user-data-dir "$CODE_DATA"} ${PROFILE:+--profile "$PROFILE"} "$@"
@@ -713,7 +747,7 @@ ask_yn() {  # $1 = a [Y/n] question, on the terminal: 0 = yes (Enter too), 1 = n
 keep_gannet_state() {  # VS Code deletes an extension's global storage on uninstall: Gannet's machine.json (its folders
   # and checkouts) goes to Agentic Works' Repos part first, unless Agentic Works already has one
   local user from to
-  if [ "$OS" = macos ]; then user="$HOME/Library/Application Support/Code/User"; else user="${CODE_DATA:-$HOME/.config/Code}/User"; fi
+  if [ "$OS" = macos ]; then user="$HOME/Library/Application Support/Code/User"; else user="${CODE_DATA:-${XDG_CONFIG_HOME:-$HOME/.config}/Code}/User"; fi
   from="$user/globalStorage/seanahn.gannet/machine.json"
   to="$user/globalStorage/agenticworks.agentic-works/machine.json"
   [ -f "$from" ] && [ ! -e "$to" ] || return 0
@@ -1303,9 +1337,18 @@ look_step() {  # $1 = step name, $2 = label, $3 = helper subcommand (and options
 }
 
 apply_settings() {  # the look's keys, and codebase search when asked for, each only when absent; JSONC is left as it is
-  local sub=vscode-settings
+  local sub=vscode-settings settle=${AGENTIC_WORKS_INSTALL_SETTLE:-10} left
   [ "$CODEBASE_SEARCH" = 1 ] && sub="$sub --codebase-search"
   [ -n "$TEAMS_APP" ] && sub="$sub --teams-app $TEAMS_APP"  # checked by parse_args: no spaces in it
+  if [ "$WINDOW_OPENED" = 1 ]; then
+    # the window this run opened misses a settings.json written before it watches the file, about a second after it
+    # opens, until the file is written again (see ensure_profile): written here, though nothing in it changes, and not
+    # before the window has had its settle time (the steps since took most of it, or all)
+    case $settle in ''|*[!0-9]*) settle=10 ;; esac
+    left=$((WINDOW_AT + 10#$settle - SECONDS))  # 10#: 08 is eight, not a bad octal number
+    [ "$left" -gt 0 ] || left=0
+    sub="$sub --rewrite $left"
+  fi
   look_step settings "Settings" "$sub" "added to settings.json" "couldn't write VS Code's settings; see $LOG"
   if [ "$STEP_RESULT" = done ] && [ "$HELPER_OUT" = "codebase search added" ]; then
     step_say "codebase search is on; to search by meaning too, run Agents: Install Codebase Search by Meaning in VS Code"
@@ -1427,6 +1470,8 @@ Options:
                  install into the VS Code profile of that name, made when there is none (your settings, keybindings
                  and snippets copied in); your own profile is left as it is
   --folder <dir> with --profile: when VS Code is open, the window opened to make the profile opens on this folder
+  --trust-folder with --folder: that window opens the folder trusted, not in Restricted Mode (where Agentic Works is
+                 off); for a setup that made the folder itself
   --window-mark <file>
                  made when this run opened a VS Code window
   --teams-app <clientId>:<tenant>
@@ -1476,6 +1521,7 @@ parse_args() {
         }
         FOLDER=$2
         shift ;;
+      --trust-folder) TRUST_FOLDER=1 ;;
       --window-mark)
         [ $# -ge 2 ] && [ "${2#/}" != "$2" ] || {
           printf 'agentic-works-install: --window-mark needs a file, as an absolute path\n' >&2
@@ -1495,6 +1541,10 @@ parse_args() {
     esac
     shift
   done
+  if [ "$TRUST_FOLDER" = 1 ] && [ -z "$FOLDER" ]; then
+    printf 'agentic-works-install: --trust-folder needs --folder\n' >&2
+    exit 2
+  fi
 }
 
 cleanup() {  # on exit: the log is kept, and named, only when a step failed and something was logged

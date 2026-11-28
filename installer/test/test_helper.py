@@ -8,8 +8,12 @@ import subprocess
 import sys
 import io
 import json
+import shutil
+import socket
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 from importlib.machinery import SourceFileLoader
 import importlib.util
@@ -208,13 +212,44 @@ class SettingsTests(_Case):
         self.assertEqual(self.run_cli("vscode-settings")[0], 2)
         self.assertEqual((self.user / "settings.json").read_bytes(), raw)
 
+    def test_rewrite_writes_the_file_again_though_nothing_is_absent(self) -> None:
+        # the window VS Code opens to make a profile misses a settings.json written before it watches the file, until
+        # the file is written again (VS Code 1.129, 2026-11-28): --rewrite is that second write
+        self.user.mkdir()
+        path = self.user / "settings.json"
+        path.write_text(json.dumps(dict(self.h.WANTED_SETTINGS)))
+        raw, inode = path.read_bytes(), path.stat().st_ino
+        self.assertEqual(self.run_cli("vscode-settings"), (0, "already set\n"))
+        self.assertEqual(path.stat().st_ino, inode, "without it: the file is left alone")
+        self.assertEqual(self.run_cli("vscode-settings", "--rewrite", "0"), (0, "already set\n"))
+        self.assertEqual(path.read_bytes(), raw)
+        self.assertNotEqual(path.stat().st_ino, inode, "written again: a new file in its place")
+
+    def test_rewrite_waits_first_and_no_longer_than_a_minute(self) -> None:
+        with mock.patch.object(self.h.time, "sleep") as slept:
+            self.run_cli("vscode-settings", "--rewrite", "7")
+            self.run_cli("vscode-settings", "--rewrite", "9999")
+        self.assertEqual([c[0][0] for c in slept.call_args_list], [7, 60])
+
+    def test_rewrite_writes_settings_with_comments_again_as_they_are(self) -> None:
+        self.user.mkdir()
+        path = self.user / "settings.json"
+        raw = b'{\n  // mine\n  "x": "caf\xe9"\n}\n'
+        path.write_bytes(raw)
+        inode = path.stat().st_ino
+        code, out = self.run_cli("vscode-settings", "--rewrite", "0")
+        self.assertEqual(code, 2)
+        self.assertIn("Add these lines yourself", out)
+        self.assertEqual(path.read_bytes(), raw)
+        self.assertNotEqual(path.stat().st_ino, inode)
+
 
 class VscodeRunningTests(_Case):
     """Running means: the code.lock of this user data directory names a live process."""
 
     def _lock(self, text: str) -> None:
         self.user.mkdir(parents=True, exist_ok=True)
-        (self.user.parent / "code.lock").write_text(text)
+        (self.user.parent / "code.lock").write_text(text, encoding="utf-8")
 
     def test_no_lock_is_not_running(self) -> None:
         self.assertFalse(self.h.vscode_running())
@@ -228,8 +263,141 @@ class VscodeRunningTests(_Case):
         dead.wait()
         self._lock(str(dead.pid))
         self.assertFalse(self.h.vscode_running())
-        self._lock("not a pid")
-        self.assertFalse(self.h.vscode_running())
+        # not a process number: one too large to be one makes os.kill raise, and 0 or less names a group of processes
+        for junk in ("not a pid", "0", "-5", "99999999999999999999", "\0\0\0\0"):
+            self._lock(junk)
+            self.assertFalse(self.h.vscode_running(), junk)
+
+    def test_a_lock_not_written_as_vscode_writes_one_names_no_vscode(self) -> None:
+        # VS Code writes its process number in plain digits. Python reads more than that as a number: zeros or a sign in
+        # front, an underscore between digits, digits of another script
+        pid = str(os.getpid())
+        forms = ["0" + pid, "+" + pid, "".join(chr(0x0660 + int(d)) for d in pid)]
+        if len(pid) > 1:  # in a container the tests can be process 1
+            forms.append(pid[0] + "_" + pid[1:])
+        for text in forms:
+            self._lock(text)
+            self.assertFalse(self.h.vscode_running(), text)
+        self._lock(pid + "\n")
+        self.assertTrue(self.h.vscode_running())
+
+
+class VscodeAnswersTests(_Case):
+    """vscode-running: a `code` call made now would be handed to a VS Code already running on this user data directory,
+    and so its options would hold for the window it opens and no other. VS Code finds the one running by a socket named
+    after the directory and its version; a lock alone doesn't say so (after an update on disk, the new `code` looks for
+    another socket and starts a second VS Code)."""
+
+    VERSION = "1.129.1"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.runtime = self.tmp / "run"  # short: a socket's path has some hundred bytes at most
+        self.runtime.mkdir()
+        env = mock.patch.dict("os.environ", {"XDG_RUNTIME_DIR": str(self.runtime)})
+        env.start()
+        self.addCleanup(env.stop)
+        for name in ("VSCODE_PORTABLE", "VSCODE_APPDATA", "VSCODE_DEV"):
+            os.environ.pop(name, None)
+
+    def _listen(self, path: Path) -> socket.socket:
+        """A VS Code answering on path: a listening socket (a connection to it succeeds without being accepted)."""
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(server.close)
+        server.bind(str(path))
+        server.listen(1)
+        return server
+
+    def _running(self, version: str = VERSION) -> Tuple[int, str]:
+        return self.run_cli("vscode-running", "--code-version", version)
+
+    def test_the_socket_is_where_vscode_looks(self) -> None:
+        # the first: seen beside VS Code 1.129.1 on Linux, 2026-11-28
+        with mock.patch.dict("os.environ", {"AGENTIC_WORKS_VSCODE_USER_DIR": "/tmp/proftest/ed/.config/Code/User",
+                                            "XDG_RUNTIME_DIR": "/run/user/1000"}):
+            with mock.patch.object(sys, "platform", "linux"):
+                self.assertEqual(self.h._main_socket("1.129.1"), Path("/run/user/1000/vscode-d4046cee-1.12-main.sock"))
+                self.assertEqual(self.h._main_socket("1.130.0"), Path("/run/user/1000/vscode-d4046cee-1.13-main.sock"))
+                del os.environ["XDG_RUNTIME_DIR"]
+                self.assertEqual(self.h._main_socket("1.129.1"), Path("/tmp/proftest/ed/.config/Code/1.12-main.sock"))
+                os.environ["XDG_RUNTIME_DIR"] = "/run/user/1000"
+            with mock.patch.object(sys, "platform", "darwin"):  # macOS: beside the data, whatever the environment
+                self.assertEqual(self.h._main_socket("1.129.1"), Path("/tmp/proftest/ed/.config/Code/1.12-main.sock"))
+
+    def test_a_vscode_answering_is_running(self) -> None:
+        self.assertEqual(self._running(), (2, "VS Code isn't surely running\n"))
+        self._listen(self.h._main_socket(self.VERSION))
+        self.assertEqual(self._running(), (0, "running\n"))
+        # VS Code names the socket by its version's first four characters
+        self.assertEqual(self._running("1.120.0")[0], 0)
+        self.assertEqual(self._running("1.130.0")[0], 2, "the code on disk is newer than the VS Code running")
+        self.assertEqual(self._running("2.129.1")[0], 2)
+
+    def test_without_a_runtime_directory_the_socket_is_beside_the_data(self) -> None:
+        del os.environ["XDG_RUNTIME_DIR"]
+        self.user.mkdir(parents=True)
+        self._listen(self.user.parent / "1.12-main.sock")
+        self.assertEqual(self._running(), (0, "running\n"))
+
+    def test_a_lock_alone_is_not_running(self) -> None:
+        self.user.mkdir(parents=True)
+        (self.user.parent / "code.lock").write_text(str(os.getpid()))
+        self.assertTrue(self.h.vscode_running(), "alive: reason enough not to write beside it")
+        self.assertEqual(self._running()[0], 2, "but nothing answers where code would look")
+
+    def test_a_socket_nothing_answers_on_is_not_running(self) -> None:
+        path = self.h._main_socket(self.VERSION)
+        left = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        left.bind(str(path))
+        left.close()  # what a VS Code that crashed leaves: code, finding it dead, starts a VS Code
+        self.assertTrue(path.exists())
+        self.assertEqual(self._running()[0], 2)
+        path.unlink()
+        path.write_text("not a socket")
+        self.assertEqual(self._running()[0], 2)
+
+    def test_a_socket_in_another_runtime_directory_is_not_running(self) -> None:
+        self._listen(self.h._main_socket(self.VERSION))
+        other = self.tmp / "other-runtime"
+        other.mkdir()
+        with mock.patch.dict("os.environ", {"XDG_RUNTIME_DIR": str(other)}):
+            self.assertEqual(self._running()[0], 2, "code, started in this environment, would look there")
+
+    def test_an_environment_that_names_vscode_other_data_is_not_running(self) -> None:
+        self._listen(self.h._main_socket(self.VERSION))
+        for name in ("VSCODE_PORTABLE", "VSCODE_APPDATA", "VSCODE_DEV"):
+            with mock.patch.dict("os.environ", {name: str(self.tmp / "elsewhere")}):
+                self.assertEqual(self._running()[0], 2, name)
+        self.assertEqual(self._running()[0], 0)
+
+    def test_a_version_that_is_none_is_not_running(self) -> None:
+        self._listen(self.h._main_socket(self.VERSION))
+        for version in ("", "1.12", "code 1.129.1", "1.129.1 extra", "1.129.1\n1.130.0", "../../1.12", "v1.129.1"):
+            self.assertEqual(self._running(version)[0], 2, version)
+
+
+class UserDirTests(unittest.TestCase):
+    """VS Code's User folder, as VS Code itself finds it."""
+
+    def _user_dir(self, platform: str, **env: str) -> Path:
+        with mock.patch.dict("os.environ", dict(env, HOME="/home/me"), clear=True):
+            with mock.patch.object(sys, "platform", platform):
+                return _load_script().user_dir()
+
+    def test_linux(self) -> None:
+        self.assertEqual(self._user_dir("linux"), Path("/home/me/.config/Code/User"))
+        self.assertEqual(self._user_dir("linux", XDG_CONFIG_HOME="/home/me/cfg"), Path("/home/me/cfg/Code/User"))
+        self.assertEqual(self._user_dir("linux", XDG_CONFIG_HOME=""), Path("/home/me/.config/Code/User"))
+
+    def test_macos(self) -> None:
+        there = Path("/home/me/Library/Application Support/Code/User")
+        self.assertEqual(self._user_dir("darwin"), there)
+        self.assertEqual(self._user_dir("darwin", XDG_CONFIG_HOME="/home/me/cfg"), there)
+
+    def test_the_one_given(self) -> None:
+        self.assertEqual(self._user_dir("linux", AGENTIC_WORKS_VSCODE_USER_DIR="/data/User", XDG_CONFIG_HOME="/x"),
+                         Path("/data/User"))
+
 
 class LayoutTests(_Case):
     def _db(self) -> sqlite3.Connection:
@@ -514,6 +682,161 @@ class ProfileTests(_Case):
         code = self.run_cli("--profile", "Acme Works", "vscode-settings")[0]
         self.assertEqual(code, 1)
         self.assertFalse((self.user / "settings.json").exists())
+
+    # ---- --fill --look --wait: beside the window VS Code, open, makes the profile in -------------------------------
+
+    LOOK = {
+        "chat.disableAIFeatures": True,
+        "workbench.startupEditor": "none",
+        "workbench.secondarySideBar.defaultVisibility": "hidden",
+        "workbench.activityBar.location": "top",
+    }
+
+    def _list(self, location: str = "-3919205c", name: str = "Acme Works") -> None:
+        """What VS Code does last when it makes a profile: its line in storage.json."""
+        storage = self._storage()
+        storage.parent.mkdir(parents=True, exist_ok=True)
+        data = json.loads(storage.read_text()) if storage.exists() else {}
+        data["userDataProfiles"] = data.get("userDataProfiles", []) + [{"location": location, "name": name}]
+        tmp = storage.with_name("storage.json.vsctmp")
+        tmp.write_text(json.dumps(data))
+        os.replace(str(tmp), str(storage))
+
+    def _meanwhile(self, steps) -> None:
+        """Run steps beside the helper, as VS Code makes a profile while the helper waits for it."""
+        thread = threading.Thread(target=steps)
+        thread.start()
+        self.addCleanup(thread.join)
+
+    def _wait_fill(self, seconds: str = "5", *more: str) -> Tuple[int, str]:
+        return self.run_cli("vscode-profile", "Acme Works", "--fill", "--look", "--wait", seconds, *more)
+
+    def test_look_goes_in_with_the_users_settings(self) -> None:
+        self.user.mkdir(parents=True)
+        mine = '{"editor.fontSize": 15, "workbench.activityBar.location": "default"}'
+        (self.user / "settings.json").write_text(mine)
+        self._list()
+        folder = self.user / "profiles" / "-3919205c"
+        folder.mkdir(parents=True)
+        self.assertEqual(self.run_cli("vscode-profile", "Acme Works", "--fill", "--look"), (0, "filled\n"))
+        want = dict(self.LOOK, **{"editor.fontSize": 15, "workbench.activityBar.location": "default"})
+        self.assertEqual(json.loads((folder / "settings.json").read_text()), want, "a value of the user's is kept")
+        self.assertEqual((self.user / "settings.json").read_text(), mine, "the user's own untouched")
+        self.assertEqual(self.run_cli("vscode-profile", "Acme Works", "--fill", "--look"), (0, "already set\n"))
+
+    def test_look_alone_when_the_user_has_no_settings(self) -> None:
+        self._list()
+        folder = self.user / "profiles" / "-3919205c"
+        folder.mkdir(parents=True)
+        self.assertEqual(self.run_cli("vscode-profile", "Acme Works", "--fill", "--look"), (0, "look set\n"))
+        self.assertEqual(json.loads((folder / "settings.json").read_text()), self.LOOK)
+
+    def test_look_leaves_settings_with_comments_as_they_are(self) -> None:
+        self.user.mkdir(parents=True)
+        raw = b'{\n  // mine\n  "x": "caf\xe9"\n}\n'
+        (self.user / "settings.json").write_bytes(raw)
+        self._list()
+        folder = self.user / "profiles" / "-3919205c"
+        folder.mkdir(parents=True)
+        self.assertEqual(self.run_cli("vscode-profile", "Acme Works", "--fill", "--look"), (0, "filled\n"))
+        self.assertEqual((folder / "settings.json").read_bytes(), raw)
+
+    def test_wait_gives_the_new_profile_its_settings_before_vscode_lists_it(self) -> None:
+        # the window reads its profile's settings once, about 0.1 s after the profile is listed, and misses a file
+        # written later until it is written again (VS Code 1.129, 2026-11-28): they go in when the folder appears
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text('{"editor.fontSize": 15}')
+        folder = self.user / "profiles" / "-3919205c"
+        seen = []  # type: List[str]
+
+        def vscode() -> None:
+            time.sleep(0.05)
+            folder.mkdir(parents=True)
+            time.sleep(0.3)
+            seen.append((folder / "settings.json").read_text() if (folder / "settings.json").exists() else "null")
+            self._list()
+
+        self._meanwhile(vscode)
+        self.assertEqual(self._wait_fill(), (0, "filled\n"))
+        want = dict(self.LOOK, **{"editor.fontSize": 15})
+        self.assertEqual(json.loads(seen[0]), want, "there before the profile was listed")
+        self.assertEqual(json.loads((folder / "settings.json").read_text()), want)
+
+    def test_wait_takes_its_settings_back_from_a_folder_that_isnt_the_profiles(self) -> None:
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text('{"editor.fontSize": 15}')
+        other, folder = self.user / "profiles" / "other", self.user / "profiles" / "-3919205c"
+        seen = []  # type: List[bool]
+
+        def vscode() -> None:
+            other.mkdir(parents=True)  # another profile, being made beside ours
+            time.sleep(0.3)
+            seen.append((other / "settings.json").exists())
+            folder.mkdir()
+            self._list()
+
+        self._meanwhile(vscode)
+        self.assertEqual(self._wait_fill(), (0, "filled\n"))
+        self.assertEqual(seen, [True], "written early, into the one new folder")
+        self.assertFalse((other / "settings.json").exists(), "and taken back")
+        self.assertEqual(json.loads((folder / "settings.json").read_text()), dict(self.LOOK, **{"editor.fontSize": 15}))
+
+    def test_wait_leaves_a_file_changed_since_it_wrote_it(self) -> None:
+        other, folder = self.user / "profiles" / "other", self.user / "profiles" / "-3919205c"
+
+        def vscode() -> None:
+            other.mkdir(parents=True)
+            for _ in range(300):
+                if (other / "settings.json").exists():
+                    break
+                time.sleep(0.01)
+            (other / "settings.json").write_text('{"theirs": 1}')
+            folder.mkdir()
+            self._list()
+
+        self._meanwhile(vscode)
+        self.assertEqual(self._wait_fill()[0], 0)
+        self.assertEqual((other / "settings.json").read_text(), '{"theirs": 1}')
+
+    def test_the_new_profiles_folder_is_the_one_unlisted_and_new(self) -> None:
+        profiles = self.user / "profiles"
+        self.assertIsNone(self.h._new_profile_folder(set(), 0), "no profiles yet")
+        (profiles / "listed").mkdir(parents=True)
+        (profiles / "new").mkdir()
+        (profiles / "a-file").write_text("")
+        now = time.time()
+        self.assertEqual(self.h._new_profile_folder({"listed"}, now - 5), profiles / "new")
+        self.assertIsNone(self.h._new_profile_folder({"listed"}, now + 60), "an old folder nobody lists isn't it")
+        self.assertIsNone(self.h._new_profile_folder(set(), now - 5), "two: which is anyone's guess")
+        self.assertIsNone(self.h._new_profile_folder({"listed", "new"}, now - 5))
+
+    def test_wait_gives_up_when_vscode_makes_no_profile(self) -> None:
+        self.user.mkdir(parents=True)
+        (self.user / "settings.json").write_text('{"editor.fontSize": 15}')
+        stray = self.user / "profiles" / "stray"
+        stray.mkdir(parents=True)
+        self.assertEqual(self._wait_fill("0.2"), (2, "VS Code didn't make it\n"))
+        self.assertFalse((stray / "settings.json").exists(), "what it wrote early is taken back")
+
+    def test_wait_reads_past_a_storage_json_vscode_is_writing(self) -> None:
+        self._storage().parent.mkdir(parents=True)
+        self._storage().write_text('{"userDataProf')
+        folder = self.user / "profiles" / "-3919205c"
+
+        def vscode() -> None:
+            time.sleep(0.1)
+            folder.mkdir(parents=True)
+            self._storage().write_text(json.dumps({"userDataProfiles": [{"location": "-3919205c", "name": "Acme Works"}]}))
+
+        self._meanwhile(vscode)
+        self.assertEqual(self.run_cli("vscode-profile", "Acme Works", "--fill", "--wait", "5"), (0, "already set\n"))
+
+    def test_wait_on_a_profile_already_there_fills_it_at_once(self) -> None:
+        self._make()
+        started = time.monotonic()
+        self.assertEqual(self._wait_fill("30"), (0, "look set\n"))
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(json.loads((self._dir() / "settings.json").read_text()), self.LOOK)
 
 
 if __name__ == "__main__":

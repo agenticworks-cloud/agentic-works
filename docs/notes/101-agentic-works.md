@@ -1154,8 +1154,8 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     asks once to close the local windows (a Remote window can stay) and press Enter, then goes on.
   *(1.1.2 waited up to three times and said Remote windows could stay, but a Remote window is the same app here
   (`pgrep -x code`; on macOS the app bundle's path) and can't be told apart, so it asked again while one was open.)*
-- **The installer's `--profile <name>` — Built (1.1.9)** *(Sean, 2026-11-27: "with c3 works, can we hide it? show
-  only what we agreed on")*. A company's installer can put Agentic Works in a VS Code profile of its own, beside the
+- **The installer's `--profile <name>` — Built (1.1.9)** *(Sean, 2026-11-27: "can we hide it? show only what we
+  agreed on")*. A company's installer can put Agentic Works in a VS Code profile of its own, beside the
   user's: the extensions (`code --profile`), the settings and the icon layout go into that profile, and the user's own
   profile is left as it is. The Profile step runs before any extension goes in, and a failure stops the run, so nothing
   lands in the user's profile.
@@ -1166,6 +1166,53 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
     where the profile's own are blank (`--fill`).
   - A name is letters, digits, spaces, dots, dashes and underscores, up to 40.
   - Each profile has its own state, so it starts with a fresh walkthrough.
+- **The window that makes the profile opens trusted, with Get started — Built (1.1.12)** *(Sean, 2026-11-28: "still
+  2 new vscode instances", the new one in Restricted Mode showing VS Code's own walkthrough)*. With VS Code open, the
+  window opened on `--folder` came up in Restricted Mode: a running VS Code reads its trusted folders only when it
+  starts, so a folder trusted beside it doesn't count yet. Agentic Works is off in Restricted Mode, so Get started
+  couldn't show, and VS Code showed its own walkthrough.
+  - `--trust-folder` (with `--folder`; a usage error without): that window opens with `--disable-workspace-trust`, so
+    not in Restricted Mode. For a setup that made the folder itself, and trusts it for VS Code's later starts.
+  - That window also gets `--skip-welcome`: none of VS Code's own walkthroughs.
+  - Both only when the `code` call will be taken by a VS Code already running. That one takes a second call's options
+    for the window it opens and no other; one being started would take them for every window until it quits.
+  - VS Code's own test for that is a socket. Its main process listens on one named after the user data folder and the
+    first four characters of its version: `$XDG_RUNTIME_DIR/vscode-<sha256 of the folder, 8 hex>-1.12-main.sock` on
+    Linux for 1.129, `<folder>/1.12-main.sock` on macOS or with no `XDG_RUNTIME_DIR`. `code` connects to it, and starts
+    a VS Code when nothing answers. So the installer asks `code --version` (which starts nothing), and the helper's
+    `vscode-running --code-version <version>` connects to that socket, in the installer's own environment. No version,
+    nothing answering, or `VSCODE_PORTABLE`, `VSCODE_APPDATA` or `VSCODE_DEV` set (other data): the window opens as
+    before, with neither option.
+  - Not `code.lock`, which a first version of this read (a live process called `code` named in it) *(review,
+    2026-11-28)*. The lock outlives a crash, and says nothing of which `code` reaches the VS Code alive: with a newer
+    `code` on disk (1.129 running, 1.130 installed) or another `XDG_RUNTIME_DIR`, `code` starts a second VS Code
+    beside the first (seen), and that one would have taken the options for all its windows.
+  - The profile's settings in time: the window reads its settings.json about half a second after `code` is called and
+    watches the file from about a second in; one written in between isn't applied until it is written again (VS Code
+    1.129). So `code` runs behind while the helper (`vscode-profile <name> --fill --look --wait <seconds>`) puts the
+    user's settings and the look into the profile's folder the moment VS Code makes it, and the Settings step writes
+    the file once more (`vscode-settings --rewrite <seconds>`), not before the window has had 10 s
+    (`AGENTIC_WORKS_INSTALL_SETTLE`).
+  - The helper finds VS Code's User folder as VS Code does: on Linux `$XDG_CONFIG_HOME/Code/User` when that is set. It
+    read `~/.config` whatever that said, so the settings went where VS Code didn't look. Gannet's `machine.json` is
+    looked for there too.
+  - `--skip settings` keeps the look out of the profile as it is made, too. `AGENTIC_WORKS_INSTALL_SETTLE=08` no longer
+    ends the run (bash took it for a bad octal number).
+  - Checked under Xvfb with VS Code 1.129.1 and throwaway homes. VS Code open: one new window, on the folder, not
+    restricted, Get started showing, the look there from the start. VS Code closed: one window, the same, VS Code
+    started with neither option. A lock left naming another process: the same. VS Code open but out of `code`'s reach
+    (another `XDG_RUNTIME_DIR`): neither option in any process.
+  - Left: workspace trust stays off in that window until VS Code restarts or the window opens another folder, so a
+    folder added to its workspace meanwhile isn't asked about either (checked: `code --add`). Should VS Code quit in
+    the moment between the check and the launch, the options would hold for the VS Code that starts.
+  - Left: a VS Code out of `code`'s reach. `code` starts a second one on the same data, as before this release; in the
+    run above that ended with the extension missing from the profile. The installer can't tell it from a lock a crash
+    left (where all goes well), so it says nothing.
+  - Left: the snap's VS Code is given a runtime folder of its own, so the helper should find no socket and the window
+    open with neither option, as before (not tried). A portable VS Code (a `data` folder beside it) keeps other data
+    than the installer writes to. macOS: the socket's place is from VS Code's code, not tried on a Mac.
+  - Left: the Icons step is still skipped while VS Code runs. The user's snippets aren't copied where VS Code made the
+    profile's snippets folder first.
 - **No VS Code welcome in the window that makes the profile — Built (1.1.11)** *(Sean, 2026-11-28: two "Welcome to
   VS Code" Copilot sign-ins; "we already turned offf the copilot. check how it came back")*. With VS Code open, the
   window that makes the profile starts before the profile has its settings (`chat.disableAIFeatures` among them); on
@@ -1174,8 +1221,8 @@ Built: the 0.1 branch; the plan's last commit: 6c40dd9. The plan
   - The helper's `vscode-no-onboarding` adds `"workbench.welcomePage.experimentalOnboarding": false` there; a file
     with comments, or not plain UTF-8 JSON, is left alone. The installer runs it just before that window, only then.
   - Checked under Xvfb with a throwaway home: the welcome shows without the line and not with it.
-  - Left: in that window the profile's other settings still arrive after it starts, so the chat panel or VS Code's own
-    walkthrough may still show there once.
+  - Left then: in that window the profile's other settings arrived after it started, so the chat panel or VS Code's own
+    walkthrough could still show there once. 1.1.12 puts them in as VS Code makes the profile.
 - **One window when VS Code is open: `--folder` and `--window-mark` — Built (1.1.10)** *(Sean, 2026-11-27: "it
   started 2 new vscode, first one looks good, second one has trust issue")*. With VS Code open, `--profile` opens a
   window on the name to make the profile; a company's setup that then opened its own folder made a second window.

@@ -13,11 +13,13 @@ import json
 import os
 import re
 import shutil
+import socket
 import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 EXIT_DONE, EXIT_ERROR, EXIT_SKIPPED = 0, 1, 2
 
@@ -73,12 +75,14 @@ def hidden_commands(value: Optional[str]) -> Optional[str]:
 
 
 def user_dir() -> Path:
+    """VS Code's User folder, found as VS Code finds it (the installer names another when it gives VS Code one)."""
     override = os.environ.get("AGENTIC_WORKS_VSCODE_USER_DIR")
     if override:
         return Path(override)
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Code" / "User"
-    return Path.home() / ".config" / "Code" / "User"
+    config = os.environ.get("XDG_CONFIG_HOME")
+    return (Path(os.path.abspath(config)) if config else Path.home() / ".config") / "Code" / "User"
 
 
 PROFILE = None  # type: Optional[str]  # --profile NAME: the VS Code profile the settings and layout go into
@@ -98,12 +102,16 @@ def _read_storage() -> dict:
     return data
 
 
-def profile_location(name: str) -> Optional[str]:
-    """The folder under User/profiles of the profile named name; None when there is none."""
-    for entry in _read_storage().get("userDataProfiles", []):
+def _location_in(data: dict, name: str) -> Optional[str]:
+    for entry in data.get("userDataProfiles", []):
         if isinstance(entry, dict) and entry.get("name") == name and isinstance(entry.get("location"), str):
             return entry["location"]
     return None
+
+
+def profile_location(name: str) -> Optional[str]:
+    """The folder under User/profiles of the profile named name; None when there is none."""
+    return _location_in(_read_storage(), name)
 
 
 def target_dir() -> Path:
@@ -117,8 +125,9 @@ def target_dir() -> Path:
     return user_dir() / "profiles" / location
 
 
-# Copied from the user's own profile into a new one, so it starts with their settings; extensions and state are not.
-PROFILE_COPIES = ("settings.json", "keybindings.json", "tasks.json", "snippets")
+# Copied from the user's own profile into a new one, with their settings (see _new_settings), so it starts as theirs;
+# extensions and state are not.
+PROFILE_COPIES = ("keybindings.json", "tasks.json", "snippets")
 
 
 def _blank(path: Path) -> bool:
@@ -129,37 +138,131 @@ def _blank(path: Path) -> bool:
         return False
 
 
-def _copy_users_files(folder: Path) -> bool:
-    """The user's settings, keybindings, tasks and snippets into a profile's folder, each only where the profile's
-    is blank; True when any was copied."""
-    copied = False
+def _new_settings(look: bool) -> Optional[bytes]:
+    """What a new profile's settings.json starts as: the user's own, and with look the look's keys added where
+    absent, so the window VS Code opens to make the profile starts with the look. The user's own as it is when it
+    has comments or isn't UTF-8. None when there is nothing to write."""
+    path = user_dir() / "settings.json"
+    raw = path.read_bytes() if path.is_file() else b""
+    if look:
+        try:
+            merged = merge_settings(raw.decode("utf-8"), WANTED_SETTINGS)
+        except UnicodeDecodeError:
+            merged = None
+        if merged is not None:
+            return merged.encode("utf-8")
+    return None if _blank(path) else raw
+
+
+def _copy_users_files(folder: Path, settings: Optional[bytes]) -> Tuple[bool, bool]:
+    """A profile's blank files filled: settings.json with settings (see _new_settings), and keybindings, tasks and
+    snippets with the user's own. Returns whether anything was written, and whether any of it was the user's."""
+    wrote = theirs = False
+    if settings is not None and _blank(folder / "settings.json"):
+        _write_atomic(folder / "settings.json", settings)
+        wrote, theirs = True, not _blank(user_dir() / "settings.json")
     for name in PROFILE_COPIES:
         source, dest = user_dir() / name, folder / name
         if source.is_dir() and not dest.exists():
             shutil.copytree(str(source), str(dest))
-            copied = True
+            wrote = theirs = True
         elif source.is_file() and not _blank(source) and _blank(dest):
             shutil.copyfile(str(source), str(dest))
-            copied = True
-    return copied
+            wrote = theirs = True
+    return wrote, theirs
+
+
+FRESH = 5.0  # seconds before the wait began: a folder changed no longer ago is one VS Code is making now
+
+
+def _new_profile_folder(listed: set, since: float) -> Optional[Path]:
+    """The folder VS Code is making a profile in, before storage.json lists it: the one folder under User/profiles
+    that isn't listed and was made since `since`. None when there is none, or more than one."""
+    try:
+        new = [p for p in (user_dir() / "profiles").iterdir()
+               if p.name not in listed and p.is_dir() and p.stat().st_ctime >= since]
+    except OSError:
+        return None
+    return new[0] if len(new) == 1 else None
+
+
+def _await_profile(name: str, seconds: float, settings: Optional[bytes]) -> Tuple[Optional[str], bool]:
+    """Wait up to seconds for VS Code to list the profile name, as it does once a window is opened on it. Returns
+    its folder (None: it never came) and whether settings went into it meanwhile.
+
+    The window reads its profile's settings.json once, about 0.1 s after storage.json lists the profile, and watches
+    the file only a second later: one written in between isn't applied until it is written again (VS Code 1.129,
+    2026-11-28). So settings go into the folder as soon as VS Code makes it, about 0.1 s before the profile is listed.
+    If the profile turns out to be another folder, or never comes, that file is taken back unless it changed."""
+    since, deadline = time.time() - FRESH, time.monotonic() + seconds
+    early = None  # type: Optional[Path]
+    location = None  # type: Optional[str]
+    while True:
+        try:
+            data = _read_storage()  # type: Optional[dict]
+        except (OSError, ValueError, UnicodeDecodeError):
+            data = None  # VS Code is writing it
+        if data is not None:
+            location = _location_in(data, name)
+            if location is not None:
+                break
+            if early is None and settings is not None:
+                listed = {e.get("location") for e in data.get("userDataProfiles", []) if isinstance(e, dict)}
+                folder = _new_profile_folder(listed, since)
+                if folder is not None and not (folder / "settings.json").exists():
+                    try:
+                        _write_atomic(folder / "settings.json", settings)
+                        early = folder / "settings.json"
+                    except OSError:
+                        pass  # the fill, once the profile is listed, writes it
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.01)
+    if early is not None and (location is None or early.parent.name != location):
+        try:
+            if early.read_bytes() == settings:
+                early.unlink()
+        except OSError:
+            pass
+        early = None
+    return location, early is not None
+
+
+def _fill_profile(args: argparse.Namespace) -> int:
+    """--fill: the user's files into the profile args.name, which VS Code made, where its own are blank; with --look
+    the look goes into its settings with them, and with --wait VS Code is given that long to make it."""
+    settings = _new_settings(args.look)
+    early = False
+    if args.wait:
+        location, early = _await_profile(args.name, args.wait, settings)
+        if location is None:
+            print("VS Code didn't make it")
+            return EXIT_SKIPPED
+    else:
+        location = profile_location(args.name)
+        if location is None:
+            print(f"agentic-works-install-helper: VS Code has no profile named {args.name!r}", file=sys.stderr)
+            return EXIT_ERROR
+    wrote, theirs = _copy_users_files(user_dir() / "profiles" / location, settings)
+    if theirs or early and not _blank(user_dir() / "settings.json"):
+        print("filled")
+    else:
+        print("look set" if wrote or early else "already set")
+    return EXIT_DONE
 
 
 def cmd_vscode_profile(args: argparse.Namespace) -> int:
     """Make the VS Code profile args.name, with the user's settings, keybindings and snippets copied in; one already
     there is left as it is. Not while VS Code runs: it rewrites storage.json from memory and the new profile would
     be lost (it makes its own, empty, when a window is opened on the name)."""
+    if args.fill:
+        return _fill_profile(args)
     try:
         data = _read_storage()
     except (ValueError, UnicodeDecodeError) as exc:
         print(f"agentic-works-install-helper: {exc}", file=sys.stderr)
         return EXIT_ERROR
     location = profile_location(args.name)
-    if args.fill:
-        if location is None:
-            print(f"agentic-works-install-helper: VS Code has no profile named {args.name!r}", file=sys.stderr)
-            return EXIT_ERROR
-        print("filled" if _copy_users_files(user_dir() / "profiles" / location) else "already set")
-        return EXIT_DONE
     if location is not None:
         print("already set")
         return EXIT_DONE
@@ -174,7 +277,7 @@ def cmd_vscode_profile(args: argparse.Namespace) -> int:
         location = f"{base}-{n}"
     folder = user_dir() / "profiles" / location
     folder.mkdir(parents=True)
-    copied = _copy_users_files(folder)
+    copied = _copy_users_files(folder, _new_settings(False))[1]
     data["userDataProfiles"] = data.get("userDataProfiles", []) + [{"location": location, "name": args.name}]
     _write_atomic(_storage(), json.dumps(data, indent=4) + "\n")
     print("made, with your settings" if copied else "made")
@@ -207,7 +310,7 @@ def merge_settings(text: str, wanted: dict) -> Optional[str]:
     return json.dumps(data, indent=4, ensure_ascii=False) + "\n"
 
 
-def _write_atomic(path: Path, text: str) -> None:
+def _write_atomic(path: Path, text: Union[str, bytes]) -> None:
     """Replace path with text via a private temp file; keeps the mode.
 
     A symlink is followed: its target is replaced and the link stays (a dotfiles repo's settings.json)."""
@@ -219,8 +322,8 @@ def _write_atomic(path: Path, text: str) -> None:
     except FileNotFoundError:
         pass
     fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(text if isinstance(text, bytes) else text.encode("utf-8"))
     if path.exists():
         os.chmod(str(tmp), path.stat().st_mode & 0o7777)
     else:
@@ -245,8 +348,22 @@ def _has_any(text: str, keys: tuple) -> bool:
     return isinstance(data, dict) and any(k in data for k in keys)
 
 
+REWRITE_MAX = 60.0  # seconds: the longest --rewrite waits
+
+
+def _write_again(path: Path) -> None:
+    """Replace a file with itself, byte for byte: VS Code reads a settings.json again when it is written."""
+    if path.exists():
+        _write_atomic(path, path.read_bytes())
+
+
 def cmd_vscode_settings(args: argparse.Namespace) -> int:
-    """Merge the wanted keys into VS Code user settings.json without overwriting a key or rewriting JSONC."""
+    """Merge the wanted keys into VS Code user settings.json without overwriting a key or rewriting JSONC.
+
+    --rewrite SECONDS, for the settings of a profile whose window VS Code opened during this run: that window misses a
+    settings.json written before it watches the file, about a second after it opens (VS Code 1.129, 2026-11-28). So
+    wait that long (the rest of the time the installer gives the window) and write the file though nothing in it
+    changes; what is said stays what a run without it says."""
     path = target_dir() / "settings.json"
     wanted = dict(WANTED_SETTINGS)
     if args.codebase_search:
@@ -258,6 +375,9 @@ def cmd_vscode_settings(args: argparse.Namespace) -> int:
         except ValueError as exc:
             print(f"agentic-works-install-helper: {exc}", file=sys.stderr)
             return EXIT_ERROR
+    again = args.rewrite is not None
+    if again and args.rewrite > 0:
+        time.sleep(min(args.rewrite, REWRITE_MAX))
     try:
         text = path.read_text(encoding="utf-8") if path.exists() else ""
         # the two go together: either already set keeps both as they are, so an app never meets another's tenant
@@ -267,11 +387,15 @@ def cmd_vscode_settings(args: argparse.Namespace) -> int:
     except UnicodeDecodeError:
         merged = None
     if merged is None:
+        if again:
+            _write_again(path)
         print(f"{path} has comments or is not plain UTF-8 JSON; not rewriting it. Add these lines yourself:")
         for key, value in wanted.items():
             print(f"    {json.dumps(key)}: {json.dumps(value)},")
         return EXIT_SKIPPED
     if merged == text:
+        if again:
+            _write_again(path)
         print("already set")
         return EXIT_DONE
     _write_atomic(path, merged)
@@ -314,10 +438,8 @@ def vscode_running() -> bool:
     Only that VS Code matters (it rewrites state.vscdb and storage.json on exit); another one, on another data
     directory, does not. A process scan skipped the layout whenever any VS Code was open (Sean's runs with a test
     home, 2026-11-24). No lock file: none runs here."""
-    lock = user_dir().parent / "code.lock"
-    try:
-        pid = int(lock.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
+    pid = _lock_pid()
+    if pid is None:
         return False
     try:
         os.kill(pid, 0)
@@ -326,6 +448,71 @@ def vscode_running() -> bool:
     except PermissionError:
         return True  # alive, another user's
     return True
+
+
+def _lock_pid() -> Optional[int]:
+    """The process code.lock names as this user data directory's VS Code; None with no lock, or with something in it
+    that isn't a process number as VS Code writes one, in plain digits (Python would read zeros or a sign in front as
+    a number too; 0 or less would name a group of processes; one too large makes os.kill raise)."""
+    try:
+        text = (user_dir().parent / "code.lock").read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return None
+    if not re.fullmatch(r"[1-9][0-9]{0,9}", text):
+        return None
+    pid = int(text)
+    return pid if pid < 2 ** 31 else None
+
+
+def _main_socket(version: str) -> Optional[Path]:
+    """Where the `code` of that version, run in this environment, looks for a VS Code already running on this user data
+    directory: the socket VS Code's main process listens on (createStaticIPCHandle in VS Code's source; seen beside
+    1.129.1, 2026-11-28). It is named after the directory and the first four characters of the version, so the `code`
+    of an update put on disk since doesn't find the VS Code still running. None when it can't be told: no version, or
+    an environment that names VS Code other data (a portable one, VSCODE_APPDATA, a build from source)."""
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        return None
+    if any(os.environ.get(name) for name in ("VSCODE_PORTABLE", "VSCODE_APPDATA", "VSCODE_DEV")):
+        return None
+    data = os.path.abspath(str(user_dir().parent))
+    name = version[:4] + "-main.sock"
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if sys.platform != "darwin" and runtime:
+        scope = hashlib.sha256(data.encode("utf-8")).hexdigest()[:8]
+        return Path(runtime) / ("vscode-" + scope + "-" + name)
+    return Path(data) / name
+
+
+def vscode_answers(version: str) -> bool:
+    """True when a `code` of that version, run now in this environment, would be handed to a VS Code already running
+    on this user data directory: something answers on the socket it looks for. That is VS Code's own test (it starts
+    a VS Code when nothing does, though the socket's file be there), and stricter than vscode_running: code.lock
+    outlives a VS Code that crashed, and says nothing of which `code` reaches the one alive."""
+    path = _main_socket(version)
+    if path is None:
+        return False
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    except (AttributeError, OSError):
+        return False
+    try:
+        client.settimeout(2)
+        client.connect(str(path))  # connected and closed: VS Code takes no notice (tried beside 1.129.1)
+    except (OSError, ValueError):
+        return False
+    finally:
+        client.close()
+    return True
+
+
+def cmd_vscode_running(args: argparse.Namespace) -> int:
+    """Done (0) when the `code` of --code-version, run now, opens a window in a VS Code already running, so options
+    given with it hold for that window alone; skipped (2) when it would start a VS Code, or may."""
+    if vscode_answers(args.code_version):
+        print("running")
+        return EXIT_DONE
+    print("VS Code isn't surely running")
+    return EXIT_SKIPPED
 
 
 def _has_key(db: Path, key: str) -> bool:
@@ -439,16 +626,28 @@ def build_parser() -> argparse.ArgumentParser:
     settings.add_argument("--codebase-search", action="store_true", help="also turn on the agents' codebase search")
     settings.add_argument("--teams-app", metavar="CLIENT_ID:TENANT",
                           help="also set the Teams sign-in's company app (teams.signIn.clientId and .tenant)")
+    settings.add_argument("--rewrite", type=float, metavar="SECONDS",
+                          help="wait SECONDS (60 at most), then write the file though nothing in it changes: a window "
+                               "VS Code opened during this run reads it again")
     settings.set_defaults(func=cmd_vscode_settings)
     sub.add_parser("vscode-layout", help="write the activity-bar layout into state.vscdb").set_defaults(
         func=cmd_vscode_layout
     )
     sub.add_parser("vscode-no-onboarding", help="turn VS Code's first-launch welcome off in the user's own settings.json"
                    ).set_defaults(func=cmd_vscode_no_onboarding)
+    running = sub.add_parser("vscode-running",
+                             help="done when a `code` run now opens a window in a VS Code already running, skipped when not")
+    running.add_argument("--code-version", required=True, metavar="VERSION",
+                         help="what `code --version` says first: VS Code names the socket it is found by after it")
+    running.set_defaults(func=cmd_vscode_running)
     made = sub.add_parser("vscode-profile", help="make a VS Code profile, with the user's settings copied in")
     made.add_argument("name")
     made.add_argument("--fill", action="store_true",
                       help="copy the user's settings into the profile, already made, where its own are blank")
+    made.add_argument("--look", action="store_true",
+                      help="with --fill: Agentic Works' look goes into the profile's blank settings with the user's")
+    made.add_argument("--wait", type=float, default=0, metavar="SECONDS",
+                      help="with --fill: give VS Code that long to make the profile, in a window opened on it")
     made.set_defaults(func=cmd_vscode_profile)
     return parser
 
